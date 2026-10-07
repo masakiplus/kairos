@@ -107,6 +107,11 @@ const VIEWS = {
     },
     sorts: [{ property: "優先度", direction: "ascending" }],
   },
+  // 着手中 (2026-10-08 利用者の指示): 進行中・人対応 の未完了。WIP の中身を一覧で見る。委任中は除く (passesView)
+  doing: {
+    filter: { and: [NOT_DONE, { or: [{ property: "ステータス", status: { equals: "進行中" } }, { property: "ステータス", status: { equals: "人対応" } }] }] },
+    sorts: [{ property: "期日", direction: "ascending" }],
+  },
   can: {
     filter: {
       and: [NOT_DONE, NOT_WAITING, { property: "前倒し候補", formula: { string: { equals: "候補" } } }],
@@ -774,6 +779,7 @@ function passesView(t, view, today) {
   if (view === "delegated") return !!t.owner;
   if (t.owner) return false; // 委任中は自分のタブに出さない (2026-10-01)。PJ別にも出さず「委任」タブで見る
   if (view === "project") return t.projectIds.length > 0; // 待機・待ちも含めて全部
+  if (view === "doing") return t.status === "進行中" || t.status === "人対応"; // 着手中は開始日が先でも先行待ちでも出す
   // 先行待ち: 今日系タブには原則出さない。期日が今日以前のものだけ「今日やる」に薄く出す (2026-09-29 決定)
   if (t.blocked) return view === "today" && !!t.due && t.due <= today;
   if (t.start && t.start > today) return false; // 着手可否=待機

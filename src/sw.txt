@@ -1,6 +1,6 @@
 // tasks-pwa の service worker。殻 (/, manifest, icon) だけキャッシュし、/api は常にネットワーク。
 // 一覧のオフライン表示は app.html 側が localStorage に前回結果を持つことで行う。
-const CACHE = "kairos-v42";
+const CACHE = "kairos-v43";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {

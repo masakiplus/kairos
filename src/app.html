@@ -27,12 +27,15 @@
   .ttl{display:flex;align-items:center;gap:10px}
   .ttl h1{margin:0;font-size:28px;font-weight:700;letter-spacing:-.4px}
   .ttl .date{margin-left:auto;font-size:15px;color:var(--mute)}
-  /* タブは 6 つに増えたので横スクロール (Phase B, 2026-10-06)。幅が足りる Mac では均等に伸びる */
-  .tabs{display:flex;gap:4px;background:var(--seg);padding:3px;border-radius:10px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-  .tabs::-webkit-scrollbar{display:none}
-  .tabs button{flex:1 0 auto;padding:7px 9px;border:0;border-radius:8px;background:transparent;color:var(--mute);font-size:13px;font-weight:600;white-space:nowrap}
-  .tabs button.on{background:var(--segon);color:var(--fg);box-shadow:var(--shadow)}
-  .tabs button .n{margin-left:4px;font-weight:600;color:var(--mute)}
+  /* タブは 2 段 (2026-10-08): 上段「やる」(今日やる・今日できる・スマホで・着手中)、下段「整える」(PJ別・役割・見直し・委任)。横スクロールはやめた */
+  .tabs{display:flex;flex-direction:column;gap:4px}
+  .trow{display:flex;gap:4px;background:var(--seg);padding:3px;border-radius:10px}
+  .trow button{flex:1 1 0;min-width:0;padding:7px 4px;border:0;border-radius:8px;background:transparent;color:var(--mute);font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trow.sub{background:transparent;padding:0 3px}
+  .trow.sub button{font-size:12px;padding:4px 4px;color:var(--mute2)}
+  .trow button.on{background:var(--segon);color:var(--fg);box-shadow:var(--shadow)}
+  .trow.sub button.on{background:var(--seg);box-shadow:none;color:var(--fg)}
+  .trow button .n{margin-left:3px;font-weight:600;color:var(--mute);font-size:11px}
   main{padding:4px 12px 130px;display:flex;flex-direction:column;gap:18px}
   .sec{display:flex;flex-direction:column;gap:6px}
   .sec h2{margin:0;padding:0 10px;font-size:13px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.4px}
@@ -78,7 +81,7 @@
   .sheet .sect{margin:2px 6px 0;font-size:12px;font-weight:600;color:var(--mute);letter-spacing:.2px}
   .sec h2.prjh{text-transform:none;letter-spacing:0;font-size:14px;color:var(--fg);display:flex;align-items:center;gap:6px}
   .sec h2 .n{font-size:12px;font-weight:600;color:var(--mute);background:var(--seg);padding:0 7px;border-radius:9px}
-  .tabs button{font-size:12px}
+  .trow button{font-size:12px}
   .group{background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
   .row{position:relative;overflow:hidden;content-visibility:auto;contain-intrinsic-size:auto 66px} /* 画面外の行はレイアウトしない (2026-10-07 キビキビ対応) */
   .row+.row .card{border-top:1px solid var(--line)}
@@ -332,13 +335,18 @@
 <header>
   <div class="ttl"><span id="ttlIcon"></span><h1 id="ttl">今日やる</h1><div class="theme"><span class="date" id="date"></span><button id="undoBtn" aria-label="取り消し" title="直前の操作を取り消す" hidden>↩<span class="n" id="undoN"></span></button><button id="srchBtn" aria-label="検索" title="タスクを検索">🔍</button><button id="themeBtn" aria-label="テーマ切り替え" title="テーマ"></button></div></div>
   <div class="tabs" id="tabs">
-    <button data-v="today">今日やる<span class="n" id="n-today"></span></button>
-    <button data-v="can">今日できる<span class="n" id="n-can"></span></button>
-    <button data-v="phone">スマホで<span class="n" id="n-phone"></span></button>
-    <button data-v="project">PJ別<span class="n" id="n-project"></span></button>
-    <button data-v="roles">役割</button>
-    <button data-v="review">見直し<span class="n" id="n-review"></span></button>
-    <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
+    <div class="trow">
+      <button data-v="today">今日やる<span class="n" id="n-today"></span></button>
+      <button data-v="can">今日できる<span class="n" id="n-can"></span></button>
+      <button data-v="phone">スマホで<span class="n" id="n-phone"></span></button>
+      <button data-v="doing">着手中<span class="n" id="n-doing"></span></button>
+    </div>
+    <div class="trow sub">
+      <button data-v="project">PJ別<span class="n" id="n-project"></span></button>
+      <button data-v="roles">役割</button>
+      <button data-v="review">見直し<span class="n" id="n-review"></span></button>
+      <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
+    </div>
   </div>
   <form class="srch" id="srch" hidden>
     <label for="srchQ" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">検索語</label>
@@ -363,8 +371,8 @@
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
-  const views = ["today", "can", "phone", "project", "delegated"];
-  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", project: "PJ別", delegated: "委任中", roles: "役割", review: "見直し", deps: "つながり", graph: "つながり", quad: "象限" };
+  const views = ["today", "can", "phone", "doing", "project", "delegated"];
+  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "見直し", deps: "つながり", graph: "つながり", quad: "象限" };
   let reviewData = null, reviewPos = 0, reviewSkipped = new Set(); // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
   let graphData = null, quadData = null; // 1 タスク 3 列 (C-11a)・象限 (C-10)
@@ -554,7 +562,7 @@
     const viewChanged = lastView !== view; lastView = view;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
-    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
+    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
     $("#add").hidden = view === "roles" || view === "review"; $("#rfoot").hidden = view !== "roles";
@@ -593,6 +601,8 @@
       for (const p of projInfo || []) if ((p.closable || p.stalled) && !g.has(p.label)) g.set(p.label, []);
       const rank = (name) => { const p = info.get(name); return p?.closable ? 0 : p?.stalled ? 1 : 2; };
       secs = [...g.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].length - a[1].length).map(([name, ts]) => [name, "prjh", ts]);
+    } else if (view === "doing") {
+      secs = [["▶ 進行中", "", tasks]]; // 🤖 処理中・🧔 人対応 は下で独立した節に分かれる (2026-10-08)
     } else {
       secs = [["期日あり", "", tasks.filter((t) => t.due)], ["日付なし", "", tasks.filter((t) => !t.due)]];
     }
@@ -956,7 +966,7 @@
       render(j.today); $("#stale").hidden = true; $("#n-" + v).textContent = tasks.length;
       // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
       const w = j.wip; const we = $("#wip");
-      if (w && w.count > w.limit) { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— 進行中・人対応を減らす`; we.title = (w.names || []).join("\n"); we.onclick = () => toast("着手中: " + (w.names || []).slice(0, 6).join("、")); }
+      if (w && w.count > w.limit) { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
       else we.hidden = true;
     } catch (e) {
       $("#stale").hidden = false; $("#stale").textContent = "オフライン／取得失敗（表示は前回のもの）";
