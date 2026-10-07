@@ -779,7 +779,8 @@ function passesView(t, view, today) {
   if (view === "delegated") return !!t.owner;
   if (t.owner) return false; // 委任中は自分のタブに出さない (2026-10-01)。PJ別にも出さず「委任」タブで見る
   if (view === "project") return t.projectIds.length > 0; // 待機・待ちも含めて全部
-  if (view === "doing") return t.status === "進行中" || t.status === "人対応"; // 着手中は開始日が先でも先行待ちでも出す
+  // 着手中: 開始日が先 (待機) のものは外す (2026-10-08 利用者「開始日が先にあれば着手中から外す・数えない」)。先行待ちは出す
+  if (view === "doing") return (t.status === "進行中" || t.status === "人対応") && !(t.start && t.start > today);
   // 先行待ち: 今日系タブには原則出さない。期日が今日以前のものだけ「今日やる」に薄く出す (2026-09-29 決定)
   if (t.blocked) return view === "today" && !!t.due && t.due <= today;
   if (t.start && t.start > today) return false; // 着手可否=待機
@@ -855,7 +856,8 @@ async function wipCount(env) {
     method: "POST",
     body: JSON.stringify({ filter: { and: [NOT_DONE, { or: [{ property: "ステータス", status: { equals: "進行中" } }, { property: "ステータス", status: { equals: "人対応" } }] }] }, page_size: 100 }),
   });
-  const rows = (r.results ?? []).map(pageToTask).filter((t) => !t.owner); // 委任中は自分の WIP に数えない
+  const today = todayJst();
+  const rows = (r.results ?? []).map(pageToTask).filter((t) => !t.owner && !(t.start && t.start > today)); // 委任中と開始日が先のものは WIP に数えない (2026-10-08)
   return { count: rows.length, limit: WIP_LIMIT, names: rows.slice(0, 8).map((t) => t.name) };
 }
 
