@@ -1,0 +1,15 @@
+{
+  "name": "kairos",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Notion のタスク DB をスマホのホーム画面から 1 タップで回す薄い PWA (Cloudflare Worker)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "check": "cp src/index.js /tmp/kairos_chk.mjs && node --check /tmp/kairos_chk.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

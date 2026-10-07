@@ -1,0 +1,26 @@
+# Kairos — Notion タスク DB をスマホから回す薄い PWA (Cloudflare Worker)。設計は README.md と docs/。
+#
+# secrets (wrangler secret put。ここには書かない):
+#   NOTION_TOKEN — Notion internal integration。各 DB に Connect 済みのもの
+#   APP_TOKEN    — この PWA を開くための共有トークン。初回だけ ?t=<APP_TOKEN> で開くと Cookie に入る
+# vars (データソース ID。ローカルは .dev.vars、本番は GitHub Actions の Variables → deploy.yml が --var で渡す):
+#   TASKS_DATA_SOURCE_ID, PROJECTS_DATA_SOURCE_ID, ROLES_DATA_SOURCE_ID, DECISIONS_DATA_SOURCE_ID,
+#   HABITS_DATA_SOURCE_ID, HABIT_LOG_DATA_SOURCE_ID
+name = "tasks-pwa"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+# app.html / sw.txt / manifest.webmanifest を文字列として import する
+[[rules]]
+type = "Text"
+globs = ["**/*.html", "**/*.txt", "**/*.webmanifest"]
+fallthrough = true
+
+[vars]
+# 追加欄から起票したタスクの既定 (アイコンは必須、迷ったらエリアの既定絵文字)
+QUICK_ADD_AREA = "Inbox"
+QUICK_ADD_ICON = "📥"

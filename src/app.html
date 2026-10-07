@@ -1,0 +1,1421 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Kairos</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+  /* Things 風: 淡いグレー地に白カード、青アクセント、丸チェック。デザイン正本は Claude Design「Tasks PWA デザイン」 */
+  :root{--bg:#f5f5f7;--card:#ffffff;--line:#f0f0f2;--sep:#e5e5ea;--fg:#1d1d1f;--mute:#8e8e93;--mute2:#aeaeb2;--seg:#e9e9ee;--segon:#ffffff;--acc:#2f7cf6;--accbg:#eef3ff;--over:#d0342c;--today:#e0a100;--p2:#e8871e;--star:#f7c948;--ring:#c7c7cc;--shadow:0 1px 2px rgba(0,0,0,.05);--toast:#2c2c2e;--airun:#f1edff;--aiupd:#e8f1ff}
+  /* テーマ: data-theme が dark なら常にダーク、light なら常にライト、無指定 (auto) は端末設定に追従 */
+  :root[data-theme="dark"],:root:not([data-theme="light"]).sys-dark{--bg:#1c1c1e;--card:#2c2c2e;--line:#3a3a3c;--sep:#3a3a3c;--fg:#f2f2f7;--mute:#aeaeb2;--mute2:#8e8e93;--seg:#2c2c2e;--segon:#48484a;--acc:#4c8dff;--accbg:#1f2f4d;--over:#ff6b5e;--today:#f7c948;--p2:#ff9f3c;--ring:#636366;--shadow:none;--toast:#48484a;--airun:#2d2548;--aiupd:#1f2f4d}
+  .theme{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .theme button{height:34px;min-width:34px;padding:0 8px;border-radius:17px;border:0;background:var(--seg);color:var(--mute);display:flex;align-items:center;justify-content:center;gap:4px}
+  .theme button .auto{font-size:11px;font-weight:600;letter-spacing:.3px}
+  #undoBtn{font-size:18px;position:relative}
+  #undoBtn .n{position:absolute;top:-4px;right:-4px;font-size:10px;font-weight:700;background:var(--acc);color:#fff;border-radius:8px;padding:0 4px;line-height:14px}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  [hidden]{display:none!important} /* .toast 等の display:flex に hidden 属性が負けないように */
+  html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,"SF Pro Text","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain}
+  header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(14px + env(safe-area-inset-top)) 20px 12px;display:flex;flex-direction:column;gap:12px}
+  .ttl{display:flex;align-items:center;gap:10px}
+  .ttl h1{margin:0;font-size:28px;font-weight:700;letter-spacing:-.4px}
+  .ttl .date{margin-left:auto;font-size:15px;color:var(--mute)}
+  /* タブは 6 つに増えたので横スクロール (Phase B, 2026-10-06)。幅が足りる Mac では均等に伸びる */
+  .tabs{display:flex;gap:4px;background:var(--seg);padding:3px;border-radius:10px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{flex:1 0 auto;padding:7px 9px;border:0;border-radius:8px;background:transparent;color:var(--mute);font-size:13px;font-weight:600;white-space:nowrap}
+  .tabs button.on{background:var(--segon);color:var(--fg);box-shadow:var(--shadow)}
+  .tabs button .n{margin-left:4px;font-weight:600;color:var(--mute)}
+  main{padding:4px 12px 130px;display:flex;flex-direction:column;gap:18px}
+  .sec{display:flex;flex-direction:column;gap:6px}
+  .sec h2{margin:0;padding:0 10px;font-size:13px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.4px}
+  .sec h2.over{color:var(--over)}
+  .sec h2.eve{color:#5e5ce6}
+  .sec h2.blk{color:var(--mute2)}
+  .row.blocked .card{opacity:.45;filter:grayscale(.6)}
+  .row.blocked .under{display:none} /* 半透明にするとスワイプの下地が透けるので隠す (2026-09-30) */
+  /* 🤖 処理中: 実行中は紫、更新中は青の背景で見分ける (2026-10-03) */
+  .row.ai.run .card{background:var(--airun);box-shadow:inset 3px 0 0 #7c5cff}
+  .row.ai.upd .card{background:var(--aiupd);box-shadow:inset 3px 0 0 #0a84ff}
+  .row.ai.run .aic{color:#7c5cff} .row.ai.run .aic i{background:#7c5cff}
+  .row.ai.upd .aic{color:#0a84ff} .row.ai.upd .aic i{background:#0a84ff}
+  .go.sess{text-decoration:none;font-size:18px;background:#fff;box-shadow:var(--shadow)}
+  .row.ai.run .go.sess{color:#7c5cff} .row.ai.upd .go.sess{color:#0a84ff}
+  .sheet .list a.sess{font-weight:600}
+  .desc{background:var(--card);border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.5;color:var(--fg);box-shadow:var(--shadow)}
+  .desc .dtext{white-space:pre-wrap;word-break:break-word;max-height:9.5em;overflow:hidden;position:relative}
+  .desc .dtext.open{max-height:none}
+  .desc .dbody{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--mute);white-space:pre-wrap;word-break:break-word;font-size:13px;max-height:12em;overflow:hidden}
+  .desc .dbody.open{max-height:none}
+  .desc .more{display:block;margin-top:6px;color:var(--acc);font-size:13px;font-weight:600;text-decoration:none}
+  .desc .kv{font-size:12px;color:var(--mute);margin-bottom:6px}
+  .desc .dk{display:inline-block;font-size:11px;font-weight:700;color:var(--acc);background:var(--accbg);border-radius:6px;padding:1px 6px;margin-right:4px}
+  .meta .aic{color:var(--acc);font-weight:600;display:inline-flex;align-items:center;gap:4px}
+  .meta .aic i{width:7px;height:7px;border-radius:50%;background:var(--acc);animation:aipulse 1.2s ease-in-out infinite}
+  @keyframes aipulse{0%,100%{opacity:.25}50%{opacity:1}}
+  .sec h2.aih{color:var(--acc)}
+  .sec h2.huh{color:var(--today)}
+  .meta .huc{color:var(--today);font-weight:600}
+  .row.hu .card{box-shadow:inset 3px 0 0 var(--today)}
+  .row.blocked .ring{border-style:dashed;cursor:default}
+  .row.blocked .name{color:var(--mute)}
+  .grid button:disabled{opacity:.35;pointer-events:none}
+  .meta .blkc{color:#5e5ce6;font-weight:600}
+  .chain{background:var(--card);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .chain .ch{display:flex;align-items:center;gap:10px;padding:11px 12px;font-size:15px}
+  .chain .ch+.ch{border-top:1px solid var(--line)}
+  .chain .ch .no{width:22px;height:22px;border-radius:11px;background:var(--seg);color:var(--mute);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+  .chain .ch .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chain .ch .nm small{display:block;font-size:12px;color:var(--mute)}
+  .chain .ch a{color:var(--acc);font-size:13px;text-decoration:none;flex:none}
+  .sheet .sect{margin:2px 6px 0;font-size:12px;font-weight:600;color:var(--mute);letter-spacing:.2px}
+  .sec h2.prjh{text-transform:none;letter-spacing:0;font-size:14px;color:var(--fg);display:flex;align-items:center;gap:6px}
+  .sec h2 .n{font-size:12px;font-weight:600;color:var(--mute);background:var(--seg);padding:0 7px;border-radius:9px}
+  .tabs button{font-size:12px}
+  .group{background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .row{position:relative;overflow:hidden;content-visibility:auto;contain-intrinsic-size:auto 66px} /* 画面外の行はレイアウトしない (2026-10-07 キビキビ対応) */
+  .row+.row .card{border-top:1px solid var(--line)}
+  .row .under{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-weight:700;color:#fff}
+  .row .card{position:relative;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);transition:transform .15s;touch-action:pan-y}
+  .ring{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--ring);flex:none;background:transparent;padding:0;display:flex;align-items:center;justify-content:center}
+  button.ring{position:relative}
+  button.ring::before{content:"";position:absolute;inset:-12px} /* 当たり判定を 44px に広げる */
+  button.ring.on{background:var(--acc);border-color:var(--acc)}
+  .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .name{font-size:16px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:3px 8px;font-size:12px;color:var(--mute)}
+  .meta>span{white-space:nowrap}
+  .meta .over{color:var(--over);font-weight:600}.meta .today{color:var(--today);font-weight:600}
+  .meta .p1{color:var(--over);font-weight:600}.meta .p2{color:var(--p2);font-weight:600}
+  .meta .prj{color:var(--acc);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
+  .go{flex:none;width:36px;height:36px;border-radius:18px;border:0;background:var(--accbg);color:var(--acc);display:flex;align-items:center;justify-content:center}
+  .empty{padding:56px 20px;text-align:center;color:var(--mute2)}
+  .hint{font-size:12px;color:var(--mute2);text-align:center;padding-top:4px}
+  .stale{font-size:12px;color:var(--p2);text-align:center}
+  .stale.wip{color:var(--over)}
+  /* ⭐ 今日の3つ (MIT, 2026-10-06) */
+  .sec h2.mith{color:var(--star)}
+  .row.mit .card{box-shadow:inset 3px 0 0 var(--star)}
+  .meta .mitc{color:var(--star)}
+  .meta .wfc{color:var(--mute)}
+  .meta .cry{color:var(--p2)} .meta .cry.hot{color:var(--over)}
+  /* 検索 (2026-10-04): 🔍 でタブの代わりに検索欄を出す。全未完了を名前・説明で引く */
+  .srch{display:flex;gap:8px;align-items:center}
+  .srch input{flex:1;font-size:16px;padding:9px 14px;border-radius:12px;border:0;background:var(--card);color:var(--fg);box-shadow:var(--shadow);min-width:0}
+  .srch label{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--mute);white-space:nowrap}
+  .srch button{height:34px;min-width:34px;border-radius:17px;border:0;background:var(--seg);color:var(--mute);font-size:16px}
+  /* 📁 PJ別の見出し (Phase B-7/8, 2026-10-06): ゴール／完了条件／進捗バー。クローズ候補は黄、止まっている PJ は赤 */
+  .pjh{padding:4px 10px 2px;display:flex;flex-direction:column;gap:6px}
+  .pjh.cl{padding:10px 12px;border-radius:12px;background:#fff7e6;border:1px solid #f3dca8;gap:8px}
+  :root[data-theme="dark"] .pjh.cl,:root:not([data-theme="light"]).sys-dark .pjh.cl{background:#3a2f12;border-color:#5a4a1e}
+  .pjh .pt{display:flex;align-items:center;gap:8px}
+  .pjh .pn{font-size:15px;font-weight:700;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pjh .pr{font-size:12px;color:var(--mute);flex:none}
+  .pjh .bdg{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;flex:none}
+  .pjh .bdg.cl{color:#8a5a00;background:#ffe6b3}
+  .pjh .bdg.st{color:#b23b32;background:#fde7e5}
+  .pjh .pg{font-size:12px;color:var(--mute);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pjh .pg.warn{color:var(--over);white-space:normal}
+  .pjh .pb{display:flex;align-items:center;gap:8px}
+  .pjh .bar{flex:1;height:6px;border-radius:3px;background:var(--sep);overflow:hidden}
+  .pjh.cl .bar{background:#ead9b0}
+  .pjh .bar i{display:block;height:100%;background:var(--acc)}
+  .pjh .bar i.full{background:#34a853}
+  .pjh .pc{font-size:12px;color:var(--mute);font-weight:600;flex:none}
+  .pjh .pbtn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .pjh .pbtn button{padding:11px;border:0;border-radius:10px;background:var(--card);color:var(--fg);font-size:14px;font-weight:600}
+  .pjh .pbtn button.pri{background:var(--acc);color:#fff}
+  .pjh .fn{font-size:11px;color:var(--mute)}
+  .pjh .n{font-size:12px;font-weight:600;color:var(--mute);background:var(--seg);padding:0 7px;border-radius:9px;flex:none}
+  .group button.addrow{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px;border:0;background:transparent;color:var(--acc);font-size:15px;font-weight:600;text-align:left}
+  .row+button.addrow{border-top:1px solid var(--line)}
+  .add .pjchip{width:auto;height:auto;border:0;display:flex;align-items:center;gap:4px;max-width:40%;font-size:12px;font-weight:600;color:var(--acc);background:var(--accbg);padding:6px 8px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .add .pjchip b{font-weight:400;color:var(--mute)}
+  /* 🧭 役割タブ (Phase B-6): 編集はしない。見るのは ミッション・今週の石・PJ/今日の件数。書くのは 今週の石 だけ */
+  .rsum{display:flex;justify-content:space-between;gap:8px;padding:0 10px;font-size:12px;color:var(--mute)}
+  .rsum b{color:var(--today);font-weight:600}
+  .rc{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px}
+  .rc.dim{opacity:.6}
+  .rc .rt{display:flex;align-items:baseline;gap:8px}
+  .rc .rn{font-size:17px;font-weight:700}
+  .rc .rk{font-size:12px;color:var(--mute);margin-left:auto;flex:none}
+  .rc .rm{font-size:13px;color:var(--mute);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .rc .rm .q2{color:var(--mute2)}
+  .rc .rm.warn{color:var(--over)}
+  .rc .rm a{color:inherit}
+  .rc .stone{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--bg);border:0;width:100%;text-align:left;color:var(--fg);font:inherit}
+  .rc .stone .ring{width:20px;height:20px}
+  .rc .stone .sb{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .rc .stone .sl{font-size:12px;color:var(--mute);font-weight:600;letter-spacing:.3px}
+  .rc .stone .sn{font-size:15px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rc .stone.done .sn{color:var(--mute2);text-decoration:line-through}
+  .rc .stone .ss{font-size:12px;font-weight:600;flex:none}
+  .rc .stone .ss.done{color:#34a853}.rc .stone .ss.doing{color:#0a84ff}.rc .stone .ss.todo{color:var(--mute)}
+  .rc .stone.put{border:1.5px dashed var(--ring);background:transparent;color:var(--acc);font-size:15px;font-weight:600}
+  .rc .stone.put small{margin-left:auto;font-size:12px;color:var(--mute);font-weight:400;white-space:nowrap}
+  .rfoot{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;padding:10px 12px calc(12px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--sep)}
+  .rfoot a{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;background:var(--card);color:var(--fg);font-size:15px;font-weight:600;text-decoration:none;box-shadow:var(--shadow)}
+  .sheet .pick{display:flex;flex-direction:column}
+  .sheet .pick button{display:flex;align-items:center;gap:10px;padding:12px 14px;border:0;background:transparent;color:var(--fg);font-size:15px;text-align:left;width:100%}
+  .sheet .pick button+button{border-top:1px solid var(--line)}
+  .sheet .pick button .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sheet .pick button small{color:var(--mute);font-size:12px;flex:none}
+  .sheet .pick.pp button .ck{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--ring);flex:none;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
+  .sheet .pick.pp button.on .ck{background:var(--acc);border-color:var(--acc);color:#fff}
+  .sheet .pick.pp button.on .nm{color:var(--acc);font-weight:600}
+  .pjh .bdg.un{color:#5b4bd6;background:#e9e6ff;border:0;cursor:pointer}
+  /* 🗂 見直し (Phase C-9, 2026-10-06): 1 問 1 画面。機械的に決まる問いだけ。理由が要るものは Claude へ */
+  .rvp{display:flex;align-items:center;gap:10px;padding:0 10px;font-size:12px;color:var(--mute)}
+  .rvp .bar{flex:1;height:4px;border-radius:2px;background:var(--sep);overflow:hidden}.rvp .bar i{display:block;height:100%;background:var(--acc)}
+  .rvc{background:var(--card);border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);padding:18px 16px 14px;display:flex;flex-direction:column;gap:14px}
+  .rvc .rh{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)}
+  .rvc .db{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--accbg);color:var(--acc)}
+  .rvc .db.Tasks{background:#fde7e5;color:#b23b32}.rvc .db.Decisions{background:#ffe6b3;color:#8a5a00}
+  .rvc .rq{font-size:19px;font-weight:700;line-height:1.35}
+  .rvc .rb{font-size:14px;line-height:1.5;color:var(--fg);white-space:pre-wrap;max-height:9em;overflow:auto}
+  .rvc .ctx{display:flex;flex-direction:column;gap:5px;padding:10px 12px;border-radius:10px;background:var(--bg);font-size:13px;color:var(--mute);line-height:1.45}
+  .rvc .ctx b{font-weight:400;color:var(--mute2);margin-right:6px}
+  .rvc .opts{display:flex;flex-direction:column;gap:8px}
+  .rvc .opts button{padding:13px 14px;border:0;border-radius:12px;background:var(--bg);color:var(--fg);font-size:16px;font-weight:600;text-align:left;display:flex;align-items:center;gap:10px}
+  .rvc .opts button.pri{background:var(--acc);color:#fff}
+  .rvc .opts button .no{width:22px;height:22px;border-radius:50%;border:2px solid var(--ring);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--mute);flex:none}
+  .rvc .opts button.pri .no{border-color:rgba(255,255,255,.7);color:#fff}
+  .rvc .opts button small{margin-left:auto;font-size:12px;font-weight:400;color:var(--mute);text-align:right}
+  .rvc .opts button.pri small{color:rgba(255,255,255,.85)}
+  .rvc .rnote{font-size:15px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+  .rvc .rcl{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px;font-size:14px;font-weight:600;color:var(--acc);text-decoration:none}
+  .rvn h2{margin:0 0 6px;padding:0 10px;font-size:13px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.4px}
+  .rvn .group>div{display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:14px}.rvn .group>div+div{border-top:1px solid var(--line)}
+  .rvn .group>div span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 🔗 つながり (Phase C-11, 2026-10-06): 幅 700px 以上はガント、未満は依存順タイムライン。矛盾 (後続の期日 < 先行の期日) は赤 */
+  .dh{display:flex;align-items:center;gap:10px;padding:0 4px}
+  .dh button{width:32px;height:32px;border-radius:16px;border:0;background:var(--seg);color:var(--fg);font-size:18px;flex:none}
+  .dh .dt{flex:1;min-width:0;font-size:13px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dwarn{padding:8px 10px;border-radius:10px;background:#fde7e5;color:#b23b32;font-size:12px;line-height:1.4}
+  :root[data-theme="dark"] .dwarn,:root:not([data-theme="light"]).sys-dark .dwarn{background:#4a1f1c;color:#ff8a80}
+  .dwrap{display:flex;background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .dnames{position:relative;flex:none;border-right:1px solid var(--sep);font-size:12px}
+  .dnames .hdr{box-sizing:border-box;border-bottom:1px solid var(--sep);padding:0 10px;display:flex;align-items:center;font-size:11px;font-weight:700;color:var(--mute);letter-spacing:.4px}
+  .dnames .nm{position:absolute;left:0;right:0;height:var(--rh);box-sizing:border-box;padding:8px 8px 0 10px;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid var(--line);cursor:pointer}
+  .dnames .nm .t{font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dnames .nm.dn .t{color:var(--mute);text-decoration:line-through}
+  .dnames .nm.bad .t{color:#b23b32}
+  .dnames .nm .m{font-size:10px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dnames .rail{position:absolute;width:2px;background:var(--ring);z-index:2}
+  .dnames .dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--card);border:1.5px solid var(--ring);box-sizing:border-box;z-index:3}
+  .dnames .dot.dn{background:var(--acc);border-color:var(--acc)}.dnames .dot.doing{border-color:var(--acc)}.dnames .dot.doing::after{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--acc)}.dnames .dot.todo{border-style:dashed}.dnames .dot.bad{border-color:#d0342c}
+  .dbox{flex:1;min-width:0;position:relative;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+  .dg .todayl span{position:absolute;top:-18px;left:-14px;font-size:10px;font-weight:700;color:var(--today);background:var(--card);padding:0 4px;border-radius:999px;white-space:nowrap}
+  .dh .tg{width:auto;height:28px;padding:0 10px;border-radius:14px;font-size:12px;font-weight:600;color:var(--mute);background:var(--seg)}
+  .dh .tg.on{color:var(--acc);background:var(--accbg)}
+  .dg{position:relative;font-size:12px}
+  .dg .dayl{position:absolute;top:0;font-size:10px;color:var(--mute);text-align:center;line-height:18px;width:var(--dw)}
+  .dg .mon{position:absolute;top:2px;font-size:11px;font-weight:700;color:var(--fg);padding-left:4px;white-space:nowrap}
+  .dg .day{position:absolute;bottom:0;width:var(--dw);box-sizing:border-box;border-left:1px solid var(--line)}
+  .dg .day.we{background:var(--bg)}
+  .dg .todayl{position:absolute;bottom:0;width:2px;background:var(--today);z-index:1}
+  .dg .hdr{position:absolute;left:0;right:0;top:0;border-bottom:1px solid var(--sep)}
+  .dg .nm{position:absolute;left:0;height:var(--rh);box-sizing:border-box;padding:8px 8px 0 10px;display:flex;flex-direction:column;gap:2px;background:var(--card);border-right:1px solid var(--sep);z-index:2;cursor:pointer}
+  .dg .nm .t{font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dg .nm.dn .t{color:var(--mute);text-decoration:line-through}
+  .dg .nm.bad .t{color:#b23b32}
+  .dg .nm .m{font-size:10px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dg .rowl{position:absolute;left:0;right:0;height:var(--rh);border-bottom:1px solid var(--line)}
+  .dg .bar{position:absolute;height:18px;border-radius:5px;background:var(--accbg);border:1.5px solid var(--acc);box-sizing:border-box;font-size:10px;line-height:15px;padding:0 6px;white-space:nowrap;overflow:hidden;color:var(--fg);z-index:1}
+  .dg .bar.dn{background:var(--acc);color:#fff}
+  .dg .bar.bad{background:#fde7e5;border-color:#d0342c;color:#b23b32}
+  .dg .bar.cut{border-left-style:dashed;border-top-left-radius:0;border-bottom-left-radius:0}
+  .dg .dia{position:absolute;width:12px;height:12px;transform:rotate(45deg);background:var(--card);border:1.5px solid var(--acc);box-sizing:border-box;border-radius:2px;z-index:1}
+  .dg .dia.dn{background:var(--acc)}.dg .dia.bad{border-color:#d0342c;background:#fde7e5}
+  .dg .tbd{position:absolute;bottom:0;right:0;width:28px;border-left:1px dashed var(--ring);background:var(--bg);font-size:10px;color:var(--mute);text-align:center;line-height:14px;padding-top:4px;box-sizing:border-box}
+  .dg svg{position:absolute;z-index:1;pointer-events:none;overflow:visible}
+  .dg .rail{position:absolute;width:2px;background:var(--ring);z-index:2}
+  .dg .dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--card);border:1.5px solid var(--ring);box-sizing:border-box;z-index:3}
+  .dg .dot.dn{background:var(--acc);border-color:var(--acc)}.dg .dot.doing{border-color:var(--acc)}.dg .dot.doing::after{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--acc)}.dg .dot.todo{border-style:dashed}.dg .dot.bad{border-color:#d0342c}
+  .dfix{background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .dfix button,.dfix a{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px;border:0;background:transparent;color:var(--fg);font-size:14px;text-align:left;text-decoration:none}
+  .dfix button+button,.dfix a+a,.dfix button+a{border-top:1px solid var(--line)}
+  .dfix .ic{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--accbg);color:var(--acc)}
+  .dfix .ic.bad{background:#fde7e5;color:#d0342c}
+  .dleg{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--mute);padding:0 6px}
+  .dleg span{display:flex;align-items:center;gap:5px}
+  .dleg i{display:inline-block;flex:none}
+  .pjh .pt .lnk{font-size:12px;color:var(--acc);font-weight:600;flex:none;background:var(--accbg);padding:3px 8px;border-radius:999px}
+  /* 🔗 1 タスク中心の 3 列 (C-11a) */
+  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;position:relative;padding:8px 2px}
+  .g3 .col{display:flex;flex-direction:column;gap:10px;justify-content:center}
+  .g3 .cap{font-size:11px;font-weight:700;color:var(--mute);letter-spacing:.4px;text-transform:uppercase;padding:0 2px}
+  .g3 .nd{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:10px;display:flex;flex-direction:column;gap:6px;color:var(--fg);text-decoration:none;cursor:pointer}
+  .g3 .nd.me{border:2px solid var(--acc);box-shadow:0 4px 14px rgba(47,124,246,.18)}
+  .g3 .nd .t{font-size:12px;line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+  .g3 .nd.dn .t{color:var(--mute);text-decoration:line-through}
+  .g3 .nd .s{font-size:11px;color:var(--mute)}.g3 .nd .s.doing{color:var(--acc);font-weight:600}.g3 .nd .s.blk{color:var(--today);font-weight:600}
+  .g3 .nd .ring{width:16px;height:16px}
+  .g3 .emp{font-size:12px;color:var(--mute2);text-align:center;padding:14px 4px;border:1.5px dashed var(--ring);border-radius:12px}
+  .g3 svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  /* 🧭 象限 (C-10) */
+  .qg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:699px){.qg{grid-template-columns:1fr}}
+  .qq{background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+  .qq h3{margin:0;padding:10px 12px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line)}
+  .qq h3 .n{margin-left:auto;font-size:12px;font-weight:600;color:var(--mute);background:var(--seg);padding:0 7px;border-radius:9px}
+  .qq.q1 h3{color:var(--over)}.qq.q2 h3{color:var(--acc)}.qq.q3 h3{color:var(--today)}.qq.q4 h3{color:var(--mute)}
+  .qq .qi{display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:14px;cursor:pointer}
+  .qq .qi+.qi{border-top:1px solid var(--line)}
+  .qq .qi .ring{width:16px;height:16px}
+  .qq .qi .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .qq .qi small{color:var(--mute);font-size:11px;flex:none}
+  .qq .qe{padding:14px 12px;font-size:12px;color:var(--mute2);text-align:center}
+  .rc .rpj{display:none;flex-direction:column;background:var(--bg);border-radius:10px;overflow:hidden}
+  .rc .rpj.open{display:flex}
+  .rc .rpj button{display:flex;align-items:center;gap:8px;padding:10px 12px;border:0;background:transparent;color:var(--fg);font-size:14px;text-align:left}
+  .rc .rpj button+button{border-top:1px solid var(--line)}
+  .rc .rpj button .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rc .rpj button small{color:var(--mute);font-size:11px;flex:none}
+  .rc .rk{cursor:pointer;text-decoration:underline dotted}
+  .rsum a{color:var(--acc);font-weight:600;text-decoration:none;flex:none}
+  .row.dn .card{opacity:.55}
+  .row.dn .name{text-decoration:line-through;color:var(--mute)}
+  .row.dn .ring{background:var(--acc);border-color:var(--acc);color:#fff}
+  .theme button.on{color:var(--acc)}
+  .add{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;gap:8px;align-items:center;padding:10px 12px calc(12px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--sep)}
+  .add input{flex:1;font-size:16px;padding:11px 14px;border-radius:12px;border:0;background:var(--card);color:var(--fg);box-shadow:var(--shadow)}
+  .add button{width:44px;height:44px;border-radius:22px;border:0;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;flex:none}
+  .toast{position:fixed;left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));z-index:9;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;background:var(--toast);color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+  .toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .toast button{background:none;border:0;color:#6fa3ff;font-weight:700;font-size:15px;flex:none}
+  .veil{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:10}
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:var(--bg);border-radius:18px 18px 0 0;padding:10px 12px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+  .sheet{transition:transform .18s;touch-action:pan-y;max-height:calc(100dvh - 28px);max-height:calc(100vh - 28px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  @supports (height:100dvh){.sheet{max-height:calc(100dvh - 28px)}}
+  .sheet>*{flex:none} /* スクロール時に overflow:hidden の子 (.list) が潰れないように */
+  .sheet .grab{width:36px;height:5px;border-radius:3px;background:var(--ring);align-self:center}
+  .sheet .head{display:flex;align-items:flex-start;gap:8px;margin:4px 6px 0}
+  .sheet h3{margin:0;flex:1;font-size:17px;font-weight:600;line-height:1.35}
+  .sheet .close{flex:none;width:32px;height:32px;border-radius:16px;border:0;background:var(--seg);color:var(--mute);display:flex;align-items:center;justify-content:center;margin-top:-2px}
+  /* 一覧の前後へ移動するページャ (2026-10-04)。並びは今のタブに見えている順 */
+  .sheet .pager{display:flex;align-items:center;justify-content:center;gap:6px;margin:2px 6px 0;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+  .sheet .pager button{width:44px;height:32px;border-radius:16px;border:0;background:var(--seg);color:var(--fg);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .sheet .pager button:disabled{opacity:.3}
+  .sheet .pager span{min-width:56px;text-align:center}
+  .sheet .sub{margin:0 6px;font-size:13px;color:var(--mute)}
+  .sheet .list{background:var(--card);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .sheet .list a{display:flex;align-items:center;gap:12px;padding:12px 14px;font-size:15px;color:var(--fg);text-decoration:none}
+  .sheet .list a+a{border-top:1px solid var(--line)}
+  .sheet .ic{width:30px;height:30px;border-radius:8px;background:var(--accbg);color:var(--acc);display:flex;align-items:center;justify-content:center;flex:none}
+  .sheet .dprow{flex-direction:row;align-items:center;gap:8px;padding:8px 10px}
+  .sheet .dpick{flex:1;font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);min-width:0}
+  .sheet .dprow button{flex:none;padding:9px 14px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600}
+  .sheet .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .sheet .grid button.pri{background:var(--acc);color:#fff}
+  .sheet .grid.dg{grid-template-columns:repeat(3,1fr)}
+  .sheet .grid.st4{grid-template-columns:repeat(4,1fr);gap:6px}
+  .sheet .grid.st4 button{padding:10px 4px;font-size:13px;gap:4px}
+  .sheet .grid.st4 button.pri:disabled{opacity:1} /* いまの状態は押せないが、選択中として見せる */
+  .meta .own{color:var(--acc)}
+  .sheet .grid button.pri .ring{border-color:#fff;background:transparent;color:#fff}
+  .sheet .grid button.skip{background:transparent;color:var(--mute);box-shadow:none;border:1px solid var(--line)}
+  .sheet .grid button{padding:12px;border:0;border-radius:12px;background:var(--card);color:var(--fg);font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px}
+  .sheet .notion{display:flex;justify-content:center;padding:13px 10px;color:var(--acc);font-size:15px;font-weight:600;text-decoration:none}
+  .done-ring{background:var(--acc);border-color:var(--acc);display:flex;align-items:center;justify-content:center}
+  svg{flex:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="ttl"><span id="ttlIcon"></span><h1 id="ttl">今日やる</h1><div class="theme"><span class="date" id="date"></span><button id="undoBtn" aria-label="取り消し" title="直前の操作を取り消す" hidden>↩<span class="n" id="undoN"></span></button><button id="srchBtn" aria-label="検索" title="タスクを検索">🔍</button><button id="themeBtn" aria-label="テーマ切り替え" title="テーマ"></button></div></div>
+  <div class="tabs" id="tabs">
+    <button data-v="today">今日やる<span class="n" id="n-today"></span></button>
+    <button data-v="can">今日できる<span class="n" id="n-can"></span></button>
+    <button data-v="phone">スマホで<span class="n" id="n-phone"></span></button>
+    <button data-v="project">PJ別<span class="n" id="n-project"></span></button>
+    <button data-v="roles">役割</button>
+    <button data-v="review">見直し<span class="n" id="n-review"></span></button>
+    <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
+  </div>
+  <form class="srch" id="srch" hidden>
+    <label for="srchQ" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">検索語</label>
+    <input id="srchQ" type="search" placeholder="名前・説明で検索（スペースで AND）" autocomplete="off" enterkeyhint="search">
+    <label><input type="checkbox" id="srchAll">完了も</label>
+    <button type="button" id="srchClose" aria-label="検索を閉じる">✕</button>
+  </form>
+  <div class="stale" id="stale" hidden></div>
+  <div class="stale wip" id="wip" hidden></div>
+</header>
+<main id="list"><div class="empty">読み込み中…</div></main>
+<form class="add" id="add">
+  <label for="addName" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">タスクを追加</label>
+  <button type="button" class="pjchip" id="addPj" hidden title="この PJ に紐づけて追加。タップで解除"></button>
+  <input id="addName" placeholder="タイトルだけで追加" autocomplete="off">
+  <button type="submit" aria-label="追加"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+</form>
+<div class="rfoot" id="rfoot" hidden><a id="roleReview" href="#">Claude と週次役割レビュー</a></div>
+<div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="undo">元に戻す</button></div>
+<div id="sheetWrap" hidden><div class="veil" id="veil"></div><div class="sheet" id="sheet"></div></div>
+<label for="datePick" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">開始日</label>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const views = ["today", "can", "phone", "project", "delegated"];
+  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", project: "PJ別", delegated: "委任中", roles: "役割", review: "見直し", deps: "つながり", graph: "つながり", quad: "象限" };
+  let reviewData = null, reviewPos = 0, reviewSkipped = new Set(); // 見直し (Phase C-9)
+  let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
+  let graphData = null, quadData = null; // 1 タスク 3 列 (C-11a)・象限 (C-10)
+  const rolePjOpen = new Set(); // 役割カードで開いている PJ 一覧 (再描画しても閉じない)
+  const wideMq = matchMedia("(min-width:700px)"); // Fold 展開・Mac はガント、閉じた状態は依存順タイムライン
+  wideMq.addEventListener("change", () => { if (view === "deps") render(todayStr); });
+  // Phase B (2026-10-06): PJ別の見出し情報 (/api/projects) と 役割タブ (/api/roles)。追加欄の PJ 紐づけ
+  let projInfo = null, projInfoAt = 0, rolesData = null, addProject = null;
+  let DELEGATES = JSON.parse(localStorage.getItem("delegates") || "[]"); // 担当 の選択肢。Worker が Notion のスキーマから読んで /api/tasks に添える
+  const ICONS = {
+    star: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.5 1.2 6.4L12 17.3l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8L12 2.8z" fill="#f7c948"/></svg>',
+    can: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2f7cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+    folder: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2f7cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    phone: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2f7cf6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg>',
+    review: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2f7cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M16 16l2 2 4-4"/></svg>',
+    compass: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2f7cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>',
+    claude: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>',
+    pen: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>',
+    check: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    tomorrow: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e0a100" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/><path d="M17 3h4v4"/></svg>',
+    cal: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+    pause: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>',
+    skip: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></svg>',
+    moon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5e5ce6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z"/></svg>',
+    sun: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e0a100" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  };
+  // ---- テーマ (auto / light / dark)。auto は端末設定に追従 ----
+  const THEME_ICON = {
+    auto: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/></svg>',
+    light: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+    dark: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z"/></svg>',
+  };
+  const mq = matchMedia("(prefers-color-scheme: dark)");
+  function applyTheme() {
+    const t = localStorage.getItem("theme") || "auto";
+    const root = document.documentElement;
+    if (t === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", t);
+    root.classList.toggle("sys-dark", mq.matches);
+    const dark = t === "dark" || (t === "auto" && mq.matches);
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", dark ? "#1c1c1e" : "#f5f5f7"));
+    // ボタンは「設定」ではなく「今の実際の色」を出す。自動のときは小さく「自動」と添える
+    const b = $("#themeBtn");
+    b.innerHTML = THEME_ICON[dark ? "dark" : "light"] + (t === "auto" ? '<span class="auto">自動</span>' : "");
+    b.title = t === "auto" ? `自動（端末設定・今は${dark ? "ダーク" : "ライト"}）` : (dark ? "ダーク（固定）" : "ライト（固定）");
+  }
+  $("#themeBtn").onclick = () => { const o = ["auto", "light", "dark"]; const t = localStorage.getItem("theme") || "auto"; localStorage.setItem("theme", o[(o.indexOf(t) + 1) % 3]); applyTheme(); };
+  mq.addEventListener("change", applyTheme);
+  applyTheme();
+
+  let view = localStorage.getItem("view") || "today";
+  if (view === "search") view = "today"; // 検索は保存しない
+  let tasks = [];
+  let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
+  let undoTask = null, undoTimer = null;
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  // Mac の Chrome アプリから開くときはデスクトップ版 Claude (claude:// スキーム) へ。iPhone/iPad は除外
+  const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent) && !/iPhone|iPad/i.test(navigator.userAgent);
+  const K = (v) => "tasks:" + v;
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // IME (日本語入力) の変換確定 Enter を「送信」と取り違えない (2026-10-06)。isComposing か keyCode 229 なら真。
+  // compositionend 直後の keyup まで IME が握っている端末があるので、確定から 50ms は Enter を無視する
+  let imeUntil = 0;
+  document.addEventListener("compositionend", () => { imeUntil = Date.now() + 50; }, true);
+  const imeEnter = (e) => e.key === "Enter" && (e.isComposing || e.keyCode === 229 || Date.now() < imeUntil);
+  // form の暗黙送信 (Enter) も変換中は止める
+  document.addEventListener("keydown", (e) => { if (imeEnter(e) && e.target.matches("input")) e.preventDefault(); }, true);
+
+  const api = async (path, opt = {}) => {
+    const r = await fetch(path, { ...opt, headers: { "Content-Type": "application/json", ...(opt.headers || {}) } });
+    if (r.status === 401) { location.reload(); throw new Error("unauthorized"); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    return j;
+  };
+
+  // ---- Claude へ投げるリンク (Notion の式列「🤖 Claudeへ」と同じ文面) ----
+  function claudeHref(t, mode, chain) {
+    const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
+    let ask = mode === "update"
+      ? "の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。相談したいことがあれば一問一答で。"
+      : "を進めてください。必要なら時間調整・実行まで含め、終わったら操作規約どおり完了処理まで。";
+    // 先行が残っていれば順送り実行を頼む (設計 §3-3)。人の手が要る先行で止まるのは Claude 側の規約
+    if (mode === "run" && chain && chain.length) {
+      ask = "を進めたいのですが、先行タスクが未完了です。先行から順に「" +
+        chain.map((c, i) => `${i + 1}. ${c.name}（${c.url}）`).join("、") +
+        "」→ 最後に本タスク の順で進めてください。各タスクを終えるたびに操作規約どおり完了処理をし、判断が要る・人の手が要る・失敗した時点で止まって報告してください。";
+    }
+    // タスク名を文頭に置く。チャットの要約タイトルが「Notion タスクの更新」で埋まらないように (2026-09-29)
+    const q = "「" + t.name + "」" + ask + "（Notion ✅ Tasks のタスク。ページ: " + page + " ）\nKairos から渡したので AI処理開始 が立っています。まず read_conversation(\"current\") でこのチャットの URL を取り、タスクの AIセッション に書いてください。完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。";
+    return claudeLink(q);
+  }
+  // 任意の文面で Claude を開くリンク (役割タブ・PJ別の「Claude へ」用, 2026-10-06)。端末ごとの開き方は claudeHref と同じ
+  function claudeLink(q) {
+    const web = "https://claude.ai/new?q=" + encodeURIComponent(q);
+    if (isAndroid) return "intent://claude.ai/new?q=" + encodeURIComponent(q) +
+      "#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=" + encodeURIComponent(web) + ";end";
+    // Mac: デスクトップ版 Claude。claude://new?q= は文面が渡らず、claude://claude.ai/new?q= だと渡る (2026-09-29 実機確認)
+    if (isMac) return "claude://claude.ai/new?q=" + encodeURIComponent(q);
+    return web;
+  }
+
+  // 📅 カレンダーに予定を入れる (タイムブロッキング, 2026-10-06)。Google カレンダーの新規予定テンプレートを開くだけで、資格情報は持たない。
+  // 日付は 開始日 (先) → 期日 (今日以降) → 今日。時刻は 9:00〜10:00 を仮置き (カレンダー側で動かす)。カレンダーの選択は URL で指定できないので手で家族のカレンダーに
+  function gcalHref(t) {
+    const d = (t.start && t.start > todayStr) ? t.start : (t.due && t.due >= todayStr) ? t.due : todayStr;
+    const ymd = d.replace(/-/g, "");
+    const lines = (t.rawDesc || "").split("\n").filter((l) => /^(なぜ|何を)[:：]/.test(l)).slice(0, 2).join("\n");
+    const details = (lines ? lines + "\n\n" : "") + "Notion: " + t.url;
+    const u = new URL("https://calendar.google.com/calendar/render");
+    u.searchParams.set("action", "TEMPLATE");
+    u.searchParams.set("text", (t.icon ? t.icon + " " : "") + t.name);
+    u.searchParams.set("dates", `${ymd}T090000/${ymd}T100000`);
+    u.searchParams.set("ctz", "Asia/Tokyo");
+    u.searchParams.set("details", details.slice(0, 1500));
+    return u.toString();
+  }
+
+  // 処理中の Claude のチャットを開く (2026-10-03)。Android はアプリの intent、Mac はデスクトップ版の claude:// で既存チャットへ
+  function sessionHref(u) {
+    if (!u) return "#";
+    const bare = u.replace(/^https?:\/\//, "");
+    if (isAndroid) return "intent://" + bare + "#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=" + encodeURIComponent(u) + ";end";
+    if (isMac) return "claude://" + bare;
+    return u;
+  }
+
+  // 🤖 を押したら印 (AI処理開始=今) を立ててから Claude を開く (2026-09-30)。印は Claude が終了時に外す。2時間で表示は自然に戻る
+  // 2026-10-04: API を await してから遷移すると、Android Chrome が「ユーザー操作の直後」とみなさず intent:// を蹴って
+  // browser_fallback_url (Web 版) に落ちる＝Chrome で開いてしまう。印の API は投げっぱなし (keepalive) にして、ジェスチャーの中で即座に遷移する
+  // resume=true (2026-10-06): 前回のセッションを開き直すとき。AIセッション は残し、種別は前回のまま、印だけ立て直す
+  function markAi(t, mode = "run", resume = false) {
+    t.aiActive = true; t.aiSince = new Date().toISOString(); if (!resume) t.aiMode = mode === "update" ? "更新" : "実行";
+    fetch(`/api/tasks/${t.id}/ai?mode=${mode}${resume ? "&resume=1" : ""}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" } })
+      .then(() => setTimeout(() => load(view, { silent: true }), 1500)).catch(() => {});
+  }
+  function goClaude(t, href, mode = "run") {
+    markAi(t, mode);
+    location.href = href;
+    render(todayStr);
+  }
+
+  // ---- 描画 ----
+  const W = "日月火水木金土";
+  const descHtml = (txt) => esc(txt).replace(/^(なぜ|何を|留意|留意点)[:：]\s*/gm, (m, k) => `<b class="dk">${k}</b> `);
+  const fmtTime = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  function fmtDate(d) { const [y, m, dd] = d.split("-"); return `${+m}/${+dd} (${W[new Date(d + "T00:00:00").getDay()]})`; }
+  function dueHtml(t, today) {
+    if (!t.due) return "";
+    if (t.due < today) return `<span class="over">${fmtDate(t.due)}</span>`;
+    if (t.due === today) return `<span class="today">今日</span>`;
+    return `<span>${fmtDate(t.due)}</span>`;
+  }
+  function rowHtml(t, today) {
+    return `<div class="row${t.blocked ? " blocked" : ""}${t.done ? " dn" : ""}${t.mit && !t.done ? " mit" : ""}${t.aiActive ? (t.aiMode === "更新" ? " ai upd" : " ai run") : t.status === "人対応" ? " hu" : ""}" data-id="${t.id}">
+      <div class="under"><span>🤖 Claude へ</span><span>明日へ →</span></div>
+      <div class="card">
+        <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
+        <div class="body">
+          <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
+          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${t.env.length ? `<span>${t.env.join("・")}</span>` : ""}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}</div>
+        </div>
+        ${t.aiActive && t.aiSession
+          ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="Claude のセッションを開く" data-sess>💬</a>`
+          : `<button class="go" aria-label="Claudeへ" data-claude>${ICONS.claude}</button>`}
+      </div></div>`;
+  }
+  // 描き直しの間引き (2026-10-07 キビキビ対応): 一覧の中身が前回と同じなら DOM を作り直さない。
+  // 30 秒ごとの取り直し・操作後 1.5 秒の取り直し・前面復帰のたびに全行を innerHTML していたのが「一瞬固まる」の正体
+  let lastSig = "", lastView = null;
+  const sigOf = (ts) => ts.map((t) => [t.id, t.name, t.due, t.start, t.startRaw, t.status, t.done, t.mit, t.owner, t.aiSince, t.aiMode, t.blockedCount, t.priority, t.project, t.carry, (t.predIds || []).length, (t.succIds || []).length].join("|")).join("\n");
+  function render(today) {
+    const viewChanged = lastView !== view; lastView = view;
+    document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
+    $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
+    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
+    $("#date").textContent = today ? fmtDate(today) : "";
+    $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
+    $("#add").hidden = view === "roles" || view === "review"; $("#rfoot").hidden = view !== "roles";
+    if (view === "roles") { renderRoles(today); return; }
+    if (view === "review") { renderReview(today); return; }
+    if (view === "deps") { $("#add").hidden = true; renderDeps(today); return; }
+    if (view === "graph") { $("#add").hidden = true; renderGraph(today); return; }
+    if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
+    const list = $("#list");
+    const sig = [view, today, searchQ, projInfoAt, tasks.length, sigOf(tasks)].join("\u0001");
+    if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
+    lastSig = sig;
+    if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
+    if (!tasks.length && !(view === "project" && (projInfo || []).some((p) => p.closable || p.stalled))) { list.innerHTML = `<div class="empty">${view === "search" ? "見つかりません" : "なし"}</div>`; return; }
+    // 今日やる は 期限切れ／今日 で区切る。他は 期日あり／なし
+    let secs;
+    if (view === "search") {
+      secs = [["未完了", "", tasks.filter((t) => !t.done)], ["完了済み", "blk", tasks.filter((t) => t.done)]];
+    } else if (view === "today") {
+      secs = [
+        ["期限切れ", "over", tasks.filter((t) => !t.blocked && t.due && t.due < today && !t.evening)],
+        ["今日", "", tasks.filter((t) => !t.blocked && !(t.due && t.due < today) && !t.evening)],
+        ["🌙 今夜", "eve", tasks.filter((t) => !t.blocked && t.evening)],
+        ["⏭ 先行待ち（期日が来ている）", "blk", tasks.filter((t) => t.blocked)],
+      ];
+    } else if (view === "delegated") {
+      // 担当ごとにまとめる (2026-10-01)。並びは選択肢の順
+      const g = new Map();
+      for (const t of tasks) { const k = t.owner || "（担当なし）"; if (!g.has(k)) g.set(k, []); g.get(k).push(t); }
+      secs = [...g.entries()].sort((a, b) => DELEGATES.indexOf(a[0]) - DELEGATES.indexOf(b[0])).map(([name, ts]) => ["👥 " + name, "prjh", ts]);
+    } else if (view === "project") {
+      // プロジェクトごとにまとめる。タスクが多い順。Phase B (2026-10-06): クローズ候補 → 止まっている PJ を先頭に、未完了 0 件の PJ も見出しだけ出す
+      const g = new Map();
+      for (const t of tasks) for (const name of (t.project || "（名前なし）").split(" / ")) { if (!g.has(name)) g.set(name, []); g.get(name).push(t); }
+      const info = new Map((projInfo || []).map((p) => [p.label, p]));
+      for (const p of projInfo || []) if ((p.closable || p.stalled) && !g.has(p.label)) g.set(p.label, []);
+      const rank = (name) => { const p = info.get(name); return p?.closable ? 0 : p?.stalled ? 1 : 2; };
+      secs = [...g.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].length - a[1].length).map(([name, ts]) => [name, "prjh", ts]);
+    } else {
+      secs = [["期日あり", "", tasks.filter((t) => t.due)], ["日付なし", "", tasks.filter((t) => !t.due)]];
+    }
+    // 🤖 処理中 は一番上に独立した節で出し、他の節からは外す (2026-09-30)
+    const ai = tasks.filter((t) => t.aiActive);
+    if (ai.length) secs = [["🤖 Claude が処理中", "aih", ai], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.aiActive)])];
+    // 🧔 人対応 (Claude が止めて本人の手番) は 処理中 の次に独立した節で (2026-10-03)
+    const hu = tasks.filter((t) => t.status === "人対応" && !t.aiActive);
+    if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ["🧔 本人の手番（Claude が止めた）", "huh", hu], ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
+    // ⭐ 今日の3つ (MIT, 2026-10-06) は一番上。4件以上なら見出しで注意 (検索タブでは節を作らない)
+    const mit = view === "search" ? [] : tasks.filter((t) => t.mit && !t.done);
+    if (mit.length) secs = [[`⭐ 今日の3つ${mit.length > 3 ? ` <span style="color:var(--over)">（${mit.length} 件。3つに絞る）</span>` : ""}`, "mith", mit], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.mit)])];
+    const pjOf = new Map((view === "project" && projInfo || []).map((p) => [p.label, p]));
+    list.innerHTML = secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
+      if (view === "project" && cls === "prjh") {
+        const p = pjOf.get(h);
+        const addBtn = p ? `<button class="addrow" data-pjadd="${p.id}" data-pjlabel="${esc(p.label)}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>${p.stalled ? "次のアクションを1件決める" : "この PJ にタスクを足す"}</button>` : "";
+        return `<section class="sec" ${p ? `data-pj="${p.id}"` : ""}>${pjHeadHtml(h, p, ts)}<div class="group">${ts.map((t) => rowHtml(t, today)).join("")}${addBtn}</div></section>`;
+      }
+      return `<section class="sec"><h2 class="${cls}">${cls === "prjh" ? esc(h) + `<span class="n">${ts.length}</span>` : h}</h2><div class="group">${ts.map((t) => rowHtml(t, today)).join("")}</div></section>`;
+    }).join("") +
+      '<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 Claude に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>';
+  }
+  // 📁 PJ の見出し (Phase B-7/8, 2026-10-06)。情報がまだ無ければ従来の名前＋件数だけ
+  function pjHeadHtml(label, p, ts) {
+    if (!p) return `<h2 class="prjh">${esc(label)}<span class="n">${ts.length}</span></h2>`;
+    const total = p.done + p.open, pct = total ? Math.round(p.done / total * 100) : 0;
+    const role = p.roles && p.roles.length ? `<span class="pr">${esc(p.roles.join("・"))}</span>` : "";
+    if (p.closable) return `<div class="pjh cl">
+      <div class="pt"><div class="pn">${esc(p.label)}</div><span class="bdg cl">クローズ候補</span></div>
+      ${p.cond ? `<div class="pg">完了条件: ${esc(p.cond)}</div>` : `<div class="pg">完了条件は未記入${p.lastDone ? ` — 最後の完了: ${esc(p.lastDone)}${p.lastDoneAt ? ` (${fmtDate(p.lastDoneAt)})` : ""}` : ""}</div>`}
+      <div class="pb"><div class="bar"><i class="full" style="width:100%"></i></div><span class="pc">${p.done} / ${total} 完了</span></div>
+      <div class="pbtn"><button class="pri" data-pjclose="${p.id}" data-pjname="${esc(p.name)}">クローズする</button><button data-pjadd="${p.id}" data-pjlabel="${esc(p.label)}">次のアクションを足す</button></div>
+      <div class="fn">クローズすると Decisions に決着行が1行入ります</div></div>`;
+    if (p.stalled) return `<div class="pjh">
+      <div class="pt"><div class="pn">${esc(p.label)}</div><span class="bdg st">次のアクションなし</span></div>
+      <div class="pg warn">${p.goal ? "タスクが 0 件 — 止まっています" : "対応ゴールが未記入。タスクも 0 件 — 止まっています"}</div></div>`;
+    return `<div class="pjh">
+      <div class="pt"><div class="pn">${esc(p.label)}</div>${role}<span class="n">${ts.length}</span>${p.unordered ? `<button class="bdg un" data-pjdeps="${p.id}" title="未完了 ${p.open} 件に依存が 1 本もない">順番未整理</button>` : ""}${ts.length > 1 ? `<button class="lnk" data-pjdeps="${p.id}">🔗</button>` : ""}</div>
+      ${p.goal ? `<div class="pg">ゴール: ${esc(p.goal)}</div>` : `<div class="pg warn">対応ゴールが未記入 — 🤖 で決める</div>`}
+      <div class="pb"><div class="bar"><i style="width:${pct}%"></i></div><span class="pc">${p.done} / ${total}</span></div></div>`;
+  }
+  // 🧭 役割タブ (Phase B-6)
+  function renderRoles(today) {
+    const list = $("#list");
+    if (!rolesData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
+    const s = rolesData.summary;
+    const pct = s.total ? Math.round(s.done / s.total * 100) : 0;
+    const stoneHtml = (r) => {
+      const st = r.stone;
+      if (!st) return `<button class="stone put" data-rolepick="${r.id}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>今週の石を置く<small>予定に入れないと起きないもの</small></button>`;
+      const lab = { done: "達成", doing: "進行中", todo: "未着手", text: "", unknown: "不明" }[st.state] || "";
+      const ring = st.state === "done" ? `<span class="ring done-ring">${ICONS.check}</span>` : st.state === "doing" ? `<span class="ring" style="border-color:var(--acc);display:flex;align-items:center;justify-content:center"><span style="width:10px;height:10px;border-radius:50%;background:var(--acc)"></span></span>` : `<span class="ring"></span>`;
+      return `<button class="stone ${st.state}" data-rolestone="${r.id}">${ring}<span class="sb"><span class="sl">今週の石${st.until ? ` 〜${esc(st.until)}` : ""}</span><span class="sn">${st.icon ? st.icon + " " : ""}${esc(st.name)}</span></span><span class="ss ${st.state}">${lab}</span></button>`;
+    };
+    list.innerHTML = `<div class="rsum"><span>今週の石 ${s.total} 本 — 達成 ${s.done} ・ 進行中 ${s.doing} ・ 未着手 ${s.todo}</span><b>週の実行 ${pct}%</b><a href="#" data-quad>象限 ›</a></div>` +
+      rolesData.roles.map((r) => `<div class="rc${!r.stone && !r.mission ? "" : ""}" data-role="${r.id}">
+        <div class="rt"><div class="rn">${r.icon ? r.icon + " " : ""}${esc(r.name)}</div><div class="rk" data-rolepj title="PJ の一覧を開く">PJ ${r.pj} · 今日 ${r.today} ▾</div></div>
+        <div class="rpj${rolePjOpen.has(r.id) ? " open" : ""}">${(r.projects || []).map((p) => `<button data-rpj="${p.id}"><span class="t">${esc(p.label)}</span><small>${p.closable ? "クローズ候補" : p.stalled ? "停止" : `未完了 ${p.open}`}</small>${p.open > 1 ? "<span style=\"color:var(--acc)\">🔗</span>" : ""}</button>`).join("") || '<button disabled><span class="t" style="color:var(--mute)">進行中の PJ なし</span></button>'}</div>
+        ${r.mission ? `<div class="rm">${esc(r.mission)}${r.q2 ? `　<span class="q2">／ Q2: ${esc(r.q2)}</span>` : ""}</div>`
+          : `<div class="rm warn"><a href="${missionHref(r)}" data-ext>ミッション未記入 — タップして Claude と一問一答で決める</a></div>`}
+        ${stoneHtml(r)}
+      </div>`).join("") +
+      '<div class="hint">編集は Claude で。ここで動かせるのは「今週の石」の置き換えだけ</div>';
+    $("#roleReview").href = claudeLink(`週次の役割レビューをお願いします。Notion 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。終わったら 📻 Sessions に足跡を 1 行。`);
+  }
+  // 🗂 見直し (Phase C-9): 1 問ずつ。答えは Worker が Notion に書く。「今は決めない」は端末内で飛ばす (Decisions は 提示済み にする)
+  function reviewList() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind)) : []; }
+  function renderReview(today) {
+    const list = $("#list");
+    if (!reviewData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
+    const qs = reviewList(), total = reviewData.questions.length, done = total - qs.length;
+    if (!qs.length) { list.innerHTML = `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}</div><div class="hint">問いは 棚卸し・Decisions・PJ のクローズ候補・繰越 3 回超 から機械的に作る。理由が要るものは Claude へ</div>`; return; }
+    const q = qs[0];
+    const ctx = (q.ctx || []).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(String(v))}</div>`).join("");
+    const opts = q.options.map((o, i) => `<button data-ans="${esc(o.a)}" class="${o.pri ? "pri" : ""}"><span class="no">${i + 1}</span>${esc(o.t)}${o.s ? `<small>${esc(o.s)}</small>` : ""}</button>`).join("");
+    const needNote = q.kind !== "project-close";
+    list.innerHTML = `<div class="rvp"><div class="bar"><i style="width:${total ? Math.round(done / total * 100) : 0}%"></i></div><span>${done + 1} / ${total} 問</span></div>
+      <div class="rvc" data-qid="${q.id}" data-kind="${q.kind}">
+        <div class="rh"><span class="db ${q.db}">${q.db}</span><span>${esc(q.label || "")}</span><a href="${q.url}" target="_blank" rel="noopener" style="margin-left:auto;color:var(--mute2);text-decoration:none">Notion ↗</a></div>
+        <div class="rq">${esc(q.q)}</div>
+        ${q.body ? `<div class="rb">${esc(q.body)}</div>` : ""}
+        ${ctx ? `<div class="ctx">${ctx}</div>` : ""}
+        ${needNote ? `<input class="rnote" id="rvNote" placeholder="理由・学びを1行（任意）" autocomplete="off">` : ""}
+        <div class="opts">${opts}</div>
+        <a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${ICONS.claude} 理由を話しながら決めたい（Claude へ）</a>
+      </div>
+      ${qs.length > 1 ? `<div class="rvn"><h2>このあと</h2><div class="group">${qs.slice(1, 4).map((n) => `<div><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${n.db}</span><span>${esc(n.q)}</span></div>`).join("")}</div></div>` : ""}
+      <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは Claude に逃がす</div>`;
+  }
+  function reviewClaudeHref(q) {
+    const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : "🧠 Decisions の決定";
+    return claudeLink(`「${q.name || q.q}」について一問一答で決めたいです（${where}。ページ: ${q.url} ）。${q.kind === "verify" ? "決めたことの検証結果（当たり／外れ／部分的）と学びを一緒に書いてください。" : q.kind === "project-close" ? "クローズするか、次のアクションを 1 件足すかを決めて、Projects と Decisions を更新してください。" : "判断に要る事実を 1 問ずつ聞いて、決着したら Notion を更新してください（操作規約どおり）。"}`);
+  }
+  async function reviewAnswer(q, a) {
+    const note = ($("#rvNote") || {}).value || "";
+    reviewSkipped.add(q.id + q.kind); render(todayStr);
+    try {
+      if (a === "skip") { if (q.kind === "decision" || q.kind === "deps" || q.kind === "dates") await api(`/api/review/decision/${q.id}`, { method: "POST", body: JSON.stringify({ answer: "skip" }) }); toast("次回に: " + (q.name || "").slice(0, 24)); return; }
+      if (q.kind === "project-close") {
+        if (a === "close") { const j = await api(`/api/projects/${q.id}/close`, { method: "POST", body: JSON.stringify({ note }) }); toast(`クローズ: ${j.project.name}（Decisions に決着行）`); projInfoAt = 0; }
+        else if (a === "add") { setAddProject({ id: q.id, label: q.projectLabel || q.name }); $("#add").hidden = false; toast("次のアクションを 1 件入れてください"); }
+        return;
+      }
+      await api(`/api/review/${q.kind}/${q.id}`, { method: "POST", body: JSON.stringify({ answer: a, note }) });
+      const lab = (q.options.find((o) => o.a === a) || {}).t || a;
+      toast(`${lab}: ${(q.name || "").slice(0, 24)}`);
+      if (q.kind === "task-carry") { localStorage.removeItem(K("today")); counts(); }
+      if (q.kind === "deps" || q.kind === "dates") { projInfoAt = 0; localStorage.removeItem(K("today")); counts(); }
+    } catch (e) { toast("失敗: " + e.message); reviewSkipped.delete(q.id + q.kind); render(todayStr); }
+  }
+  // 🔗 つながり (Phase C-11): PJ のタスクを依存順に。Worker が順序・辺・矛盾を返し、画面は幅で描き分ける
+  async function openDeps(pjId) {
+    if (view !== "deps") depsBack = view === "search" ? searchBack : view;
+    closeSheet(); view = "deps"; depsPj = pjId; depsData = null; render(todayStr);
+    $("#stale").hidden = false; $("#stale").textContent = "依存を集めています…";
+    try { depsData = await api(`/api/projects/${pjId}/deps`); tasks = depsData.tasks; render(depsData.today); $("#stale").hidden = true; }
+    catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗: " + e.message; }
+  }
+  function closeDeps() { depsData = null; load(depsBack === "deps" ? "project" : depsBack); }
+  async function fixConflict(id, date) {
+    const t = tasks.find((x) => x.id === id); if (!t) return;
+    pushUndo(t, `期日を ${fmtDate(date)} に: ${t.name}`);
+    try { await api(`/api/tasks/${id}/due?date=${date}`, { method: "POST" }); toast(`期日を ${fmtDate(date)} に揃えた: ${t.name}`, undoLast); openDeps(depsPj); }
+    catch (e) { toast("失敗: " + e.message); }
+  }
+  const dayDiff = (a, b) => Math.round((Date.parse(a + "T00:00:00Z") - Date.parse(b + "T00:00:00Z")) / 86400000);
+  const addDays = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  let depsShowDone = false; // 完了は既定で隠す (利用者の指摘 2026-10-06)。ヘッダーの「完了 n 件」で出す
+  function renderDeps(today) {
+    const list = $("#list");
+    const head = `<div class="dh"><button data-dback aria-label="戻る">‹</button><div class="dt">${depsData ? `📁 ${esc(depsData.project.label)}${depsData.project.goal ? ` <span style="color:var(--mute2)">· ${esc(depsData.project.goal)}</span>` : ""}` : "…"}</div>${depsData && depsData.tasks.some((t) => t.done) ? `<button class="tg${depsShowDone ? " on" : ""}" data-dtoggle>完了 ${depsData.tasks.filter((t) => t.done).length}</button>` : ""}<span style="font-size:11px;color:var(--mute);flex:none">${wideMq.matches ? "ガント" : "依存順"}</span></div>`;
+    if (!depsData) { list.innerHTML = head + '<div class="empty">読み込み中…</div>'; return; }
+    const D = depsData, wide = wideMq.matches;
+    const ts = D.tasks.filter((t) => depsShowDone || !t.done);
+    if (!ts.length) { list.innerHTML = head + `<div class="empty">${D.tasks.length ? "未完了のタスクはありません（完了 " + D.tasks.length + " 件は上のボタンで表示）" : "この PJ にタスクがありません"}</div>`; return; }
+    const vis = new Set(ts.map((t) => t.id));
+    const byId = new Map(D.tasks.map((t) => [t.id, t]));
+    const edges = (D.edges || []).filter((e) => vis.has(e.from) && vis.has(e.to));
+    const confl = D.conflicts || [];
+    const warn = confl.length ? `<div class="dwarn">⚠ 日付の矛盾 ${confl.length} 件 — 後続「${esc(confl[0].succ.name).slice(0, 24)}」の期日 ${fmtDate(confl[0].succ.due)} が先行「${esc(confl[0].pred.name).slice(0, 24)}」の期日 ${fmtDate(confl[0].pred.due)} より前${D.cycle ? "／先行タスクに循環あり" : ""}</div>` : D.cycle ? `<div class="dwarn">⚠ 先行タスクが循環しています（Claude で外してください）</div>` : "";
+    // 時間軸: 今日の 2 日前 〜 (最長の期日 or 今日+3週) + 3 日。狭い画面は 1 日 10px、広い画面は 24px。名前の列はスクロールしない別枠
+    const dates = ts.flatMap((t) => [t.due, t.start]).filter(Boolean);
+    const d0 = addDays(today, -2);
+    let dEnd = addDays(today, wide ? 34 : 20);
+    for (const d of dates) if (d > dEnd && dayDiff(d, today) <= 120) dEnd = addDays(d, 3);
+    const nDays = dayDiff(dEnd, d0) + 1, dw = wide ? 24 : 10, rh = wide ? 54 : 60, nameW = wide ? 280 : 150, tbdW = 28, HH = 36;
+    const X = (d) => Math.max(0, dayDiff(d, d0)) * dw;
+    const TW = nDays * dw + tbdW, H = HH + ts.length * rh;
+    const badTo = new Set(confl.map((c) => c.succ.id));
+    const yc = (i) => HH + i * rh + Math.floor(rh / 2);
+    const idx = new Map(ts.map((t, i) => [t.id, i]));
+    // ---- 左: 名前の列 (狭い画面は依存のレールと状態の丸も)
+    let n = `<div class="dnames" style="width:${nameW}px;height:${H}px;--rh:${rh}px"><div class="hdr" style="height:${HH}px">${wide ? "タスク（先行が上）" : "先行が上"}</div>`;
+    ts.forEach((t, i) => {
+      const y = HH + i * rh, bad = badTo.has(t.id), st = t.done ? "dn" : (t.status === "進行中" || t.status === "人対応") ? "doing" : "todo";
+      const hiddenPreds = (t.predIds || []).filter((pid) => !vis.has(pid)).length;
+      const dot = wide ? "" : `<span class="dot ${st}${bad ? " bad" : ""}" style="left:8px;top:${yc(i) - 6}px"></span>`;
+      n += `${dot}<div class="nm${t.done ? " dn" : ""}${bad ? " bad" : ""}" data-did="${t.id}" style="top:${y}px;${wide ? "" : "padding-left:26px"}"><div class="t">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div><div class="m">${t.done ? "完了" : t.status === "進行中" ? "進行中" : t.status === "待ち" ? "⏸ 待ち" : t.status === "人対応" ? "🧔 人対応" : ""}${t.start && t.due ? ` ${fmtDate(t.start).split(" ")[0]} → ${fmtDate(t.due).split(" ")[0]}` : t.due ? ` 期日 ${fmtDate(t.due).split(" ")[0]}` : " 日付なし"}${bad ? ` <span style="color:#d0342c;font-weight:600">先行より前</span>` : ""}${hiddenPreds ? ` · 先行済み ${hiddenPreds}` : ""}${t.predsOut ? ` · PJ 外の先行 ${t.predsOut}` : ""}</div></div>`;
+    });
+    if (!wide) for (const e of edges) {
+      const ia = idx.get(e.from), ib = idx.get(e.to); if (ia == null || ib == null) continue;
+      const y1 = Math.min(yc(ia), yc(ib)), y2 = Math.max(yc(ia), yc(ib));
+      n += `<div class="rail${e.bad ? " bad" : ""}" style="left:13px;top:${y1}px;height:${y2 - y1}px;${e.bad ? "background:#d0342c" : ""}"></div>`;
+    }
+    n += `</div>`;
+    // ---- 右: 時間軸 (横スクロール)
+    let g = `<div class="dg" style="--dw:${dw}px;--rh:${rh}px;width:${TW}px;height:${H}px"><div class="hdr" style="height:${HH}px"></div>`;
+    let lastMon = "";
+    for (let i = 0; i < nDays; i++) {
+      const d = addDays(d0, i), dt = new Date(d + "T00:00:00"), dow = dt.getDay(), day = dt.getDate(), x = i * dw;
+      const mon = `${dt.getMonth() + 1}月`;
+      if (mon !== lastMon) { g += `<div class="mon" style="left:${x}px">${mon}</div>`; lastMon = mon; }
+      if (wide || day === 1 || day % 5 === 0 || d === today) g += `<div class="dayl" style="left:${x}px;top:18px;${d === today ? "color:var(--today);font-weight:700" : ""}">${day}</div>`;
+      g += `<div class="day${dow === 0 || dow === 6 ? " we" : ""}" style="left:${x}px;top:${HH}px"></div>`;
+    }
+    g += `<div class="todayl" style="left:${X(today) + Math.floor(dw / 2)}px;top:${HH}px"><span>今日</span></div><div class="tbd" style="top:${HH}px">未<br>定</div>`;
+    ts.forEach((t, i) => {
+      const bad = badTo.has(t.id), cls = (t.done ? " dn" : "") + (bad ? " bad" : "");
+      g += `<div class="rowl" style="top:${HH + i * rh}px"></div>`;
+      if (t.due && t.start && t.start <= t.due) {
+        const cut = t.start < d0, x1 = X(cut ? d0 : t.start), x2 = X(t.due) + dw, w = Math.max(dw, Math.min(x2, nDays * dw) - x1);
+        g += `<div class="bar${cls}${cut ? " cut" : ""}" style="left:${x1}px;top:${yc(i) - 9}px;width:${w}px" title="${esc(t.name)}">${wide ? esc(t.name).slice(0, Math.floor(w / 12)) : ""}</div>`;
+      } else if (t.due) {
+        g += `<div class="dia${cls}" style="left:${X(t.due) + Math.floor(dw / 2) - 6}px;top:${yc(i) - 6}px"></div>`;
+      } else {
+        g += `<div class="dia${cls}" style="right:8px;top:${yc(i) - 6}px;border-style:dashed"></div>`;
+      }
+    });
+    if (wide) {
+      let paths = "";
+      for (const e of edges) {
+        const a = byId.get(e.from), b = byId.get(e.to), ia = idx.get(e.from), ib = idx.get(e.to);
+        const xa = a.due ? X(a.due) + dw : (a.start ? X(a.start) + dw : null), xb = b.start && b.due && b.start <= b.due ? X(b.start) : b.due ? X(b.due) + Math.floor(dw / 2) - 6 : null;
+        if (xa == null || xb == null) continue;
+        const y1 = yc(ia) - HH, y2 = yc(ib) - HH, col = e.bad ? "#d0342c" : "#9a9aa0", mid = Math.floor((y1 + y2) / 2);
+        const d = xb >= xa + 10 ? `M${xa},${y1} H${xa + 6} V${y2} H${xb - 6}` : `M${xa},${y1} H${xa + 6} V${mid} H${xb - 8} V${y2} H${xb - 6}`;
+        paths += `<path d="${d}" fill="none" stroke="${col}" stroke-width="1.5"/><path d="M${xb - 6},${y2 - 4} L${xb},${y2} L${xb - 6},${y2 + 4} Z" fill="${col}"/>`;
+      }
+      g += `<svg style="left:0;top:${HH}px" width="${TW}" height="${H - HH}">${paths}</svg>`;
+    }
+    g += `</div>`;
+    const fixes = confl.map((c) => `<button data-fix="${c.succ.id}" data-date="${c.pred.due}"><span class="ic bad">⚠</span>矛盾を直す: 「${esc(c.succ.name).slice(0, 22)}」の期日を ${fmtDate(c.pred.due)} に揃える<span style="margin-left:auto;color:var(--mute);font-size:12px;flex:none">1 タップ</span></button>`).join("");
+    const claude = `<a href="${claudeLink(`PJ「${D.project.name}」（${D.project.url}）のタスクの依存関係（先行タスク）を見直したいです。各タスクの順序を確認して、先行→後続の関係を足す・外す、日付の矛盾（後続の期日が先行より前）を直す、を一緒にやってください。終わったら操作規約どおり更新。`)}" data-ext><span class="ic">${ICONS.claude}</span>依存を足す・外す（Claude へ）</a>`;
+    list.innerHTML = head + (warn ? warn : "") + `<div class="dwrap">${n}<div class="dbox">${g}</div></div>` +
+      `<div class="dleg"><span><i style="width:12px;height:8px;border-radius:2px;background:var(--accbg);border:1.5px solid var(--acc);box-sizing:border-box"></i>開始→期日</span><span><i style="width:12px;height:8px;border-radius:2px;background:var(--acc)"></i>完了</span><span><i style="width:8px;height:8px;transform:rotate(45deg);background:var(--card);border:1.5px solid var(--acc);box-sizing:border-box"></i>期日のみ</span><span><i style="width:12px;height:2px;background:#9a9aa0"></i>先行→後続</span><span><i style="width:12px;height:8px;border-radius:2px;background:#fde7e5;border:1.5px solid #d0342c;box-sizing:border-box"></i>矛盾</span>${wide ? "" : "<span>横にスワイプで先の週へ</span>"}</div>` +
+      `<div class="dfix">${fixes}${claude}</div><div class="hint">行をタップ＝メニュー ／ ${ts.length} 件を先行が上になる順で${depsShowDone ? "" : `（完了 ${D.tasks.length - ts.length} 件は隠しています）`}</div>`;
+    const box = list.querySelector(".dbox"); if (box) box.scrollLeft = wide ? 0 : Math.max(0, X(today) - 30);
+  }
+  // 🔗 1 タスク中心の 3 列 (C-11a): 先行 → 本タスク → 後続。ノードをタップで中心を移す／本タスクはメニュー
+  async function openGraph(id) {
+    if (view !== "deps" && view !== "graph") depsBack = view === "search" ? searchBack : view;
+    closeSheet(); view = "graph"; graphData = null; render(todayStr);
+    $("#stale").hidden = false; $("#stale").textContent = "先行・後続を集めています…";
+    try { graphData = await api(`/api/tasks/${id}/graph`); tasks = [graphData.task, ...graphData.preds, ...graphData.succs]; render(graphData.today); $("#stale").hidden = true; }
+    catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗: " + e.message; }
+  }
+  function gNode(t, me, today) {
+    const st = t.done ? ["完了" + (t.due ? " " + fmtDate(t.due).split(" ")[0] : ""), ""] : t.blocked ? [`先行待ち ${t.blockedCount}`, "blk"] : (t.status === "進行中" || t.status === "人対応") ? [t.status + (t.due === today ? " · 今日" : t.due ? " · " + fmtDate(t.due).split(" ")[0] : ""), "doing"] : [t.due ? (t.due < today ? "期限切れ " : "") + fmtDate(t.due).split(" ")[0] : "日付なし", ""];
+    const ring = t.done ? `<span class="ring done-ring">${ICONS.check}</span>` : st[1] === "doing" ? `<span class="ring" style="border-color:var(--acc);display:flex;align-items:center;justify-content:center"><span style="width:8px;height:8px;border-radius:50%;background:var(--acc)"></span></span>` : `<span class="ring" style="border-style:dashed"></span>`;
+    return `<div class="nd${me ? " me" : ""}${t.done ? " dn" : ""}" data-gid="${t.id}">${ring}<span class="t">${t.icon ? t.icon + " " : ""}${esc(t.name)}</span><span class="s ${st[1]}">${esc(st[0])}</span></div>`;
+  }
+  function renderGraph(today) {
+    const list = $("#list"), G = graphData;
+    const head = `<div class="dh"><button data-dback aria-label="戻る">‹</button><div class="dt">${G ? `${G.roles && G.roles.length ? `<span style="color:var(--mute2)">${esc(G.roles.join("・"))} ›</span> ` : ""}${G.project ? esc(G.project.label) : "PJ なし"}` : "…"}</div><span style="font-size:11px;color:var(--mute);flex:none">先行 → 本タスク → 後続</span></div>`;
+    if (!G) { list.innerHTML = head + '<div class="empty">読み込み中…</div>'; return; }
+    const cols = `<div class="g3" id="g3"><svg id="g3svg"></svg>
+      <div class="col" data-col="pred"><div class="cap">先行 ${G.preds.length}</div>${G.preds.map((t) => gNode(t, false, today)).join("") || '<div class="emp">先行なし</div>'}</div>
+      <div class="col"><div class="cap" style="text-align:center">本タスク</div>${gNode(G.task, true, today)}</div>
+      <div class="col" data-col="succ"><div class="cap" style="text-align:right">後続 ${G.succs.length}</div>${G.succs.map((t) => gNode(t, false, today)).join("") || '<div class="emp">後続なし</div>'}</div></div>`;
+    list.innerHTML = head + cols +
+      `<div class="dfix">${G.project ? `<button data-gdeps="${G.project.id}"><span class="ic">🔗</span>この PJ の全タスクを依存順に見る</button>` : ""}<a href="${claudeLink(`「${G.task.name}」（${G.task.url}）の先行タスク・後続タスクを足す・外すを手伝ってください。依存（先行タスク リレーション）を見直して、終わったら操作規約どおり更新。`)}" data-ext><span class="ic">${ICONS.claude}</span>依存を足す・外す（Claude へ）</a></div>
+      <div class="hint">左右のタスクをタップ＝そのタスクを中心に ／ 中央をタップ＝メニュー</div>`;
+    // 直交線: 先行の右端 → 中央の左端、中央の右端 → 後続の左端
+    requestAnimationFrame(() => {
+      const g3 = $("#g3"), svg = $("#g3svg"); if (!g3 || !svg) return;
+      const R = g3.getBoundingClientRect(), me = g3.querySelector(".nd.me"); if (!me) return;
+      const m = me.getBoundingClientRect(), mx1 = m.left - R.left, mx2 = m.right - R.left, my = m.top + m.height / 2 - R.top;
+      let d = "";
+      g3.querySelectorAll('[data-col="pred"] .nd').forEach((n) => { const b = n.getBoundingClientRect(); const x = b.right - R.left, y = b.top + b.height / 2 - R.top; const mid = (x + mx1) / 2; d += `<path d="M${x},${y} H${mid} V${my} H${mx1 - 4}" fill="none" stroke="#9a9aa0" stroke-width="1.5"/><path d="M${mx1 - 6},${my - 4} L${mx1},${my} L${mx1 - 6},${my + 4} Z" fill="#9a9aa0"/>`; });
+      g3.querySelectorAll('[data-col="succ"] .nd').forEach((n) => { const b = n.getBoundingClientRect(); const x = b.left - R.left, y = b.top + b.height / 2 - R.top; const mid = (mx2 + x) / 2; d += `<path d="M${mx2},${my} H${mid} V${y} H${x - 4}" fill="none" stroke="#9a9aa0" stroke-width="1.5"/><path d="M${x - 6},${y - 4} L${x},${y} L${x - 6},${y + 4} Z" fill="#9a9aa0"/>`; });
+      svg.setAttribute("viewBox", `0 0 ${R.width} ${R.height}`); svg.innerHTML = d;
+    });
+  }
+  // 🧭 象限 (C-10): 重要×緊急。Worker が分類 (緊急＝期日 3 日以内、重要＝⭐・石・p1/p2)
+  async function openQuad({ silent } = {}) {
+    if (view !== "quad") depsBack = view === "search" ? searchBack : view;
+    closeSheet(); view = "quad"; localStorage.setItem("view", "quad"); render(todayStr);
+    if (!silent || !quadData) { $("#stale").hidden = false; $("#stale").textContent = "分類しています…"; }
+    try { quadData = await api("/api/quadrant"); tasks = [...quadData.q1, ...quadData.q2, ...quadData.q3, ...quadData.q4]; render(quadData.today); $("#stale").hidden = true; }
+    catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗: " + e.message; }
+  }
+  function renderQuad(today) {
+    const list = $("#list"), Q = quadData;
+    const head = `<div class="dh"><button data-dback aria-label="戻る">‹</button><div class="dt">${Q ? esc(Q.rule) : "…"}</div></div>`;
+    if (!Q) { list.innerHTML = head + '<div class="empty">読み込み中…</div>'; return; }
+    const item = (t) => `<div class="qi" data-qid="${t.id}"><span class="ring${t.done ? " done-ring" : ""}" style="${t.blocked ? "border-style:dashed" : ""}"></span><span class="t">${t.icon ? t.icon + " " : ""}${esc(t.name)}</span><small>${t.mit ? "⭐ " : ""}${t.stone ? "🪨 " : ""}${t.priority ? t.priority + " " : ""}${t.due ? (t.due < today ? "期限切れ " : "") + fmtDate(t.due).split(" ")[0] : ""}</small></div>`;
+    const box = (k, title, sub, arr) => `<div class="qq ${k}"><h3>${title}<span style="font-weight:400;color:var(--mute);font-size:11px">${sub}</span><span class="n">${arr.length}</span></h3>${arr.slice(0, 30).map(item).join("") || `<div class="qe">なし</div>`}</div>`;
+    list.innerHTML = head + `<div class="qg">${box("q1", "Ⅰ 緊急かつ重要", "今日やる", Q.q1)}${box("q2", "Ⅱ 重要だが緊急でない", "予定に入れる（第Ⅱ領域）", Q.q2)}${box("q3", "Ⅲ 緊急だが重要でない", "減らす・委任する", Q.q3)}${box("q4", "Ⅳ どちらでもない", "やめる候補", Q.q4)}</div>
+      <div class="hint">Ⅱ を増やし Ⅲ を減らすのがコヴィーの要点。日付なし・印なしの ${Q.unsorted} 件は象限に出していません（棚卸しが期日を置く）</div>`;
+  }
+  // 📁 PJ を付け替える (B-7 の残り): 進行中 PJ から選ぶ。1 件だけ。複数 PJ や新規 PJ は Claude へ
+  async function openPjPick(t) {
+    if (Date.now() - projInfoAt > 120_000 || !projInfo) { try { const j = await api("/api/projects"); projInfo = j.projects; projInfoAt = Date.now(); } catch (e) { toast("PJ 一覧を取れません: " + e.message); return; } }
+    const cur = (t.projectIds || [])[0];
+    const rowsHtml = (q) => projInfo.filter((p) => !q || p.label.toLowerCase().includes(q)).sort((a, b) => (b.open - a.open)).slice(0, 40)
+      .map((p) => `<button data-pick="${p.id}" ${p.id === cur ? 'style="color:var(--acc)"' : ""}><span class="nm">${esc(p.label)}</span><small>${p.id === cur ? "いま" : `未完了 ${p.open}`}</small></button>`).join("");
+    $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>📁 ${esc(t.name)}</h3><button class="close" aria-label="閉じる">✕</button></div>
+      <div class="sub">PJ を 1 つ選ぶ。${t.project ? `いまは「${esc(t.project)}」` : "いまは PJ なし"}</div>
+      <input class="rnote" id="pjq" placeholder="PJ 名で絞り込み" autocomplete="off" style="font-size:15px">
+      <div class="list pick" id="pjlist">${rowsHtml("")}</div>
+      ${cur ? `<div class="list pick"><button data-pick=""><span class="nm" style="color:var(--mute)">PJ から外す</span></button></div>` : ""}
+      <a class="notion" href="${claudeLink(`「${t.name}」（${t.url}）を新しいプロジェクトに入れたい、または複数の PJ に結びたいです。PJ を作る／結ぶを一緒に決めて更新してください。`)}" data-ext>${ICONS.claude} 新しい PJ を作る・複数に結ぶ（Claude へ）</a>`;
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+    $("#sheet").querySelector(".close").onclick = closeSheet;
+    $("#pjq").addEventListener("input", () => { $("#pjlist").innerHTML = rowsHtml($("#pjq").value.trim().toLowerCase()); bind(); });
+    const bind = () => $("#sheet").querySelectorAll("[data-pick]").forEach((b) => b.onclick = async () => {
+      const to = b.dataset.pick; closeSheet(); pushUndo(t, `PJ を変更: ${t.name}`);
+      try { const j = await api(`/api/tasks/${t.id}/project?to=${to}`, { method: "POST" }); toast(to ? `📁 ${j.task.project || "PJ"} に入れた: ${t.name}` : `PJ から外した: ${t.name}`, undoLast); localStorage.removeItem(K("project")); load(view, { silent: true }); }
+      catch (e) { toast("失敗: " + e.message); }
+    });
+    bind();
+  }
+  // ⏭ 先行タスクを選ぶ (2026-10-07, 依存の洗い出し A): 同じ PJ の未完了から複数選んで 先行タスク を置き換える。PJ なしは Claude へ
+  async function openPredPick(t) {
+    const pj = (t.projectIds || [])[0];
+    if (!pj) { toast("PJ に入っていないタスクは先行を選べません。先に PJ に入れてください"); return; }
+    let D;
+    try { D = await api(`/api/projects/${pj}/deps`); } catch (e) { toast("PJ のタスクを取れません: " + e.message); return; }
+    const me = t.id.replace(/-/g, "");
+    const sel = new Set((t.predIds || []).map((x) => x.replace(/-/g, "")));
+    const cands = D.tasks.filter((x) => x.id.replace(/-/g, "") !== me && !x.done);
+    const row = (x) => { const k = x.id.replace(/-/g, ""); return `<button data-pp="${x.id}" class="${sel.has(k) ? "on" : ""}"><span class="ck">${sel.has(k) ? "✓" : ""}</span><span class="nm">${x.icon ? x.icon + " " : ""}${esc(x.name)}</span><small>${x.due ? fmtDate(x.due).split(" ")[0] : x.status || ""}</small></button>`; };
+    $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>⏭ ${esc(t.name)}</h3><button class="close" aria-label="閉じる">✕</button></div>
+      <div class="sub">このタスクの <b>前に</b> 終わっているべきもの（同じ PJ の未完了）。複数可</div>
+      <div class="list pick pp" id="pplist">${cands.map(row).join("") || '<button disabled><span class="nm" style="color:var(--mute)">候補なし（この PJ に他の未完了タスクがありません）</span></button>'}</div>
+      <div class="grid"><button class="pri" id="ppOk">決定（${sel.size} 件）</button><button class="skip" id="ppNone">先行なしにする</button></div>
+      <a class="notion" href="${claudeLink(`「${t.name}」（${t.url}）の先行タスクを決めたいです。PJ 外のタスクや新しいタスクも含めて、何が先に終わっているべきか一緒に整理して 先行タスク リレーションを更新してください。`)}" data-ext>${ICONS.claude} PJ 外・新規も含めて整理する（Claude へ）</a>`;
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+    $("#sheet").querySelector(".close").onclick = closeSheet;
+    $("#sheet").querySelectorAll("[data-pp]").forEach((b) => b.onclick = () => { const k = b.dataset.pp.replace(/-/g, ""); if (sel.has(k)) sel.delete(k); else sel.add(k); b.classList.toggle("on"); b.querySelector(".ck").textContent = sel.has(k) ? "✓" : ""; $("#ppOk").textContent = `決定（${sel.size} 件）`; });
+    const save = async (ids) => {
+      closeSheet(); pushUndo(t, `先行タスクを変更: ${t.name}`);
+      try { const j = await api(`/api/tasks/${t.id}/preds`, { method: "POST", body: JSON.stringify({ ids }) }); t.predIds = j.task.predIds; toast(ids.length ? `先行 ${ids.length} 件を設定: ${t.name}` : `先行なしにした: ${t.name}`, undoLast); projInfoAt = 0; load(view, { silent: true }); }
+      catch (e) { toast(e.message === "cycle" || /cycle/.test(e.message) ? "循環になるので結べません（相手の先行にこのタスクがあります）" : "失敗: " + e.message); }
+    };
+    $("#ppOk").onclick = () => save([...sel]);
+    $("#ppNone").onclick = () => save([]);
+  }
+  function missionHref(r) {
+    return claudeLink(`役割「${r.name}」のミッションを一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。1 問ずつ聞いて、最後に ミッション 列に 1 行（30 字以内）で書き、必要なら 3年後の姿・今年のゴール も埋めてください。`);
+  }
+
+  let searchSeq = 0;
+  async function load(v = view, { silent } = {}) {
+    if (v === "deps" || v === "graph") return; // つながりは openDeps/openGraph が引く。自動更新で一覧に戻さない
+    if (v === "quad") { openQuad({ silent }); return; }
+    if (v === "search") { // 検索 (2026-10-04): キャッシュせず、古い応答は捨てる
+      view = v; const q = searchQ.trim(), seq = ++searchSeq;
+      if (!q) { tasks = []; render(todayStr); return; }
+      if (!silent) $("#stale").hidden = false, $("#stale").textContent = "検索中…";
+      try {
+        const j = await api("/api/search?q=" + encodeURIComponent(q) + (searchAll ? "&all=1" : ""));
+        if (seq !== searchSeq) return;
+        tasks = j.tasks; render(j.today); $("#stale").hidden = true;
+      } catch (e) { if (seq === searchSeq) { $("#stale").hidden = false; $("#stale").textContent = "検索できませんでした"; } }
+      return;
+    }
+    if (v === "roles") { // 役割タブ (Phase B-6): タスク一覧ではなく /api/roles。キャッシュは直近の応答だけ
+      view = v; localStorage.setItem("view", v);
+      const c = JSON.parse(localStorage.getItem("roles:data") || "null");
+      if (c && !rolesData) rolesData = c;
+      render(todayStr || (c && c.today) || "");
+      if (!silent || !rolesData) { $("#stale").hidden = false; $("#stale").textContent = "更新中…"; }
+      try { rolesData = await api("/api/roles"); localStorage.setItem("roles:data", JSON.stringify(rolesData)); render(rolesData.today); $("#stale").hidden = true; }
+      catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
+      return;
+    }
+    if (v === "review") { // 見直し (Phase C-9): 問いは Worker が作る。キャッシュしない
+      view = v; localStorage.setItem("view", v);
+      if (!silent || !reviewData) { $("#stale").hidden = false; $("#stale").textContent = "問いを集めています…"; }
+      render(todayStr);
+      try { const j = await api("/api/review"); reviewData = j; reviewPos = Math.min(reviewPos, Math.max(0, j.questions.length - 1)); render(j.today); $("#stale").hidden = true; $("#n-review").textContent = j.questions.length || ""; }
+      catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗: " + e.message; }
+      return;
+    }
+    if (v === "project") { // PJ別 (Phase B-7/8): 見出し用の PJ 情報を並行して引く (2 分は使い回す)
+      if (Date.now() - projInfoAt > 120_000) api("/api/projects").then((j) => { projInfo = j.projects; projInfoAt = Date.now(); if (view === "project") render(todayStr); }).catch(() => {});
+    }
+    const switching = v !== view;
+    view = v; localStorage.setItem("view", v);
+    // 同じタブの静かな取り直しではキャッシュを読み直さない (JSON.parse も描き直しも省く。楽観更新済みの画面を保つ)
+    const cached = (switching || !tasks.length) ? JSON.parse(localStorage.getItem(K(v)) || "null") : { tasks };
+    if (cached && cached.tasks !== tasks) { tasks = cached.tasks; render(cached.today); }
+    if (cached) { if (!silent) { $("#stale").hidden = false; $("#stale").textContent = "更新中…"; } }
+    else if (!silent) $("#list").innerHTML = '<div class="empty">読み込み中…</div>';
+    try {
+      const j = await api("/api/tasks?view=" + v);
+      tasks = j.tasks; writeCache(v, j);
+      if (Array.isArray(j.delegates) && j.delegates.length) { DELEGATES = j.delegates; localStorage.setItem("delegates", JSON.stringify(DELEGATES)); }
+      render(j.today); $("#stale").hidden = true; $("#n-" + v).textContent = tasks.length;
+      // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
+      const w = j.wip; const we = $("#wip");
+      if (w && w.count > w.limit) { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— 進行中・人対応を減らす`; we.title = (w.names || []).join("\n"); we.onclick = () => toast("着手中: " + (w.names || []).slice(0, 6).join("、")); }
+      else we.hidden = true;
+    } catch (e) {
+      $("#stale").hidden = false; $("#stale").textContent = "オフライン／取得失敗（表示は前回のもの）";
+      if (!cached) $("#list").innerHTML = '<div class="empty">取得できませんでした</div>';
+    }
+  }
+  // Mac と Android を同時に使うので、前面にある間は 30秒ごとに取り直す (2026-09-30。以前は 🤖 処理中のときだけ 60秒)。
+  // 前面に戻ったとき・回線が戻ったときも取り直す。スワイプ中は描き直さない
+  setInterval(() => { if (!document.hidden && !swiping && view !== "review") load(view, { silent: true }); }, 30000); // 見直しは問いを作るのが重いので自動更新しない
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(view, { silent: true }); });
+  window.addEventListener("focus", () => load(view, { silent: true }));
+  window.addEventListener("online", () => load(view, { silent: true }));
+  // タブの件数 (2026-10-07 キビキビ対応): 操作のたびに 6 本引いて 6 回 localStorage に大きな JSON を書いていたのを、
+  // 8 秒に 1 回にまとめ、中身が変わったタブだけ書く (setItem は同期なので UI を止める)
+  const cacheSig = new Map();
+  let countsTimer = null, countsAt = 0;
+  function writeCache(v, j) {
+    const s = sigOf(j.tasks);
+    if (cacheSig.get(v) === s) return false;
+    cacheSig.set(v, s); localStorage.setItem(K(v), JSON.stringify({ tasks: j.tasks, today: j.today, at: Date.now() })); return true;
+  }
+  function counts() {
+    clearTimeout(countsTimer);
+    const run = () => { countsAt = Date.now(); for (const v of views) if (v !== view) api("/api/tasks?view=" + v).then((j) => { $("#n-" + v).textContent = j.tasks.length; writeCache(v, j); }).catch(() => {}); };
+    const wait = Math.max(0, 8000 - (Date.now() - countsAt));
+    countsTimer = setTimeout(run, wait);
+  }
+
+  // ---- 操作 ----
+  function removeRow(id) {
+    tasks = tasks.filter((t) => t.id !== id);
+    const el = document.querySelector(`.row[data-id="${id}"]`);
+    if (el) { const g = el.parentElement, s = g.parentElement; el.remove(); if (!g.children.length) s.remove(); }
+    $("#n-" + view).textContent = tasks.length;
+    if (!tasks.length) $("#list").innerHTML = '<div class="empty">なし</div>';
+  }
+  function toast(msg, undoFn, label) { // label (2026-10-07): ボタンの文言を変えて「先行を選ぶ」などの次の一手にも使う
+    clearTimeout(undoTimer); $("#toastMsg").textContent = msg; $("#toast").hidden = false; $("#undo").hidden = !undoFn; $("#undo").textContent = label || "元に戻す"; undoTask = undoFn;
+    undoTimer = setTimeout(() => { $("#toast").hidden = true; undoTask = null; }, label ? 9000 : 6000);
+  }
+  $("#undo").onclick = async () => { if (undoTask) { const f = undoTask; undoTask = null; $("#toast").hidden = true; await f(); } };
+
+  // ---- 取り消し (2026-10-02) ----
+  // 操作の前にタスクの値を控えて積む。↩ で最後の1件を POST /restore に渡して戻す。端末ごと・最大20件・再読込しても残る
+  const UNDO_KEY = "kairos_undo";
+  let undoStack = JSON.parse(localStorage.getItem(UNDO_KEY) || "[]");
+  function snapOf(t) { return { done: false, due: t.due, startRaw: t.startRaw ?? t.start, status: t.status, owner: t.owner, desc: t.rawDesc ?? "", aiSince: t.aiSince ?? null, projectIds: t.projectIds || [], predIds: t.predIds || [] }; }
+  function pushUndo(t, label) {
+    undoStack.push({ id: t.id, name: t.name, label, snap: snapOf(t), at: Date.now() });
+    if (undoStack.length > 20) undoStack.shift();
+    localStorage.setItem(UNDO_KEY, JSON.stringify(undoStack)); renderUndo();
+  }
+  function renderUndo() { const b = $("#undoBtn"); b.hidden = !undoStack.length; $("#undoN").textContent = undoStack.length || ""; b.title = undoStack.length ? `取り消す: ${undoStack[undoStack.length - 1].label}` : ""; }
+  async function undoLast() {
+    const u = undoStack.pop(); if (!u) return;
+    localStorage.setItem(UNDO_KEY, JSON.stringify(undoStack)); renderUndo();
+    try { await api(`/api/tasks/${u.id}/restore`, { method: "POST", body: JSON.stringify(u.snap) }); toast(`取り消し: ${u.label}`); }
+    catch (e) { toast("取り消し失敗: " + e.message); }
+    load(view, { silent: true }); counts();
+  }
+  $("#undoBtn").onclick = undoLast;
+  renderUndo();
+  $("#roleReview").innerHTML = ICONS.claude + " Claude と週次役割レビュー";
+
+  async function act(t, action, label, keep) {
+    closeSheet();
+    const base0 = action.split("?")[0];
+    if (base0 !== "ai" && base0 !== "ai-clear" && base0 !== "reopen") pushUndo(t, `${label}: ${t.name}`); // reopen は 取り消し＝完了 なので対象外 (検索の完了済みから戻すとき, 2026-10-04)
+    if (keep) { // 今夜⇄今日・⭐ の出し入れ は一覧に残したまま節を移す
+      const ST = { todo: "未着手", doing: "進行中", wait: "待ち", human: "人対応" };
+      if (base0 === "mit" || base0 === "mit-clear") t.mit = base0 === "mit"; else if (ST[base0]) t.status = ST[base0]; else t.evening = action === "evening";
+      render(todayStr);
+    } else removeRow(t.id);
+    try {
+      const j = await api(`/api/tasks/${t.id}/${action}`, { method: "POST" });
+      const base = action.split("?")[0];
+      if (base === "done" || base === "skip" || base === "dup") {
+        const next = (j.unblocked || []).map((s) => s.name).join("、");
+        toast(`${base === "skip" ? "見送り" : base === "dup" ? "重複で完了" : "完了"}: ${t.name}` + (next ? `　→ 次: ${next} が着手可に` : ""), undoLast);
+        if (j.pendingPreds && j.pendingPreds.length) askPending(t, j.pendingPreds); // 先行が残っていたらその場で聞く
+      }
+      else if (base === "reopen") toast(`未完了に戻した: ${t.name}`);
+      else toast(`${label}: ${t.name}${j.dueMoved ? "（期日も同じ日に）" : ""}`, undoLast);
+      counts();
+      setTimeout(() => load(view, { silent: true }), 1500); // Notion 側の反映遅れを拾い直す
+    } catch (e) { toast("失敗: " + e.message); load(view, { silent: true }); }
+  }
+
+  // 一覧の順に処理するためのページャ (2026-10-04)。並びは今のタブに描かれている .row の順 (🤖/🧔 セクション込み)
+  function sheetOrder() { return [...document.querySelectorAll("#list .row[data-id]")].map((r) => r.dataset.id); }
+  function openSheet(t, today) {
+    sheetTask = t;
+    const sub =[t.due ? (t.due === today ? "今日" : fmtDate(t.due)) : null, t.priority, t.env.join("・") || null, t.project ? "📁 " + esc(t.project) : null].filter(Boolean).join(" · ");
+    const order = sheetOrder(), pos = order.indexOf(t.id);
+    const pager = pos >= 0 && order.length > 1 ? `<div class="pager"><button type="button" id="pgPrev" aria-label="前のタスク" ${pos === 0 ? "disabled" : ""}>‹</button><span>${pos + 1} / ${order.length}</span><button type="button" id="pgNext" aria-label="次のタスク" ${pos === order.length - 1 ? "disabled" : ""}>›</button></div>` : "";
+    $("#sheet").innerHTML = `
+      <div class="grab"></div>
+      <div class="head"><h3>${t.icon ? t.icon + " " : ""}${esc(t.name)}</h3><button class="close" id="sheetClose" aria-label="閉じる"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="sub">${sub}</div>
+      ${pager}
+      <div class="sect">📝 概要</div>
+      <div class="desc" id="descBox">${t.rawDesc ? `<div class="dtext">${descHtml(t.rawDesc)}</div>` : `<div class="dtext" style="color:var(--mute)">読み込み中…</div>`}</div>
+      ${t.aiActive ? `<div class="sub" style="color:var(--acc)">🤖 Claude が ${fmtTime(t.aiSince)} から${t.aiMode === "更新" ? "更新中" : "実行中"}（2時間で自動解除）　<a href="#" id="aiClear" style="color:var(--mute)">解除</a></div>` : ""}
+      ${t.blocked || t.predIds.length ? `<div class="sect">⏭ 先行タスク</div><div class="chain" id="chainBox"><div class="ch"><span class="nm" style="color:var(--mute)">確認中…</span></div></div>` : ""}
+      ${t.done ? "" : `<div class="list"><a href="#" data-predpick="${t.id}"><span class="ic">⏭</span>${t.predIds.length ? "先行タスクを変える" : "先行タスクを選ぶ"}<span style="margin-left:auto;color:var(--mute);font-size:13px">${t.predIds.length ? `先行 ${t.predIds.length}` : t.projectIds && t.projectIds.length ? "同じ PJ から" : "PJ なし"}</span></a></div>`}
+      ${t.blocked ? `<div class="sub" style="color:var(--mute)">先行タスクが終わるまで、このタスク自体の操作はできません（上のチェーンから順に完了するか、🤖 に任せる）</div>` : ""}
+      ${t.done ? "" : `<div class="sect">🚦 状態${t.status ? `　<span style="color:var(--acc)">いま: ${esc(t.status)}</span>` : ""}</div>
+      <div class="grid st4">
+        ${[["todo", "未着手", "○"], ["doing", "進行中", "▶"], ["wait", "待ち", "⏸"], ["human", "人対応", "🧔"]].map(([a, n, ic]) => `<button data-a="${a}" data-keep="1" data-st="${n}" class="${t.status === n ? "pri" : ""}" ${t.blocked || t.status === n ? "disabled" : ""}>${ic} ${n}</button>`).join("")}
+      </div>`}
+      <div class="sect">🤖 Claude に任せる</div>
+      <div class="list">
+        ${t.aiSession ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `Claude のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の Claude セッションを開く（続きを任せる）"}</a>` : ""}
+        <a href="${claudeHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${ICONS.claude}</span><span id="claudeRunLabel">進めてもらう</span></a>
+        <a href="${claudeHref(t, "update")}" data-ai data-mode="update"><span class="ic">${ICONS.pen}</span>タスク内容を更新してもらう</a>
+      </div>
+      <div class="sect">📅 日程を動かす</div>
+      <div class="grid">
+        ${t.mit
+          ? `<button data-a="mit-clear" data-keep="1" style="grid-column:1/-1">⭐ 今日の3つから外す</button>`
+          : `<button data-a="mit" data-keep="1" style="grid-column:1/-1" ${t.blocked || t.done ? "disabled" : ""}>⭐ 今日の3つに入れる</button>`}
+      </div>
+      <div class="list">${(t.predIds && t.predIds.length) || (t.succIds && t.succIds.length) ? `<a href="#" data-graph="${t.id}"><span class="ic">🔗</span>先行・後続を 3 列で見る<span style="margin-left:auto;color:var(--mute);font-size:13px">先行 ${(t.predIds || []).length} · 後続 ${(t.succIds || []).length}</span></a>` : ""}${t.projectIds && t.projectIds.length ? `<a href="#" data-deps="${t.projectIds[0]}"><span class="ic">🔗</span>この PJ のつながり（先行→後続）</a>` : ""}<a href="#" data-pjpick="${t.id}"><span class="ic">📁</span>${t.project ? "PJ を変える" : "PJ に入れる"}<span style="margin-left:auto;color:var(--mute);font-size:13px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.project ? esc(t.project) : "PJ なし"}</span></a><a href="${gcalHref(t)}" target="_blank" rel="noopener" id="gcal"><span class="ic">${ICONS.cal}</span>カレンダーに予定を入れる<span style="margin-left:auto;color:var(--mute);font-size:14px">${t.start && t.start > today ? fmtDate(t.start) : t.due && t.due >= today ? fmtDate(t.due) : "今日"}</span></a></div>
+      <div class="grid">
+        <button data-a="defer?days=1" ${t.blocked ? "disabled" : ""}>${ICONS.tomorrow}明日へ</button>
+        <button data-a="defer?to=weekend" ${t.blocked ? "disabled" : ""}>${ICONS.cal}週末に</button>
+        <button data-a="defer?to=nextweek" ${t.blocked ? "disabled" : ""}>${ICONS.cal}来週に</button>
+        ${t.evening
+          ? `<button data-a="daytime" data-keep="1" ${t.blocked ? "disabled" : ""}>${ICONS.sun}今日（昼）に戻す</button>`
+          : `<button data-a="evening" data-keep="1" ${t.blocked ? "disabled" : ""}>${ICONS.moon}今夜にする</button>`}
+      </div>
+      <div class="list"${t.blocked ? " style=\"opacity:.35;pointer-events:none\"" : ""}><a href="#" id="pickStart"><span class="ic">${ICONS.cal}</span>開始日を選ぶ<span style="margin-left:auto;color:var(--mute);font-size:14px">${t.start ? fmtDate(t.start) : "未設定"}</span></a></div>
+      <div class="list dprow" id="dpRow" hidden><input type="date" id="datePick" class="dpick" aria-label="開始日"><button type="button" id="dpOk">決定</button></div>
+      <div class="sect">👥 家族に委任する${t.owner ? `　<span style="color:var(--acc)">いま: ${esc(t.owner)}</span>` : ""}</div>
+      <div class="grid dg">
+        ${DELEGATES.map((n) => `<button data-dg="${n}" class="${t.owner === n ? "pri" : ""}">${n}</button>`).join("")}
+        ${t.owner ? `<button data-dg="" class="skip">自分に戻す</button>` : ""}
+      </div>
+      <div class="sect">🔗 Notion</div>
+      <div class="list">
+        <a href="${t.url}" target="_blank" rel="noopener"><span class="ic">${ICONS.link || "↗"}</span>Notion で開く</a>
+        <a href="#" id="copyUrl"><span class="ic">⧉</span>URL をコピー</a>
+        ${navigator.share ? `<a href="#" id="shareUrl"><span class="ic">⇪</span>共有</a>` : ""}
+      </div>
+      ${t.done ? `<div class="sect">✅ 完了済み</div>
+      <div class="grid"><button data-a="reopen" class="skip" style="grid-column:1/-1">↩ 未完了に戻す</button></div>` : `<div class="sect">✅ 片付ける</div>
+      <div class="list dprow"><input id="doneNote" class="dpick" type="text" placeholder="理由・メモを1行（任意）" autocomplete="off" enterkeyhint="done" maxlength="200" ${t.blocked ? "disabled" : ""}></div>
+      <div class="grid">
+        <button class="pri" data-a="done" style="grid-column:1/-1" ${t.blocked ? "disabled" : ""}><span class="ring done-ring">${ICONS.check}</span>完了</button>
+      </div>
+      <div class="grid" >
+        <button data-a="skip" class="skip" ${t.blocked ? "disabled" : ""}>${ICONS.skip}見送りで完了</button>
+        <button data-a="dup" class="skip" ${t.blocked ? "disabled" : ""}>⧉ 重複で完了</button>
+      </div>`}`;
+
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = "";
+    // 端末の「戻る」で閉じられるように履歴を1つ積む
+    if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+    $("#sheetClose").onclick = closeSheet;
+    sheetStep = (d) => { // 前後のタスクへ (ボタンと ←→ キーの両方から)
+      const o = sheetOrder(), i = o.indexOf(t.id); if (i < 0) return;
+      const nt = tasks.find((x) => x.id === o[i + d]); if (!nt) return;
+      $("#sheet").scrollTop = 0; openSheet(nt, today);
+    };
+    const pp = $("#pgPrev"), pn = $("#pgNext");
+    if (pp) pp.onclick = () => sheetStep(-1);
+    if (pn) pn.onclick = () => sheetStep(1);
+    // Notion の URL を取り出す（別セッションの Claude に貼る用。2026-09-30）
+    $("#copyUrl").onclick = async (e) => {
+      e.preventDefault();
+      try { await navigator.clipboard.writeText(t.url); toast("URL をコピーしました"); }
+      catch (err) { prompt("コピーできなかったので手で選択してください", t.url); }
+    };
+    $("#sheet").querySelectorAll("button[data-dg]").forEach((b) => b.onclick = () => {
+      const to = b.dataset.dg;
+      act(t, "delegate?to=" + encodeURIComponent(to), to ? `${to} に委任` : "自分に戻した", false); // 行は消し、1.5秒後の取り直しで正しいタブに現れる
+    });
+    const sh = $("#shareUrl"); if (sh) sh.onclick = (e) => { e.preventDefault(); navigator.share({ title: t.name, text: t.name, url: t.url }).catch(() => {}); };
+    // 概要: 説明はすぐ出し、本文 (背景・留意点が書かれていることが多い) はここで取りに行く
+    api(`/api/tasks/${t.id}/detail`).then((d) => {
+      const box = $("#descBox"); if (!box) return;
+      const kv = [d.kind, ...(d.labels || [])].filter(Boolean).join(" · ");
+      box.innerHTML = (kv ? `<div class="kv">${esc(kv)}</div>` : "") +
+        (d.desc ? `<div class="dtext">${descHtml(d.desc)}</div>` : `<div class="dtext" style="color:var(--mute)">説明なし</div>`) +
+        (d.body ? `<div class="dbody">${esc(d.body)}${d.more ? "\n…（続きは Notion）" : ""}</div>` : "");
+      const long = [...box.querySelectorAll(".dtext,.dbody")].some((el) => el.scrollHeight > el.clientHeight + 2);
+      if (long) { const a = document.createElement("a"); a.href = "#"; a.className = "more"; a.textContent = "もっと見る"; a.onclick = (e) => { e.preventDefault(); box.querySelectorAll(".dtext,.dbody").forEach((el) => el.classList.add("open")); a.remove(); }; box.appendChild(a); }
+    }).catch(() => { const box = $("#descBox"); if (box && !t.rawDesc) box.innerHTML = `<div class="dtext" style="color:var(--mute)">概要を取得できませんでした</div>`; });
+    // 2026-10-04: preventDefault せず、アンカーの既定動作で intent:// へ飛ばす (クリックの文脈をそのまま使うのが一番確実)。印は投げっぱなし、シートは少し遅れて閉じる
+    $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => a.onclick = () => { markAi(t, a.dataset.mode || "run"); setTimeout(() => { closeSheet(); render(todayStr); }, 400); });
+    // 前回のセッションを開き直す＝続きを Claude に任せるので、これも 🤖 処理中 にする (2026-10-06)。処理中にセッションを開くだけのときは触らない
+    const rs = $("#sheet").querySelector("a[data-resume]"); if (rs) rs.onclick = () => { markAi(t, "run", true); setTimeout(() => { closeSheet(); render(todayStr); }, 400); };
+    const clr = $("#aiClear"); if (clr) clr.onclick = async () => { closeSheet(); try { await api(`/api/tasks/${t.id}/ai-clear`, { method: "POST" }); toast("処理中を解除: " + t.name); } catch (e) { toast("失敗: " + e.message); } load(view, { silent: true }); };
+    $("#sheet").querySelectorAll("button[data-a]").forEach((b) => b.onclick = () => {
+      if (t.aiActive && ["done", "skip", "dup"].includes(b.dataset.a) && !confirm("Claude が処理中です。それでも完了にしますか？")) return;
+      // 理由・メモ 1行 (2026-10-06): 完了・見送り・重複に添える。空なら従来どおり
+      const noteEl = $("#doneNote"), memo = noteEl ? noteEl.value.trim() : "";
+      const nq = memo ? "note=" + encodeURIComponent(memo) : "";
+      if (b.dataset.a === "dup") { // 重複の相手は任意。空でも閉じられる（2026-10-01）
+        const w = prompt("重複の相手（任意。残す方のタスク名）", "");
+        if (w === null) return;
+        const qs = [w.trim() ? "with=" + encodeURIComponent(w.trim()) : "", nq].filter(Boolean).join("&");
+        act(t, "dup" + (qs ? "?" + qs : ""), "重複で完了", false);
+        return;
+      }
+      if ((b.dataset.a === "done" || b.dataset.a === "skip") && nq) { act(t, b.dataset.a + "?" + nq, b.textContent.trim(), false); return; }
+      if (b.dataset.a === "wait") { // 待ちの相手 (GTD Waiting For, 2026-10-06)。空でもよい。メモ欄に書いてあればそれを使う
+        const w = memo || prompt("誰・何を待つ？（任意。例: 業者の見積、家族の返事）", t.waitFor || "");
+        if (w === null) return;
+        act(t, "wait" + (w.trim() ? "?who=" + encodeURIComponent(w.trim()) : ""), "待ちに", true);
+        return;
+      }
+      act(t, b.dataset.a, b.textContent.trim(), !!b.dataset.keep);
+    });
+    // メモ欄で Enter ＝ 完了 (Mac で手早く)。Esc は入力を消すだけ
+    const dn = $("#doneNote"); if (dn) dn.onkeydown = (e) => {
+      if (imeEnter(e)) return; // 日本語変換の確定 Enter では完了しない (2026-10-06)
+      if (e.key === "Enter") { e.preventDefault(); const b = $("#sheet").querySelector('button[data-a="done"]'); if (b && !b.disabled) b.click(); }
+      else if (e.key === "Escape") { e.stopPropagation(); dn.value = ""; }
+    };
+    // 先行タスクのチェーンを引いて、順に並べる。各行に完了ボタン (人が自分で順送りする用) と Notion リンク
+    if (t.blocked || t.predIds.length) {
+      api(`/api/tasks/${t.id}/chain`).then((j) => {
+        const box = $("#chainBox"); if (!box) return;
+        if (!j.chain.length) { // 式の再計算待ちで blocked のまま見えているだけ。操作を戻す
+          box.innerHTML = `<div class="ch"><span class="nm" style="color:var(--mute)">先行はすべて完了。着手できます</span></div>`;
+          $("#sheet").querySelectorAll("button[data-a]").forEach((b) => b.disabled = false);
+          $("#sheet").querySelectorAll(".list").forEach((l) => { l.style.opacity = ""; l.style.pointerEvents = ""; });
+          return;
+        }
+        box.innerHTML = j.chain.map((c, i) => `<div class="ch" data-cid="${c.id}">
+            <span class="no">${i + 1}</span>
+            <button class="ring" aria-label="${esc(c.name)} を完了" data-cdone="${c.id}"></button>
+            <span class="nm">${c.icon ? c.icon + " " : ""}${esc(c.name)}<small>${c.due ? fmtDate(c.due) + " · " : ""}${c.env.join("・") || "—"}</small></span>
+            <a href="${c.url}" target="_blank" rel="noopener">開く</a></div>`).join("") +
+          (j.cycle ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が循環しています。Notion で直してください</span></div>` : "") +
+          (j.truncated ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が深すぎます（10段まで）</span></div>` : "");
+        $("#claudeRun").href = claudeHref(t, "run", j.chain);
+        $("#claudeRunLabel").textContent = `Claude に先行から順に進めてもらう（${j.chain.length} 件先）`;
+        box.querySelectorAll("[data-cdone]").forEach((b) => b.onclick = async () => {
+          const cid = b.dataset.cdone; const c = j.chain.find((x) => x.id === cid);
+          b.classList.add("on"); b.innerHTML = ICONS.check;
+          try { await api(`/api/tasks/${cid}/done`, { method: "POST" }); toast(`完了: ${c.name}`, () => api(`/api/tasks/${cid}/reopen`, { method: "POST" })); }
+          catch (e) { toast("失敗: " + e.message); }
+          setTimeout(() => openSheet(t, today), 800); // 残りのチェーンを引き直す
+          load(view, { silent: true });
+        });
+      }).catch(() => { const box = $("#chainBox"); if (box) box.innerHTML = `<div class="ch"><span class="nm" style="color:var(--over)">先行を取得できませんでした</span></div>`; });
+    }
+    // 開始日はネイティブのカレンダー UI (input type=date) で選ぶ。Android Chrome ではカレンダーが出る
+    $("#pickStart").onclick = (e) => {
+      e.preventDefault();
+      const row = $("#dpRow"), dp = $("#datePick");
+      if (!dp.value) dp.value = t.start || today || "";
+      dp.min = today || "";
+      row.hidden = false; row.scrollIntoView({ block: "nearest" });
+      const commit = async () => {
+        const d = dp.value; if (!d) return;
+        closeSheet();
+        try {
+          const j = await api(`/api/tasks/${t.id}/start?date=${d}`, { method: "POST" });
+          toast(`開始日 ${fmtDate(d)}: ${t.name}` + (j.task.due === d && t.due !== d ? "（期日も揃えた）" : ""));
+          load(view, { silent: true }); counts();
+        } catch (err) { toast("失敗: " + err.message); }
+      };
+      $("#dpOk").onclick = commit;
+      dp.onkeydown = (ev) => { if (ev.key === "Enter") commit(); };
+      // Android Chrome はカレンダーがそのまま出る。Mac は入力欄が見えているので showPicker が画面内に出る（画面外の input に出していたのが 2026-09-30 の不具合）
+      if (typeof dp.showPicker === "function") { try { dp.showPicker(); } catch (_) { dp.focus(); } } else dp.focus();
+    };
+  }
+  // 後続を先に完了したとき、残っている先行をどうするか (2026-09-29 決定: その場で聞く)
+  function askPending(t, preds) {
+    const names = preds.map((p) => (p.icon ? p.icon + " " : "") + esc(p.name)).join("、");
+    sheetStep = null; // 問いのシートでは ←→ を無効に
+    $("#sheet").innerHTML = `
+      <div class="grab"></div>
+      <div class="head"><h3>先行タスクが未完了のままです</h3><button class="close" id="sheetClose" aria-label="閉じる"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="sub">「${esc(t.name)}」を完了しました。先行: ${names}</div>
+      <div class="grid">
+        <button data-p="done"><span class="ring done-ring">${ICONS.check}</span>一緒に完了</button>
+        <button data-p="skip">${ICONS.skip}見送りで完了</button>
+        <button data-p="keep" style="grid-column:1/-1">そのまま残す</button>
+      </div>`;
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = "";
+    if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+    $("#sheetClose").onclick = closeSheet;
+    $("#sheet").querySelectorAll("button[data-p]").forEach((b) => b.onclick = async () => {
+      const a = b.dataset.p; closeSheet();
+      if (a === "keep") return;
+      try { await Promise.all(preds.map((p) => api(`/api/tasks/${p.id}/${a}`, { method: "POST" }))); toast(`${a === "skip" ? "見送り" : "完了"}: ${preds.map((p) => p.name).join("、")}`); }
+      catch (e) { toast("失敗: " + e.message); }
+      load(view, { silent: true }); counts();
+    });
+  }
+  let sheetStep = null; // openSheet が差し替える。タスクシートでない (add-sheet 等) ときは null
+  let sheetTask = null; // いま開いているタスク (一覧に無いタスク — つながり・追加直後 — からも先行を選べるように, 2026-10-07)
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest("#sheet [data-deps]"); if (a) { e.preventDefault(); openDeps(a.dataset.deps); return; }
+    const g = e.target.closest("#sheet [data-graph]"); if (g) { e.preventDefault(); openGraph(g.dataset.graph); return; }
+    const pp = e.target.closest("#sheet [data-pjpick]"); if (pp) { e.preventDefault(); const t = tasks.find((x) => x.id === pp.dataset.pjpick); if (t) openPjPick(t); }
+    const pr = e.target.closest("#sheet [data-predpick]"); if (pr) { e.preventDefault(); const t = tasks.find((x) => x.id === pr.dataset.predpick) || sheetTask; if (t) openPredPick(t); }
+  });
+  function closeSheet() {
+    if ($("#sheetWrap").hidden) return;
+    $("#sheetWrap").hidden = true; sheetStep = null;
+    if (history.state && history.state.sheet) history.back(); // 積んだ履歴を戻す (popstate は hidden 済みなので何もしない)
+  }
+  // Mac では ←→ で前後のタスクへ、Esc で閉じる (2026-10-04)
+  document.addEventListener("keydown", (e) => {
+    if ($("#sheetWrap").hidden || e.target.matches("input,textarea")) return;
+    if (e.key === "Escape") closeSheet();
+    else if (sheetStep && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); sheetStep(e.key === "ArrowLeft" ? -1 : 1); }
+  });
+  window.addEventListener("popstate", () => { if (!$("#sheetWrap").hidden) $("#sheetWrap").hidden = true; });
+  $("#veil").onclick = closeSheet;
+  // シートを下にスワイプで閉じる
+  let shY = 0, shDy = 0, shOn = false;
+  /* シートが縦にスクロールする場合、引き下げて閉じるのは一番上にいるときだけ（2026-09-30） */
+  $("#sheet").addEventListener("touchstart", (e) => { shY = e.touches[0].clientY; shDy = 0; shOn = $("#sheet").scrollTop <= 0; }, { passive: true });
+  $("#sheet").addEventListener("touchmove", (e) => { if (!shOn) return; if ($("#sheet").scrollTop > 0) { shOn = false; $("#sheet").style.transform = ""; return; } shDy = Math.max(0, e.touches[0].clientY - shY); $("#sheet").style.transform = `translateY(${shDy}px)`; }, { passive: true });
+  $("#sheet").addEventListener("touchend", () => { if (!shOn) return; shOn = false; if (shDy > 80) closeSheet(); else $("#sheet").style.transform = ""; });
+
+  // タップ → メニュー、🤖 → Claude、スワイプ → 完了/明日へ
+  let sx = 0, sy = 0, card = null, dx = 0, swiping = false, todayStr = "";
+  $("#list").addEventListener("touchstart", (e) => { card = e.target.closest(".card"); if (!card) return; if (card.parentElement.classList.contains("blocked") || card.parentElement.classList.contains("dn")) { card = null; return; } /* 先行待ち・完了済み (検索) はスワイプ不可 */ sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; swiping = false; }, { passive: true });
+  $("#list").addEventListener("touchmove", (e) => {
+    if (!card) return; dx = e.touches[0].clientX - sx; const dy = e.touches[0].clientY - sy;
+    if (!swiping && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) swiping = true;
+    if (swiping) { card.style.transform = `translateX(${dx}px)`; card.parentElement.querySelector(".under").style.background = dx > 0 ? "#7c5cff" : "#e0a100"; }
+  }, { passive: true });
+  $("#list").addEventListener("touchend", () => {
+    if (!card) return; const c = card; card = null;
+    const t = tasks.find((x) => x.id === c.parentElement.dataset.id);
+    // 右スワイプ＝🤖 Claude に進めてもらう (2026-10-01。完了は丸タップで足りるので、右は実行に割り当て直した)。左＝明日へ
+    if (swiping && dx > 90 && t) { c.style.transform = ""; goClaude(t, claudeHref(t, "run")); }
+    else if (swiping && dx < -90 && t) { c.style.transform = `translateX(-500px)`; setTimeout(() => act(t, "defer?days=1", "明日へ"), 120); }
+    else c.style.transform = "";
+    setTimeout(() => { swiping = false; }, 50);
+  });
+  // ---- Phase B (2026-10-06): PJ 見出し・役割カードの操作 ----
+  function setAddProject(p) {
+    addProject = p; const c = $("#addPj");
+    if (p) { c.hidden = false; c.innerHTML = `📁 ${esc(p.label.replace(/^\S+\s/, ""))} <b>✕</b>`; $("#addName").placeholder = "この PJ の次のアクションを1件"; $("#addName").focus(); }
+    else { c.hidden = true; $("#addName").placeholder = "タイトルだけで追加"; }
+  }
+  $("#addPj").onclick = () => setAddProject(null);
+  async function closeProject(id, name) {
+    const note = prompt(`「${name}」をクローズします。結論を1行（空でも可）`, "");
+    if (note === null) return;
+    try {
+      const j = await api(`/api/projects/${id}/close`, { method: "POST", body: JSON.stringify({ note }) });
+      toast(`クローズ: ${j.project.name}（Decisions に決着行）`);
+      projInfoAt = 0; localStorage.removeItem(K("project")); load("project", { silent: true });
+    } catch (e) { toast("クローズ失敗: " + e.message); }
+  }
+  // 今週の石を選ぶシート: その役割の PJ に属する未完了 (期日順 10 件)。候補に無ければ Claude へ
+  function openPickSheet(r) {
+    const items = (r.candidates || []).map((c) => `<button data-pick="${c.id}"><span class="nm">${c.icon ? c.icon + " " : ""}${esc(c.name)}</span><small>${c.due ? fmtDate(c.due) : (c.project ? esc(c.project).slice(0, 12) : "")}</small></button>`).join("");
+    $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>${r.icon ? r.icon + " " : ""}${esc(r.name)} — 今週の石を置く</h3><button class="close" aria-label="閉じる">✕</button></div>
+      <div class="sub">予定に入れないと起きないもの。この役割の PJ の未完了から 1 つ</div>
+      <div class="list pick">${items || '<button disabled><span class="nm" style="color:var(--mute)">候補なし（この役割の PJ に未完了タスクがありません）</span></button>'}</div>
+      <a class="notion" href="${claudeLink(`役割「${r.name}」の今週の石（今週の目標）を一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください。`)}" data-ext>${ICONS.claude} Claude と相談して決める</a>`;
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+    $("#sheet").querySelector(".close").onclick = closeSheet;
+    $("#sheet").querySelectorAll("[data-pick]").forEach((b) => b.onclick = async () => {
+      closeSheet();
+      try { await api(`/api/roles/${r.id}/goal`, { method: "POST", body: JSON.stringify({ taskId: b.dataset.pick }) }); toast(`今週の石: ${b.querySelector(".nm").textContent}`); load("roles", { silent: true }); }
+      catch (e) { toast("失敗: " + e.message); }
+    });
+  }
+  function openStoneSheet(r) {
+    const st = r.stone; const t = st.taskId ? { id: st.taskId, name: st.name, url: st.url || ("https://www.notion.so/" + st.taskId.replace(/-/g, "")) } : null;
+    $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>${st.icon ? st.icon + " " : ""}${esc(st.name)}</h3><button class="close" aria-label="閉じる">✕</button></div>
+      <div class="sub">${esc(r.name)} の今週の石${st.until ? `（〜${esc(st.until)}）` : ""}${st.due ? ` · 期日 ${fmtDate(st.due)}` : ""}</div>
+      <div class="list">${t ? `<a href="${claudeHref(t, "run")}" data-stoneai><span class="ic">${ICONS.claude}</span>🤖 Claude に進めてもらう</a><a href="${t.url}" target="_blank" rel="noopener"><span class="ic">📄</span>Notion で開く</a>` : ""}
+        <a href="#" data-repick><span class="ic">${ICONS.pen}</span>別のタスクに置き換える</a><a href="#" data-unstone style="color:var(--mute)"><span class="ic">${ICONS.skip}</span>石を外す</a></div>`;
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+    $("#sheet").querySelector(".close").onclick = closeSheet;
+    $("#sheet").querySelector("[data-repick]").onclick = (e) => { e.preventDefault(); closeSheet(); setTimeout(() => openPickSheet(r), 200); };
+    $("#sheet").querySelector("[data-unstone]").onclick = async (e) => { e.preventDefault(); closeSheet(); try { await api(`/api/roles/${r.id}/goal`, { method: "POST", body: JSON.stringify({}) }); toast("石を外した: " + r.name); load("roles", { silent: true }); } catch (err) { toast("失敗: " + err.message); } };
+    const ai = $("#sheet").querySelector("[data-stoneai]"); if (ai) ai.onclick = () => { closeSheet(); fetch(`/api/tasks/${t.id}/ai?mode=run`, { method: "POST", keepalive: true }).catch(() => {}); };
+  }
+  $("#list").addEventListener("click", (e) => {
+    if (swiping) return;
+    const pc = e.target.closest("[data-pjclose]"); if (pc) { closeProject(pc.dataset.pjclose, pc.dataset.pjname); return; }
+    const pd = e.target.closest("[data-pjdeps]"); if (pd) { openDeps(pd.dataset.pjdeps); return; }
+    if (e.target.closest("[data-quad]")) { e.preventDefault(); openQuad(); return; }
+    if (view === "graph") {
+      if (e.target.closest("[data-dback]")) { graphData = null; load(depsBack); return; }
+      const gd = e.target.closest("[data-gdeps]"); if (gd) { openDeps(gd.dataset.gdeps); return; }
+      if (e.target.closest("a")) return;
+      const nd = e.target.closest("[data-gid]"); if (nd) { const t = tasks.find((x) => x.id === nd.dataset.gid); if (t) { if (t.id === graphData.task.id) openSheet(t, todayStr); else openGraph(t.id); } }
+      return;
+    }
+    if (view === "quad") {
+      if (e.target.closest("[data-dback]")) { load(depsBack); return; }
+      const qi = e.target.closest("[data-qid]"); if (qi) { const t = tasks.find((x) => x.id === qi.dataset.qid); if (t) openSheet(t, todayStr); }
+      return;
+    }
+    if (view === "deps") {
+      if (e.target.closest("[data-dback]")) { closeDeps(); return; }
+      if (e.target.closest("[data-dtoggle]")) { depsShowDone = !depsShowDone; render(todayStr); return; }
+      const fx = e.target.closest("[data-fix]"); if (fx) { fixConflict(fx.dataset.fix, fx.dataset.date); return; }
+      if (e.target.closest("a")) return;
+      const nm = e.target.closest("[data-did]"); const t = nm && tasks.find((x) => x.id === nm.dataset.did); if (t) openSheet(t, todayStr);
+      return;
+    }
+    const pa = e.target.closest("[data-pjadd]"); if (pa) { setAddProject({ id: pa.dataset.pjadd, label: pa.dataset.pjlabel }); return; }
+    if (view === "review") {
+      if (e.target.closest("[data-ext]") || e.target.closest("a")) return;
+      const b = e.target.closest("[data-ans]"); if (!b) return;
+      const card = b.closest(".rvc"); const q = reviewList()[0];
+      if (q && card && card.dataset.qid === q.id) reviewAnswer(q, b.dataset.ans);
+      return;
+    }
+    if (view === "roles") {
+      if (e.target.closest("[data-ext]")) return; // Claude へのリンクはそのまま
+      const rc = e.target.closest("[data-role]"); const r = rc && rolesData && rolesData.roles.find((x) => x.id === rc.dataset.role); if (!r) return;
+      if (e.target.closest("[data-rolepick]")) openPickSheet(r);
+      else if (e.target.closest("[data-rolestone]")) openStoneSheet(r);
+      else if (e.target.closest("[data-rolepj]")) { if (rolePjOpen.has(r.id)) rolePjOpen.delete(r.id); else rolePjOpen.add(r.id); rc.querySelector(".rpj").classList.toggle("open", rolePjOpen.has(r.id)); }
+      else if (e.target.closest("[data-rpj]")) { const b = e.target.closest("[data-rpj]"); const p = (r.projects || []).find((x) => x.id === b.dataset.rpj); if (p && p.open > 1) openDeps(p.id); else { load("project"); } }
+      return;
+    }
+    const row = e.target.closest(".row"); if (!row) return;
+    const t = tasks.find((x) => x.id === row.dataset.id); if (!t) return;
+    if (e.target.closest("[data-sess]")) return; // 処理中のセッションを開くリンク。シートは開かない
+    if (e.target.closest("[data-claude]")) { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, claudeHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでメニューへ
+    const ring = e.target.closest("[data-done]");
+    if (ring) { // 丸をタップ＝完了 (青く塗ってから消す)
+      if (t.aiActive && !confirm("Claude が処理中です。それでも完了にしますか？")) return;
+      ring.classList.add("on"); ring.innerHTML = ICONS.check;
+      setTimeout(() => act(t, "done", "完了"), 180);
+      return;
+    }
+    openSheet(t, todayStr);
+  });
+  const _render = render; render = (today) => { todayStr = today; _render(today); };
+  $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) load(b.dataset.v); };
+  // 検索 (2026-10-04): 🔍 で検索欄を出し、入力が止まって 350ms で引く。✕ か空 Esc で元のタブへ
+  function openSearch() {
+    if (view !== "search") { searchBack = view; view = "search"; }
+    tasks = []; render(todayStr); $("#srchQ").focus();
+    if (searchQ.trim()) load("search");
+  }
+  function closeSearch() { if (view !== "search") return; searchQ = ""; $("#srchQ").value = ""; load(searchBack); }
+  $("#srchBtn").onclick = () => view === "search" ? closeSearch() : openSearch();
+  $("#srchClose").onclick = closeSearch;
+  let srchTimer = null;
+  $("#srchQ").addEventListener("input", () => { searchQ = $("#srchQ").value; clearTimeout(srchTimer); srchTimer = setTimeout(() => load("search"), 350); });
+  $("#srchQ").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeSearch(); } });
+  $("#srch").onsubmit = (e) => { e.preventDefault(); clearTimeout(srchTimer); searchQ = $("#srchQ").value; load("search"); $("#srchQ").blur(); };
+  $("#srchAll").onchange = () => { searchAll = $("#srchAll").checked; load("search"); };
+  document.addEventListener("keydown", (e) => { // Mac: ⌘F / Ctrl+F で検索
+    if ((e.metaKey || e.ctrlKey) && e.key === "f" && $("#sheetWrap").hidden) { e.preventDefault(); openSearch(); }
+  });
+  $("#add").onsubmit = async (e) => {
+    e.preventDefault(); const name = $("#addName").value.trim(); if (!name) return; $("#addName").value = "";
+    const pj = addProject; // PJ別の「この PJ にタスクを足す」から来たときは紐づける (Phase B)
+    try {
+      const j = await api("/api/tasks", { method: "POST", body: JSON.stringify({ name, ...(pj ? { projectId: pj.id } : {}) }) });
+      // PJ に他の未完了があれば、その場で先行を選べるボタンを出す (2026-10-07, 依存の洗い出し D)
+      const pjInfo = pj && (projInfo || []).find((p) => p.id === pj.id);
+      if (pj && pjInfo && pjInfo.open > 0) toast(`追加: ${j.task.name} → ${j.task.project || pjInfo.label}`, () => openPredPick(j.task), "先行を選ぶ");
+      else toast("追加: " + j.task.name + (j.task.project ? ` → ${j.task.project}` : ""));
+      if (pj) { setAddProject(null); projInfoAt = 0; } load(view, { silent: true });
+    }
+    catch (err) { toast("追加失敗: " + err.message); $("#addName").value = name; }
+  };
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  load(view).then(counts);
+})();
+</script>
+</body>
+</html>

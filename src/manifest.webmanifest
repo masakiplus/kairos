@@ -1,0 +1,16 @@
+{
+  "name": "Kairos",
+  "short_name": "Kairos",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1e293b",
+  "theme_color": "#1e293b",
+  "lang": "ja",
+  "description": "Kairos — いま手を付けるものを決める。Notion ✅ Tasks の薄いモバイル層",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
