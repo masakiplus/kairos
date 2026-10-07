@@ -1123,7 +1123,9 @@ export default {
           const cur = await getTask(env, id);
           // resume=1 (2026-10-06): 「前回の Claude セッションを開く」。同じチャットの続きなので AIセッション は残し、種別も前回のまま。印だけ立て直す
           const resume = url.searchParams.get("resume") === "1";
-          const mode = resume ? (cur.aiMode || "実行") : url.searchParams.get("mode") === "update" ? "更新" : "実行"; // AI処理種別 (2026-10-03)
+          // AI処理種別 (2026-10-03)。resume でも mode= が来ていればそれに従う (2026-10-08: 前回のセッションで「更新」を頼むとき)
+          const mq = url.searchParams.get("mode");
+          const mode = mq === "update" ? "更新" : mq === "run" ? "実行" : (resume ? (cur.aiMode || "実行") : "実行");
           // AIセッション は前回の URL が残っていると新セッションと紛れるので空にしてから Claude に書かせる (resume のときは残す)
           const props = { "AI処理開始": { date: { start: new Date().toISOString() } }, "AI処理種別": { select: { name: mode } }, ...(resume ? {} : { "AIセッション": { url: null } }) };
           if (cur.status === "人対応") props["ステータス"] = { status: { name: "進行中" } }; // 人対応 を Claude に渡し直したら手番は Claude へ

@@ -496,12 +496,27 @@
   // browser_fallback_url (Web 版) に落ちる＝Chrome で開いてしまう。印の API は投げっぱなし (keepalive) にして、ジェスチャーの中で即座に遷移する
   // resume=true (2026-10-06): 前回のセッションを開き直すとき。AIセッション は残し、種別は前回のまま、印だけ立て直す
   function markAi(t, mode = "run", resume = false) {
-    t.aiActive = true; t.aiSince = new Date().toISOString(); if (!resume) t.aiMode = mode === "update" ? "更新" : "実行";
+    t.aiActive = true; t.aiSince = new Date().toISOString(); t.aiMode = mode === "update" ? "更新" : "実行";
     fetch(`/api/tasks/${t.id}/ai?mode=${mode}${resume ? "&resume=1" : ""}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" } })
       .then(() => setTimeout(() => load(view, { silent: true }), 1500)).catch(() => {});
   }
+  // 過去に Claude で扱ったタスク (AIセッション あり) は、進める／更新する も **そのセッションの続き** で始める (2026-10-08 利用者の指示)。
+  // 既存チャットには文面を URL で渡せないので、文面はクリップボードに入れて「貼って送る」運用にする。新しいチャットで始めたいときはシートの別リンク
+  function aiHref(t, mode = "run", chain) { return t.aiSession ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
+  function aiPrompt(t, mode = "run") {
+    const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
+    return mode === "update"
+      ? `「${t.name}」の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。前回の続きです。終わるときに AI処理開始 を空にしてください。（${page}）`
+      : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`;
+  }
+  function copyPrompt(t, mode) {
+    const s = aiPrompt(t, mode);
+    try { navigator.clipboard && navigator.clipboard.writeText(s); } catch (e) { /* 貼れないだけ */ }
+    toast("前回のセッションを開きます。文面をコピーしたので貼って送ってください");
+  }
   function goClaude(t, href, mode = "run") {
-    markAi(t, mode);
+    markAi(t, mode, !!t.aiSession);
+    if (t.aiSession) copyPrompt(t, mode);
     location.href = href;
     render(todayStr);
   }
@@ -1055,8 +1070,9 @@
       <div class="sect">🤖 Claude に任せる</div>
       <div class="list">
         ${t.aiSession ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `Claude のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の Claude セッションを開く（続きを任せる）"}</a>` : ""}
-        <a href="${claudeHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${ICONS.claude}</span><span id="claudeRunLabel">進めてもらう</span></a>
-        <a href="${claudeHref(t, "update")}" data-ai data-mode="update"><span class="ic">${ICONS.pen}</span>タスク内容を更新してもらう</a>
+        <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${ICONS.claude}</span><span id="claudeRunLabel">進めてもらう${t.aiSession ? "（前回のセッションで）" : ""}</span></a>
+        <a href="${aiHref(t, "update")}" data-ai data-mode="update"><span class="ic">${ICONS.pen}</span>タスク内容を更新してもらう${t.aiSession ? "（前回のセッションで）" : ""}</a>
+        ${t.aiSession ? `<a href="${claudeHref(t, "run")}" data-ai data-mode="run" data-fresh="1" style="color:var(--mute)"><span class="ic">✨</span>新しいチャットで始める（文面付き）</a>` : ""}
       </div>
       <div class="sect">📅 日程を動かす</div>
       <div class="grid">
@@ -1131,7 +1147,8 @@
       if (long) { const a = document.createElement("a"); a.href = "#"; a.className = "more"; a.textContent = "もっと見る"; a.onclick = (e) => { e.preventDefault(); box.querySelectorAll(".dtext,.dbody").forEach((el) => el.classList.add("open")); a.remove(); }; box.appendChild(a); }
     }).catch(() => { const box = $("#descBox"); if (box && !t.rawDesc) box.innerHTML = `<div class="dtext" style="color:var(--mute)">概要を取得できませんでした</div>`; });
     // 2026-10-04: preventDefault せず、アンカーの既定動作で intent:// へ飛ばす (クリックの文脈をそのまま使うのが一番確実)。印は投げっぱなし、シートは少し遅れて閉じる
-    $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => a.onclick = () => { markAi(t, a.dataset.mode || "run"); setTimeout(() => { closeSheet(); render(todayStr); }, 400); });
+    // data-fresh (2026-10-08): 新しいチャットで始める。AIセッション は Worker が空にして、新しい Claude が書き直す。それ以外で AIセッション があれば前回の続き (resume)
+    $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => a.onclick = () => { const resume = !!t.aiSession && !a.dataset.fresh; markAi(t, a.dataset.mode || "run", resume); if (resume) copyPrompt(t, a.dataset.mode || "run"); setTimeout(() => { closeSheet(); render(todayStr); }, 400); });
     // 前回のセッションを開き直す＝続きを Claude に任せるので、これも 🤖 処理中 にする (2026-10-06)。処理中にセッションを開くだけのときは触らない
     const rs = $("#sheet").querySelector("a[data-resume]"); if (rs) rs.onclick = () => { markAi(t, "run", true); setTimeout(() => { closeSheet(); render(todayStr); }, 400); };
     const clr = $("#aiClear"); if (clr) clr.onclick = async () => { closeSheet(); try { await api(`/api/tasks/${t.id}/ai-clear`, { method: "POST" }); toast("処理中を解除: " + t.name); } catch (e) { toast("失敗: " + e.message); } load(view, { silent: true }); };
@@ -1179,7 +1196,7 @@
             <a href="${c.url}" target="_blank" rel="noopener">開く</a></div>`).join("") +
           (j.cycle ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が循環しています。Notion で直してください</span></div>` : "") +
           (j.truncated ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が深すぎます（10段まで）</span></div>` : "");
-        $("#claudeRun").href = claudeHref(t, "run", j.chain);
+        $("#claudeRun").href = aiHref(t, "run", j.chain);
         $("#claudeRunLabel").textContent = `Claude に先行から順に進めてもらう（${j.chain.length} 件先）`;
         box.querySelectorAll("[data-cdone]").forEach((b) => b.onclick = async () => {
           const cid = b.dataset.cdone; const c = j.chain.find((x) => x.id === cid);
@@ -1277,7 +1294,7 @@
     if (!card) return; const c = card; card = null;
     const t = tasks.find((x) => x.id === c.parentElement.dataset.id);
     // 右スワイプ＝🤖 Claude に進めてもらう (2026-10-01。完了は丸タップで足りるので、右は実行に割り当て直した)。左＝明日へ
-    if (swiping && dx > 90 && t) { c.style.transform = ""; goClaude(t, claudeHref(t, "run")); }
+    if (swiping && dx > 90 && t) { c.style.transform = ""; goClaude(t, aiHref(t, "run")); }
     else if (swiping && dx < -90 && t) { c.style.transform = `translateX(-500px)`; setTimeout(() => act(t, "defer?days=1", "明日へ"), 120); }
     else c.style.transform = "";
     setTimeout(() => { swiping = false; }, 50);
@@ -1317,7 +1334,7 @@
     const st = r.stone; const t = st.taskId ? { id: st.taskId, name: st.name, url: st.url || ("https://www.notion.so/" + st.taskId.replace(/-/g, "")) } : null;
     $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>${st.icon ? st.icon + " " : ""}${esc(st.name)}</h3><button class="close" aria-label="閉じる">✕</button></div>
       <div class="sub">${esc(r.name)} の今週の石${st.until ? `（〜${esc(st.until)}）` : ""}${st.due ? ` · 期日 ${fmtDate(st.due)}` : ""}</div>
-      <div class="list">${t ? `<a href="${claudeHref(t, "run")}" data-stoneai><span class="ic">${ICONS.claude}</span>🤖 Claude に進めてもらう</a><a href="${t.url}" target="_blank" rel="noopener"><span class="ic">📄</span>Notion で開く</a>` : ""}
+      <div class="list">${t ? `<a href="${aiHref(t, "run")}" data-stoneai><span class="ic">${ICONS.claude}</span>🤖 Claude に進めてもらう</a><a href="${t.url}" target="_blank" rel="noopener"><span class="ic">📄</span>Notion で開く</a>` : ""}
         <a href="#" data-repick><span class="ic">${ICONS.pen}</span>別のタスクに置き換える</a><a href="#" data-unstone style="color:var(--mute)"><span class="ic">${ICONS.skip}</span>石を外す</a></div>`;
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheet").querySelector(".close").onclick = closeSheet;
@@ -1370,7 +1387,7 @@
     const row = e.target.closest(".row"); if (!row) return;
     const t = tasks.find((x) => x.id === row.dataset.id); if (!t) return;
     if (e.target.closest("[data-sess]")) return; // 処理中のセッションを開くリンク。シートは開かない
-    if (e.target.closest("[data-claude]")) { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, claudeHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでメニューへ
+    if (e.target.closest("[data-claude]")) { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでメニューへ
     const ring = e.target.closest("[data-done]");
     if (ring) { // 丸をタップ＝完了 (青く塗ってから消す)
       if (t.aiActive && !confirm("Claude が処理中です。それでも完了にしますか？")) return;
