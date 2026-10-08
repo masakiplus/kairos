@@ -21,7 +21,7 @@ Notion のタスク DB を **スマホのホーム画面から 1 タップで回
 
 行の操作: **丸タップ＝完了**、**右スワイプ＝🤖 AI に進めてもらう**、**左スワイプ＝明日へ**、タップ＝シート（状態・先行タスク・日程・委任・片付ける）。すべての操作に ↩ 取り消し。
 
-振る舞いの規約は [`docs/rules.md`](docs/rules.md)、Notion 側に必要なプロパティは [`docs/notion-schema.md`](docs/notion-schema.md)、判断の経緯は [`docs/design-notes.md`](docs/design-notes.md)。
+振る舞いの規約は [`docs/rules.md`](docs/rules.md)、Notion 側に必要なプロパティは [`docs/notion-schema.md`](docs/notion-schema.md)、判断の経緯は [`docs/design-notes.md`](docs/design-notes.md)。別環境へ規約を写すときの同期仕様は [`docs/chronos-sync.md`](docs/chronos-sync.md)。
 
 ## 構成
 
