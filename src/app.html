@@ -170,6 +170,10 @@
   .sheet .pick button+button{border-top:1px solid var(--line)}
   .sheet .pick button .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sheet .pick button small{color:var(--mute);font-size:12px;flex:none}
+  .snext{display:flex;gap:8px;margin:6px 0 2px}
+  .snext button{flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 12px;border:1px dashed var(--acc);border-radius:10px;background:transparent;color:var(--acc);font-size:14px;font-weight:600;text-align:left}
+  .snext button small{font-size:11px;font-weight:500;color:var(--mute)}
+  .snext a{flex:none;display:flex;align-items:center;gap:4px;padding:9px 12px;border-radius:10px;background:var(--seg);color:var(--fg);font-size:13px;font-weight:600;text-decoration:none}
   .sheet .pick.pp button .ck{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--ring);flex:none;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
   .sheet .pick.pp button.on .ck{background:var(--acc);border-color:var(--acc);color:#fff}
   .sheet .pick.pp button.on .nm{color:var(--acc);font-weight:600}
@@ -195,6 +199,8 @@
   .rvc .rnote{font-size:15px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
   .rvc .rcl{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px;font-size:14px;font-weight:600;color:var(--acc);text-decoration:none}
   .rvn h2{margin:0 0 6px;padding:0 10px;font-size:13px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.4px}
+  .rvn h2 small{margin-left:8px;font-size:11px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--mute2)}
+  .rvn .group>div[data-rvpick]{cursor:pointer}.rvn .group>div[data-rvpick]:active{background:var(--seg)}
   .rvn .group>div{display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:14px}.rvn .group>div+div{border-top:1px solid var(--line)}
   .rvn .group>div span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* 🔗 つながり (Phase C-11, 2026-10-06): 幅 700px 以上はガント、未満は依存順タイムライン。矛盾 (後続の期日 < 先行の期日) は赤 */
@@ -373,7 +379,7 @@
   const $ = (s) => document.querySelector(s);
   const views = ["today", "can", "phone", "doing", "project", "delegated"];
   const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "見直し", deps: "つながり", graph: "つながり", quad: "象限" };
-  let reviewData = null, reviewPos = 0, reviewSkipped = new Set(); // 見直し (Phase C-9)
+  let reviewData = null, reviewPos = 0, reviewSkipped = new Set(), reviewShowAll = false; // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
   let graphData = null, quadData = null; // 1 タスク 3 列 (C-11a)・象限 (C-10)
   const rolePjOpen = new Set(); // 役割カードで開いている PJ 一覧 (再描画しても閉じない)
@@ -656,7 +662,9 @@
       if (!st) return `<button class="stone put" data-rolepick="${r.id}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>今週の石を置く<small>予定に入れないと起きないもの</small></button>`;
       const lab = { done: "達成", doing: "進行中", todo: "未着手", text: "", unknown: "不明" }[st.state] || "";
       const ring = st.state === "done" ? `<span class="ring done-ring">${ICONS.check}</span>` : st.state === "doing" ? `<span class="ring" style="border-color:var(--acc);display:flex;align-items:center;justify-content:center"><span style="width:10px;height:10px;border-radius:50%;background:var(--acc)"></span></span>` : `<span class="ring"></span>`;
-      return `<button class="stone ${st.state}" data-rolestone="${r.id}">${ring}<span class="sb"><span class="sl">今週の石${st.until ? ` 〜${esc(st.until)}` : ""}</span><span class="sn">${st.icon ? st.icon + " " : ""}${esc(st.name)}</span></span><span class="ss ${st.state}">${lab}</span></button>`;
+      // 達成済みなら、その下に「次の石」への導線 (2026-10-10 利用者の提案): 候補から選ぶ／Claude と決める
+      const next = st.state === "done" ? `<div class="snext"><button data-rolepick="${r.id}">${ICONS.check} 達成 — 次の石を置く<small>${(r.candidates || []).length ? `この役割の未完了 ${(r.candidates || []).length} 件から` : "候補なし"}</small></button><a href="${nextStoneHref(r)}" data-ext>${ICONS.claude} Claude と決める</a></div>` : "";
+      return `<button class="stone ${st.state}" data-rolestone="${r.id}">${ring}<span class="sb"><span class="sl">今週の石${st.until ? ` 〜${esc(st.until)}` : ""}</span><span class="sn">${st.icon ? st.icon + " " : ""}${esc(st.name)}</span></span><span class="ss ${st.state}">${lab}</span></button>${next}`;
     };
     list.innerHTML = `<div class="rsum"><span>今週の石 ${s.total} 本 — 達成 ${s.done} ・ 進行中 ${s.doing} ・ 未着手 ${s.todo}</span><b>週の実行 ${pct}%</b><a href="#" data-quad>象限 ›</a></div>` +
       rolesData.roles.map((r) => `<div class="rc${!r.stone && !r.mission ? "" : ""}" data-role="${r.id}">
@@ -690,7 +698,7 @@
         <div class="opts">${opts}</div>
         <a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${ICONS.claude} 理由を話しながら決めたい（Claude へ）</a>
       </div>
-      ${qs.length > 1 ? `<div class="rvn"><h2>このあと</h2><div class="group">${qs.slice(1, 4).map((n) => `<div><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${n.db}</span><span>${esc(n.q)}</span></div>`).join("")}</div></div>` : ""}
+      ${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${n.db}</span><span>${esc(n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}
       <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは Claude に逃がす</div>`;
   }
   function reviewClaudeHref(q) {
@@ -911,6 +919,10 @@
     };
     $("#ppOk").onclick = () => save([...sel]);
     $("#ppNone").onclick = () => save([]);
+  }
+  function nextStoneHref(r) {
+    const done = r.stone && r.stone.name ? `今週の石「${r.stone.name}」は達成しました。` : "";
+    return claudeLink(`役割「${r.name}」の次の石（今週の目標）を一問一答で決めたいです。${done}Notion 🧭 Roles のページ: ${r.url} 。この役割の PJ の未完了から候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください（前の石は補足に残す）。`);
   }
   function missionHref(r) {
     return claudeLink(`役割「${r.name}」のミッションを一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。1 問ずつ聞いて、最後に ミッション 列に 1 行（30 字以内）で書き、必要なら 3年後の姿・今年のゴール も埋めてください。`);
@@ -1380,6 +1392,9 @@
     const pa = e.target.closest("[data-pjadd]"); if (pa) { setAddProject({ id: pa.dataset.pjadd, label: pa.dataset.pjlabel }); return; }
     if (view === "review") {
       if (e.target.closest("[data-ext]") || e.target.closest("a")) return;
+      // 「このあと」の問いをタップ＝その問いを先頭に (2026-10-10 利用者の提案「どれからスタートするか選べるように」)
+      const pk = e.target.closest("[data-rvpick]"); if (pk && reviewData) { const i = reviewData.questions.findIndex((n) => n.id + n.kind === pk.dataset.rvpick); if (i > 0) { const [x] = reviewData.questions.splice(i, 1); reviewData.questions.unshift(x); render(todayStr); window.scrollTo({ top: 0, behavior: "smooth" }); } return; }
+      if (e.target.closest("[data-rvmore]")) { reviewShowAll = true; render(todayStr); return; }
       const b = e.target.closest("[data-ans]"); if (!b) return;
       const card = b.closest(".rvc"); const q = reviewList()[0];
       if (q && card && card.dataset.qid === q.id) reviewAnswer(q, b.dataset.ans);
