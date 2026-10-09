@@ -163,8 +163,10 @@
   .rc .stone .ss.done{color:#34a853}.rc .stone .ss.doing{color:#0a84ff}.rc .stone .ss.todo{color:var(--mute)}
   .rc .stone.put{border:1.5px dashed var(--ring);background:transparent;color:var(--acc);font-size:15px;font-weight:600}
   .rc .stone.put small{margin-left:auto;font-size:12px;color:var(--mute);font-weight:400;white-space:nowrap}
-  .rfoot{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;padding:10px 12px calc(12px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--sep)}
-  .rfoot a{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;background:var(--card);color:var(--fg);font-size:15px;font-weight:600;text-decoration:none;box-shadow:var(--shadow)}
+  /* 各タブの一番下に置く「全体を見返す」メタ操作 (2026-10-10 利用者の提案)。役割タブの固定フッターを全タブに広げ、追加欄と重ならないよう一覧の末尾に流し込む */
+  .meta{margin-top:4px}
+  .meta a{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;background:var(--card);color:var(--fg);font-size:15px;font-weight:600;text-decoration:none;box-shadow:var(--shadow)}
+  .meta small{display:block;text-align:center;font-size:11px;color:var(--mute);margin-top:6px}
   .sheet .pick{display:flex;flex-direction:column}
   .sheet .pick button{display:flex;align-items:center;gap:10px;padding:12px 14px;border:0;background:transparent;color:var(--fg);font-size:15px;text-align:left;width:100%}
   .sheet .pick button+button{border-top:1px solid var(--line)}
@@ -370,7 +372,6 @@
   <input id="addName" placeholder="タイトルだけで追加" autocomplete="off">
   <button type="submit" aria-label="追加"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
 </form>
-<div class="rfoot" id="rfoot" hidden><a id="roleReview" href="#">Claude と週次役割レビュー</a></div>
 <div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="undo">元に戻す</button></div>
 <div id="sheetWrap" hidden><div class="veil" id="veil"></div><div class="sheet" id="sheet"></div></div>
 <label for="datePick" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">開始日</label>
@@ -571,7 +572,7 @@
     $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
-    $("#add").hidden = view === "roles" || view === "review"; $("#rfoot").hidden = view !== "roles";
+    $("#add").hidden = view === "roles" || view === "review";
     if (view === "roles") { renderRoles(today); return; }
     if (view === "review") { renderReview(today); return; }
     if (view === "deps") { $("#add").hidden = true; renderDeps(today); return; }
@@ -630,7 +631,56 @@
       }
       return `<section class="sec"><h2 class="${cls}">${cls === "prjh" ? esc(h) + `<span class="n">${ts.length}</span>` : h}</h2><div class="group">${ts.map((t) => rowHtml(t, today)).join("")}</div></section>`;
     }).join("") +
-      '<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 Claude に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>';
+      '<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 Claude に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>' + metaHtml(view);
+  }
+  // 各タブの一番下: そのタブ全体を Claude と見返すメタ操作 (2026-10-10)。1 件ずつの 🤖 とは別に「一覧ごと」渡す。文面は URL に乗せるので 12 件まで
+  function taskLines(ts, n = 12) {
+    const a = ts.slice(0, n).map((t, i) => `${i + 1}. ${t.name}（${t.url}）`);
+    return a.join("、") + (ts.length > n ? `、…ほか ${ts.length - n} 件` : "");
+  }
+  const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Notion を更新し、終わったら 📻 Sessions に足跡を 1 行。";
+  function metaHtml(v) {
+    const ts = tasks.filter((t) => !t.done);
+    let label = "", sub = "", q = "";
+    if (v === "today") {
+      if (!ts.length) return "";
+      label = "Claude と今日の段取りを決める"; sub = "やる順・明日へ・見送り を 1 件ずつ";
+      q = `今日やるタスク ${ts.length} 件の段取りを決めたいです: ${taskLines(ts)}。各件について「今日やる（順番）／明日へ／週末に／見送りで完了／家族に委任」を決め、やるものは ⭐ 今日の3つ を 3 件まで選んでください。${META_TAIL}`;
+    } else if (v === "can") {
+      if (!ts.length) return "";
+      label = "Claude と前倒しを選ぶ"; sub = "今日に引き上げるものを決める";
+      q = `今日できる（前倒し候補）${ts.length} 件から、今日に引き上げるものを決めたいです: ${taskLines(ts)}。空き時間と重要度を聞いて 1〜3 件に絞り、選んだものは 開始日 を今日にし、残りはそのままで構いません。${META_TAIL}`;
+    } else if (v === "phone") {
+      if (!ts.length) return "";
+      label = "Claude とまとめて片付ける"; sub = "電話・スマホ作業を順に";
+      q = `スマホ・電話でできるタスク ${ts.length} 件をまとめて片付けたいです: ${taskLines(ts)}。かける順番と、電話なら要件を 2 行ずつ用意し、1 件ずつ「済んだ／相手待ち（待ち）／後で」を聞いて進めてください。${META_TAIL}`;
+    } else if (v === "doing") {
+      if (!ts.length) return "";
+      label = "Claude と WIP を整理する"; sub = "本当に進行中か、戻すか、任せるか";
+      q = `着手中（進行中・人対応）${ts.length} 件を整理したいです: ${taskLines(ts)}。各件について「続ける／未着手に戻す／待ちにする（相手）／🤖 で進める／完了」を決めてください。同時に進めるのは 10 件までが目安です。${META_TAIL}`;
+    } else if (v === "project") {
+      const ps = (projInfo || []).filter((p) => !p.closable);
+      if (!ps.length) return "";
+      label = "Claude と PJ を棚卸しする"; sub = "ゴール・次の一手・順番";
+      const lines = ps.slice(0, 12).map((p, i) => `${i + 1}. ${p.label}（${p.url}${p.goal ? "" : "、ゴール未記入"}${p.unordered ? "、順番未整理" : ""}${p.stalled ? "、次のアクションなし" : ""}）`).join("、") + (ps.length > 12 ? `、…ほか ${ps.length - 12} 件` : "");
+      q = `進行中のプロジェクト ${ps.length} 件を棚卸ししたいです: ${lines}。PJ ごとに「対応ゴールは妥当か／次のアクションは 1 件決まっているか／タスクの順番（先行タスク）は整理されているか／保留やクローズにしないか」を確認してください。Projects に書くのは ステータス、Tasks には 先行タスク・開始日・期日 だけ。${META_TAIL}`;
+    } else if (v === "delegated") {
+      if (!ts.length) return "";
+      label = "Claude と委任を確認する"; sub = "進み具合と声のかけ方";
+      q = `家族に委任中のタスク ${ts.length} 件を確認したいです: ${taskLines(ts)}。担当ごとに「終わっていそうか／声をかける文面（1〜2 行）／自分に戻すか」を決め、終わったものは完了処理、戻すものは 担当 を外してください。${META_TAIL}`;
+    } else if (v === "roles") {
+      label = "Claude と週次役割レビュー"; sub = "今週の石の達成と来週の石";
+      q = `週次の役割レビューをお願いします。Notion 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。終わったら 📻 Sessions に足跡を 1 行。`;
+    } else if (v === "review") {
+      const qs = reviewList();
+      label = qs.length ? "Claude と残りの問いを話しながら決める" : "Claude と Decisions を見直す";
+      sub = qs.length ? `残り ${qs.length} 問を理由つきで` : "提案中・提示済みの未決を一問一答で";
+      const lines = qs.slice(0, 10).map((x, i) => `${i + 1}. [${x.db}] ${x.name || x.q}（${x.url}）`).join("、") + (qs.length > 10 ? `、…ほか ${qs.length - 10} 件` : "");
+      q = qs.length
+        ? `見直しの残り ${qs.length} 問を、理由を話しながら決めたいです: ${lines}。1 問ずつ判断に要る事実を聞いて、決着したら Notion（Decisions の 決定・決定日・結論、Tasks、Projects）を操作規約どおり更新してください。終わったら 📻 Sessions に足跡を 1 行。`
+        : `Notion 🧠 Decisions の 提案中・提示済み で未決のものを一問一答で見直したいです。古いものから順に「着手する／棚上げ／やめる／今は決めない」を聞いて、決着したら 決定・決定日・結論 を書き、着手するものは ✅ Tasks に起票してください。終わったら 📻 Sessions に足跡を 1 行。`;
+    } else return "";
+    return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${ICONS.claude} ${label}</a><small>${sub}</small></div>`;
   }
   // 📁 PJ の見出し (Phase B-7/8, 2026-10-06)。情報がまだ無ければ従来の名前＋件数だけ
   function pjHeadHtml(label, p, ts) {
@@ -674,8 +724,7 @@
           : `<div class="rm warn"><a href="${missionHref(r)}" data-ext>ミッション未記入 — タップして Claude と一問一答で決める</a></div>`}
         ${stoneHtml(r)}
       </div>`).join("") +
-      '<div class="hint">編集は Claude で。ここで動かせるのは「今週の石」の置き換えだけ</div>';
-    $("#roleReview").href = claudeLink(`週次の役割レビューをお願いします。Notion 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。終わったら 📻 Sessions に足跡を 1 行。`);
+      '<div class="hint">編集は Claude で。ここで動かせるのは「今週の石」の置き換えだけ</div>' + metaHtml("roles");
   }
   // 🗂 見直し (Phase C-9): 1 問ずつ。答えは Worker が Notion に書く。「今は決めない」は端末内で飛ばす (Decisions は 提示済み にする)
   function reviewList() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind)) : []; }
@@ -684,7 +733,7 @@
     if (!reviewData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
     const qs = reviewList(), total = reviewData.questions.length, done = total - qs.length;
     $("#n-review").textContent = qs.length || ""; // 答えた・飛ばした分を引いた残り (2026-10-10 利用者の報告「0 件でも 2 件のまま」)
-    if (!qs.length) { list.innerHTML = `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}</div><div class="hint">問いは 棚卸し・Decisions・PJ のクローズ候補・繰越 3 回超 から機械的に作る。理由が要るものは Claude へ</div>`; return; }
+    if (!qs.length) { list.innerHTML = `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}</div><div class="hint">問いは 棚卸し・Decisions・PJ のクローズ候補・繰越 3 回超 から機械的に作る。理由が要るものは Claude へ</div>` + metaHtml("review"); return; }
     const q = qs[0];
     const ctx = (q.ctx || []).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(String(v))}</div>`).join("");
     const opts = q.options.map((o, i) => `<button data-ans="${esc(o.a)}" class="${o.pri ? "pri" : ""}"><span class="no">${i + 1}</span>${esc(o.t)}${o.s ? `<small>${esc(o.s)}</small>` : ""}</button>`).join("");
@@ -700,7 +749,7 @@
         <a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${ICONS.claude} 理由を話しながら決めたい（Claude へ）</a>
       </div>
       ${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${n.db}</span><span>${esc(n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}
-      <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは Claude に逃がす</div>`;
+      <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは Claude に逃がす</div>` + metaHtml("review");
   }
   function reviewClaudeHref(q) {
     const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : "🧠 Decisions の決定";
@@ -1042,7 +1091,6 @@
   }
   $("#undoBtn").onclick = undoLast;
   renderUndo();
-  $("#roleReview").innerHTML = ICONS.claude + " Claude と週次役割レビュー";
 
   async function act(t, action, label, keep) {
     closeSheet();
