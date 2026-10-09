@@ -683,6 +683,7 @@
     const list = $("#list");
     if (!reviewData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
     const qs = reviewList(), total = reviewData.questions.length, done = total - qs.length;
+    $("#n-review").textContent = qs.length || ""; // 答えた・飛ばした分を引いた残り (2026-10-10 利用者の報告「0 件でも 2 件のまま」)
     if (!qs.length) { list.innerHTML = `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}</div><div class="hint">問いは 棚卸し・Decisions・PJ のクローズ候補・繰越 3 回超 から機械的に作る。理由が要るものは Claude へ</div>`; return; }
     const q = qs[0];
     const ctx = (q.ctx || []).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(String(v))}</div>`).join("");
@@ -957,7 +958,7 @@
       view = v; localStorage.setItem("view", v);
       if (!silent || !reviewData) { $("#stale").hidden = false; $("#stale").textContent = "問いを集めています…"; }
       render(todayStr);
-      try { const j = await api("/api/review"); reviewData = j; reviewPos = Math.min(reviewPos, Math.max(0, j.questions.length - 1)); render(j.today); $("#stale").hidden = true; $("#n-review").textContent = j.questions.length || ""; }
+      try { const j = await api("/api/review"); reviewData = j; reviewPos = Math.min(reviewPos, Math.max(0, j.questions.length - 1)); render(j.today); $("#stale").hidden = true; $("#n-review").textContent = reviewList().length || ""; }
       catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗: " + e.message; }
       return;
     }
