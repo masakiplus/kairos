@@ -191,6 +191,8 @@
   .rvc .rb{font-size:14px;line-height:1.5;color:var(--fg);white-space:pre-wrap;max-height:9em;overflow:auto}
   .rvc .ctx{display:flex;flex-direction:column;gap:5px;padding:10px 12px;border-radius:10px;background:var(--bg);font-size:13px;color:var(--mute);line-height:1.45}
   .rvc .ctx b{font-weight:400;color:var(--mute2);margin-right:6px}
+  .rvc .runtil{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--mute)}
+  .rvc .runtil input{font:inherit;font-size:15px;padding:8px 10px;border:1px solid var(--ring);border-radius:10px;background:var(--bg);color:var(--fg);min-width:0}
   .rvc .opts{display:flex;flex-direction:column;gap:8px}
   .rvc .opts button{padding:13px 14px;border:0;border-radius:12px;background:var(--bg);color:var(--fg);font-size:16px;font-weight:600;text-align:left;display:flex;align-items:center;gap:10px}
   .rvc .opts button.pri{background:var(--acc);color:#fff}
@@ -744,7 +746,8 @@
         <div class="rq">${esc(q.q)}</div>
         ${q.body ? `<div class="rb">${esc(q.body)}</div>` : ""}
         ${ctx ? `<div class="ctx">${ctx}</div>` : ""}
-        ${needNote ? `<input class="rnote" id="rvNote" placeholder="理由・学びを1行（任意）" autocomplete="off">` : ""}
+        ${needNote ? `<input class="rnote" id="rvNote" placeholder="${esc(q.noteHint || "理由・学びを1行（任意）")}" autocomplete="off">` : ""}
+        ${q.until ? `<label class="runtil">棚上げの見直し日<input type="date" id="rvUntil" value="${esc(q.until)}" min="${esc(today || "")}"></label>` : ""}
         <div class="opts">${opts}</div>
         <a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${ICONS.claude} 理由を話しながら決めたい（Claude へ）</a>
       </div>
@@ -756,7 +759,8 @@
     return claudeLink(`「${q.name || q.q}」について一問一答で決めたいです（${where}。ページ: ${q.url} ）。${q.kind === "verify" ? "決めたことの検証結果（当たり／外れ／部分的）と学びを一緒に書いてください。" : q.kind === "project-close" ? "クローズするか、次のアクションを 1 件足すかを決めて、Projects と Decisions を更新してください。" : "判断に要る事実を 1 問ずつ聞いて、決着したら Notion を更新してください（操作規約どおり）。"}`);
   }
   async function reviewAnswer(q, a) {
-    const note = ($("#rvNote") || {}).value || "";
+    const note = ($("#rvNote") || {}).value || "", until = ($("#rvUntil") || {}).value || "";
+    if (q.kind === "decision" && a === "棚上げ" && !(until > todayStr)) { toast("棚上げには今日より後の見直し日を入れてください"); return; }
     reviewSkipped.add(q.id + q.kind); render(todayStr);
     try {
       if (a === "skip") { if (q.kind === "decision" || q.kind === "deps" || q.kind === "dates") await api(`/api/review/decision/${q.id}`, { method: "POST", body: JSON.stringify({ answer: "skip" }) }); toast("次回に: " + (q.name || "").slice(0, 24)); return; }
@@ -765,9 +769,15 @@
         else if (a === "add") { setAddProject({ id: q.id, label: q.projectLabel || q.name }); $("#add").hidden = false; toast("次のアクションを 1 件入れてください"); }
         return;
       }
-      await api(`/api/review/${q.kind}/${q.id}`, { method: "POST", body: JSON.stringify({ answer: a, note }) });
+      const j = await api(`/api/review/${q.kind}/${q.id}`, { method: "POST", body: JSON.stringify({ answer: a, note, until }) });
       const lab = (q.options.find((o) => o.a === a) || {}).t || a;
-      toast(`${lab}: ${(q.name || "").slice(0, 24)}`);
+      // 未決の決着はタスクも動かすので、その場で元に戻せるようにする (起票の取り消し・閉じたタスクの復帰・決定を未決へ)
+      const undoFn = q.kind === "decision" && j.undo ? async () => {
+        try { await api(`/api/review/decision/${q.id}/undo`, { method: "POST", body: JSON.stringify(j.undo) }); reviewSkipped.delete(q.id + q.kind); localStorage.removeItem(K("today")); counts(); render(todayStr); toast("取り消し: " + (q.name || "").slice(0, 24)); }
+        catch (e) { toast("取り消せなかった: " + e.message); }
+      } : null;
+      toast(`${lab}: ${(q.name || "").slice(0, 20)}${j.did ? "　→ " + j.did : ""}`, undoFn);
+      if (q.kind === "decision") { projInfoAt = 0; localStorage.removeItem(K("today")); counts(); }
       if (q.kind === "task-carry") { localStorage.removeItem(K("today")); counts(); }
       if (q.kind === "deps" || q.kind === "dates") { projInfoAt = 0; localStorage.removeItem(K("today")); counts(); }
     } catch (e) { toast("失敗: " + e.message); reviewSkipped.delete(q.id + q.kind); render(todayStr); }
