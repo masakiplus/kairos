@@ -37,7 +37,7 @@
 | `POST /api/tasks {name, projectId?}` | クイック追加 |
 | `GET /api/projects` ／ `POST /api/projects/:id/close {note}` ／ `GET /api/projects/:id/deps` | PJ 見出し・クローズ・つながり |
 | `GET /api/roles` ／ `POST /api/roles/:id/goal {taskId}` | 役割タブ・今週の石 |
-| `GET /api/review` ／ `POST /api/review/(decision\|verify\|task-carry\|habit\|deps\|dates)/:id {answer, note}` | 見直しカード |
+| `GET /api/review` ／ `POST /api/review/(decision\|verify\|task-carry\|habit\|deps\|dates)/:id {answer, note, until}` ／ `POST /api/review/decision/:id/undo` | 見直しカード。未決の決着はタスクまで動かす（`docs/rules.md` §9） |
 | `GET /api/quadrant` ／ `GET /api/habits/due` ／ `POST /api/habits/:id/log` | 象限・習慣 |
 | `GET /api/tasks/:id/(graph\|chain\|detail)` | 3 列グラフ・先行チェーン・詳細 |
 | `POST /api/tasks/:id/preds {ids}` | 先行タスクの置き換え（循環は 400） |
