@@ -426,26 +426,46 @@ async function habitsDue(env) {
   const today = todayJst(), sunday = new Date(Date.now() + 9 * 3600_000).getUTCDay() === 0;
   const r = await notion(env, `/data_sources/${env.HABITS_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({
     filter: { and: [{ or: [{ property: "計測方法", select: { equals: "手動" } }, { property: "計測方法", select: { equals: "半自動" } }] }, { or: [{ property: "状態", select: { equals: "有効" } }, { property: "状態", select: { equals: "定着済み" } }] }] }, page_size: 50 }) });
-  const habits = (r.results ?? []).map((pg) => { const p = pg.properties ?? {}; return { id: pg.id, url: pg.url, name: (p["名前"]?.title ?? []).map((t) => t.plain_text).join(""), freq: p["頻度"]?.select?.name ?? "毎日", rule: RT_TEXT(p["判定ルール"]).slice(0, 120), roleIds: (p["役割"]?.relation ?? []).map((x) => x.id) }; });
+  const habits = (r.results ?? []).map((pg) => { const p = pg.properties ?? {}; return { id: pg.id, url: pg.url, name: (p["名前"]?.title ?? []).map((t) => t.plain_text).join(""), freq: p["頻度"]?.select?.name ?? "毎日", rule: RT_TEXT(p["判定ルール"]).slice(0, 120), keys: RT_TEXT(p["判定キーワード"]).split(/[,、\n]/).map((x) => x.trim()).filter(Boolean), roleIds: (p["役割"]?.relation ?? []).map((x) => x.id) }; });
   if (!habits.length) return [];
   const logs = await notion(env, `/data_sources/${env.HABIT_LOG_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({ filter: { property: "日付", date: { on_or_after: weekStartJst() } }, page_size: 100 }) }).catch(() => ({ results: [] }));
   const logged = new Map(); // habitId → [dates]
   for (const pg of logs.results ?? []) { const d = (pg.properties?.["日付"]?.date?.start ?? "").slice(0, 10); for (const h of pg.properties?.["習慣"]?.relation ?? []) { const k = h.id.replace(/-/g, ""); (logged.get(k) || logged.set(k, []).get(k)).push(d); } }
   const roleNames = await rolesNames(env).catch(() => new Map());
-  return habits.filter((h) => {
+  const due = habits.filter((h) => {
     const ds = logged.get(h.id.replace(/-/g, "")) || [];
     if (h.freq === "毎日") return !ds.includes(today);
     return sunday && ds.length === 0; // 週N・毎週日曜 は日曜にまとめて聞く
-  }).map((h) => ({ ...h, roles: h.roleIds.map((r) => roleNames.get(r)).filter(Boolean) }));
+  });
+  // 判定キーワード がある習慣は Tasks の完了から機械判定する (2026-10-11 利用者の報告「達成しても見直しから消えない」)。
+  // 名前にキーワードを含む、または「ラベル:X」でラベル X が付いた完了タスクが、毎日なら今日 1 件、週N なら今週 N 件あれば達成 → Habit Log に kairos で 1 行書き、問いには出さない
+  const keyed = due.filter((h) => h.keys.length);
+  if (keyed.length) {
+    try {
+      const done = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({
+        filter: { and: [{ property: "完了", checkbox: { equals: true } }, { property: "完了日", date: { on_or_after: weekStartJst() } }] }, page_size: 100 }) });
+      const rows = (done.results ?? []).map((pg) => ({ name: (pg.properties?.["名前"]?.title ?? []).map((t) => t.plain_text).join(""), labels: (pg.properties?.["ラベル"]?.multi_select ?? []).map((o) => o.name), at: (pg.properties?.["完了日"]?.date?.start ?? "").slice(0, 10) }));
+      for (const h of keyed) {
+        const since = h.freq === "毎日" ? today : weekStartJst();
+        const need = h.freq === "毎日" ? 1 : Number((h.freq.match(/週(\d)/) || [])[1] || 1);
+        const hit = rows.filter((t) => t.at >= since && h.keys.some((k) => k.startsWith("ラベル:") ? t.labels.includes(k.slice(4)) : t.name.includes(k)));
+        if (hit.length >= need) {
+          h.auto = true;
+          await habitLog(env, h.id, true, `Kairos 自動判定: ${hit.slice(0, 3).map((t) => t.name).join("／")}`, "kairos").catch(() => {});
+        }
+      }
+    } catch (e) { /* Tasks が引けなければ従来どおり聞く */ }
+  }
+  return due.filter((h) => !h.auto).map((h) => ({ ...h, roles: h.roleIds.map((r) => roleNames.get(r)).filter(Boolean) }));
 }
-async function habitLog(env, habitId, done, note) {
+async function habitLog(env, habitId, done, note, source = "manual") {
   const today = todayJst();
   const h = await notion(env, `/pages/${habitId}`);
   const name = (h.properties?.["名前"]?.title ?? []).map((t) => t.plain_text).join("");
   const page = await notion(env, "/pages", { method: "POST", body: JSON.stringify({
     parent: { type: "data_source_id", data_source_id: env.HABIT_LOG_DATA_SOURCE_ID },
     properties: { "名前": { title: [{ text: { content: `${today} ${name}` } }] }, "日付": { date: { start: today } }, "習慣": { relation: [{ id: habitId }] },
-      "達成": { checkbox: !!done }, "取得元": { select: { name: "manual" } }, ...(note ? { "メモ": { rich_text: [{ text: { content: note.slice(0, 300) } }] } } : {}) } }) });
+      "達成": { checkbox: !!done }, "取得元": { select: { name: source } }, ...(note ? { "メモ": { rich_text: [{ text: { content: note.slice(0, 300) } }] } } : {}) } }) });
   return { id: page.id, name, done: !!done };
 }
 

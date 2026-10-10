@@ -126,7 +126,9 @@ Kairos は式の結果を **文字列一致** で引いたうえで、素の 期
 
 Habits: 名前(title)・計測方法(select: `自動`/`半自動`/`手動`)・状態(select: `提案中`/`有効`/`定着済み`/`停止`)・頻度(select: `毎日`/`週1`/`週2`/`週3`/`毎週日曜`)・判定ルール(rich_text)・役割(relation → Roles)・記録(relation → Habit Log)。
 
-Habit Log: 名前(title, `YYYY-MM-DD 習慣名`)・日付(date)・習慣(relation → Habits)・達成(checkbox)・取得元(select: `manual` ほか)・メモ(rich_text)。Kairos は 計測方法 が 手動／半自動 で今日の記録が無い習慣を見直しタブに出し、`取得元=manual` で 1 行書く。
+任意: 判定キーワード(rich_text)。カンマ区切り。入っていれば Kairos が **完了タスクから機械判定** する: 名前にその語を含む、または `ラベル:X` でラベル X が付いた完了タスク（完了日が、毎日なら今日・週N なら今週＝月曜起算）が、毎日 1 件／週N で N 件以上あれば達成とみなし、Habit Log に `取得元=kairos` で 1 行書いて見直しタブには出さない。空なら手動申告。
+
+Habit Log: 名前(title, `YYYY-MM-DD 習慣名`)・日付(date)・習慣(relation → Habits)・達成(checkbox)・取得元(select: `manual` / `kairos` ほか)・メモ(rich_text)。Kairos は 計測方法 が 手動／半自動 で今日の記録が無い習慣を見直しタブに出し、`取得元=manual` で 1 行書く。
 
 ---
 
