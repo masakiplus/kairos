@@ -105,6 +105,7 @@
   .stale.wip{color:var(--over)}
   /* ⭐ 今日の3つ (MIT, 2026-10-06) */
   .sec h2.mith{color:var(--star)}
+  .sec h2.mrh{color:#c47a1a}
   .row.mit .card{box-shadow:inset 3px 0 0 var(--star)}
   .meta .mitc{color:var(--star)}
   .meta .wfc{color:var(--mute)}
@@ -564,7 +565,7 @@
   // 描き直しの間引き (2026-10-07 キビキビ対応): 一覧の中身が前回と同じなら DOM を作り直さない。
   // 30 秒ごとの取り直し・操作後 1.5 秒の取り直し・前面復帰のたびに全行を innerHTML していたのが「一瞬固まる」の正体
   let lastSig = "", lastView = null;
-  const sigOf = (ts) => ts.map((t) => [t.id, t.name, t.due, t.start, t.startRaw, t.status, t.done, t.mit, t.owner, t.aiSince, t.aiMode, t.blockedCount, t.priority, t.project, t.carry, (t.predIds || []).length, (t.succIds || []).length].join("|")).join("\n");
+  const sigOf = (ts) => ts.map((t) => [t.id, t.name, t.due, t.start, t.startRaw, t.status, t.done, t.mit, t.owner, t.aiSince, t.aiMode, t.blockedCount, t.priority, t.project, t.carry, (t.predIds || []).length, (t.succIds || []).length, (t.env || []).join(",")].join("|")).join("\n");
   function render(today) {
     const viewChanged = lastView !== view; lastView = view;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
@@ -622,6 +623,11 @@
     // ⭐ 今日の3つ (MIT, 2026-10-06) は一番上。4件以上なら見出しで注意 (検索タブでは節を作らない)
     const mit = view === "search" ? [] : tasks.filter((t) => t.mit && !t.done);
     if (mit.length) secs = [[`⭐ 今日の3つ${mit.length > 3 ? ` <span style="color:var(--over)">（${mit.length} 件。3つに絞る）</span>` : ""}`, "mith", mit], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.mit)])];
+    // 🌅 早朝 (2026-10-12): 04:00〜06:59 に開いたとき、今日やる・今日できる の先頭に 早朝向き (実行環境に 早朝) の着手可を出す。昼間は節を作らない (通常の節に混ざる)
+    if (isMorning() && (view === "today" || view === "can")) {
+      const mr = tasks.filter((t) => !t.done && !t.blocked && !t.aiActive && t.status !== "人対応" && t.env.includes("早朝")).sort((a, b) => (a.priority || "p9").localeCompare(b.priority || "p9") || (b.mit ? 1 : 0) - (a.mit ? 1 : 0) || (a.due || "9999").localeCompare(b.due || "9999"));
+      if (mr.length) secs = [["🌅 早朝にゆっくり <small style=\"font-weight:400;color:var(--mute)\">相談が要るものは準備まで</small>", "mrh", mr], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !mr.includes(t))])];
+    }
     const pjOf = new Map((view === "project" && projInfo || []).map((p) => [p.label, p]));
     list.innerHTML = secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
       if (view === "project" && cls === "prjh") {
@@ -639,9 +645,16 @@
     return a.join("、") + (ts.length > n ? `、…ほか ${ts.length - n} 件` : "");
   }
   const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Notion を更新し、終わったら 📻 Sessions に足跡を 1 行。";
+  const isMorning = () => { const h = new Date().getHours(); return h >= 4 && h < 7; }; // 早朝の窓 (2026-10-12)。端末の時刻で判定
   function metaHtml(v) {
     const ts = tasks.filter((t) => !t.done);
     let label = "", sub = "", q = "";
+    if ((v === "today" || v === "can") && isMorning() && ts.some((t) => t.env.includes("早朝"))) {
+      const mr = ts.filter((t) => t.env.includes("早朝") && !t.blocked);
+      label = "Claude と早朝の 1 本を決める"; sub = "時間をかける 1 件に絞って段取り";
+      q = `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めたいです。候補: ${taskLines(mr)}。1 件に絞り、家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にして、段取りを 3 ステップで組んでください。選んだものは ⭐ 今日の3つ に入れ、残りは触らないでください。${META_TAIL}`;
+      return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${ICONS.claude} ${label}</a><small>${sub}</small></div>`;
+    }
     if (v === "today") {
       if (!ts.length) return "";
       label = "Claude と今日の段取りを決める"; sub = "やる順・明日へ・見送り を 1 件ずつ";
@@ -1075,7 +1088,7 @@
   // 操作の前にタスクの値を控えて積む。↩ で最後の1件を POST /restore に渡して戻す。端末ごと・最大20件・再読込しても残る
   const UNDO_KEY = "kairos_undo";
   let undoStack = JSON.parse(localStorage.getItem(UNDO_KEY) || "[]");
-  function snapOf(t) { return { done: false, due: t.due, startRaw: t.startRaw ?? t.start, status: t.status, owner: t.owner, desc: t.rawDesc ?? "", aiSince: t.aiSince ?? null, projectIds: t.projectIds || [], predIds: t.predIds || [] }; }
+  function snapOf(t) { return { done: false, due: t.due, startRaw: t.startRaw ?? t.start, status: t.status, owner: t.owner, desc: t.rawDesc ?? "", aiSince: t.aiSince ?? null, projectIds: t.projectIds || [], predIds: t.predIds || [], env: t.env || [] }; }
   function pushUndo(t, label) {
     undoStack.push({ id: t.id, name: t.name, label, snap: snapOf(t), at: Date.now() });
     if (undoStack.length > 20) undoStack.shift();
@@ -1098,7 +1111,9 @@
     if (base0 !== "ai" && base0 !== "ai-clear" && base0 !== "reopen") pushUndo(t, `${label}: ${t.name}`); // reopen は 取り消し＝完了 なので対象外 (検索の完了済みから戻すとき, 2026-10-04)
     if (keep) { // 今夜⇄今日・⭐ の出し入れ は一覧に残したまま節を移す
       const ST = { todo: "未着手", doing: "進行中", wait: "待ち", human: "人対応" };
-      if (base0 === "mit" || base0 === "mit-clear") t.mit = base0 === "mit"; else if (ST[base0]) t.status = ST[base0]; else t.evening = action === "evening";
+      if (base0 === "mit" || base0 === "mit-clear") t.mit = base0 === "mit";
+      else if (base0 === "morning" || base0 === "morning-clear") t.env = [...t.env.filter((x) => x !== "早朝"), ...(base0 === "morning" ? ["早朝"] : [])];
+      else if (ST[base0]) t.status = ST[base0]; else t.evening = action === "evening";
       render(todayStr);
     } else removeRow(t.id);
     try {
@@ -1138,7 +1153,10 @@
       ${t.done ? "" : `<div class="sect">🚦 状態${t.status ? `　<span style="color:var(--acc)">いま: ${esc(t.status)}</span>` : ""}</div>
       <div class="grid st4">
         ${[["todo", "未着手", "○"], ["doing", "進行中", "▶"], ["wait", "待ち", "⏸"], ["human", "人対応", "🧔"]].map(([a, n, ic]) => `<button data-a="${a}" data-keep="1" data-st="${n}" class="${t.status === n ? "pri" : ""}" ${t.blocked || t.status === n ? "disabled" : ""}>${ic} ${n}</button>`).join("")}
-      </div>`}
+      </div>
+      <div class="grid">${t.env.includes("早朝")
+        ? `<button data-a="morning-clear" data-keep="1" style="grid-column:1/-1">🌅 早朝向きから外す</button>`
+        : `<button data-a="morning" data-keep="1" style="grid-column:1/-1">🌅 早朝向きにする<small style="font-weight:400;color:var(--mute)">　家で静かに・時間をかけて</small></button>`}</div>`}
       <div class="sect">🤖 Claude に任せる</div>
       <div class="list">
         ${t.aiSession ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `Claude のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の Claude セッションを開く（続きを任せる）"}</a>` : ""}

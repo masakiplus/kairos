@@ -29,10 +29,6 @@
  *   POST /api/tasks/:id/start?date=YYYY-MM-DD   開始日を指定日に (期日がそれより前なら期日も同じ日へ)
  *   POST /api/tasks/:id/evening  今夜に送る (開始日=今日 18:00 の日時。一覧の「今夜」節に移る)
  *   POST /api/tasks/:id/daytime  今夜を解除して今日に戻す (開始日=今日、日付のみ)
- *   POST /api/review/decision/:id {answer, note, until}  見直しの未決を決着 (2026-10-11 改修)。決着で終わらせず次の動きまで書く:
- *     着手する = 未完了の関連タスクが無ければ 1 件起票して結ぶ / 棚上げ = until (見直し日) 必須。検証日に置き、未完了の関連タスクの開始日も送る
- *     削除 = 未完了の関連タスクを見送りで閉じる (期限が実在する 支払い・手続き は残す)。どれも 期待する結果・検証日 か 検証不要 を同時に書く
- *   POST /api/review/decision/:id/undo  上の取り消し。応答の undo をそのまま渡す (起票したタスクはゴミ箱へ、閉じた・送ったタスクは元へ、決定は未決へ)
  *   GET  /health                 認証なし。Worker が生きているかだけ返す
  *
  * 認証: Cookie `tp` か `Authorization: Bearer <APP_TOKEN>`。トークン1本の個人用なので凝らない。
@@ -571,103 +567,6 @@ function parseDatesRow(p) {
   const r = { taskId: m[1], start: D(kv.start), due: D(kv.due) };
   return r.start || r.due ? r : null;
 }
-const addDays = (ymd, n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const RTV = (s) => ({ rich_text: s ? [{ text: { content: String(s).slice(0, 1900) } }] : [] });
-// 「〜をどうするか」「〜するかどうかをどうするか」の問いの形から、タスク名に使える幹を取り出す
-const decisionStem = (name) => name.replace(/\s*(かどうか)?を?どうするか[？?]?\s*$/, "").trim() || name;
-// 期限が実在するタスク (支払い・手続き で期日が今日以降) は、判断をやめても Tasks から消さない (操作規約 §4-1-2)
-const hasRealDeadline = (page, today) => ["支払い", "手続き"].includes(page.properties?.["種類"]?.select?.name) && ((page.properties?.["期日"]?.date?.start ?? "").slice(0, 10) >= today);
-
-/**
- * 未決の決着 (2026-10-11 改修)。10/10 の見直しで「着手する」なのにタスクが無い・「やめる」なのにタスクが残る・
- * 「棚上げ」に見直し日が無い、という決着が 7 件出たので、決着と同じ操作で次の動きまで書く。
- * 応答の undo を /undo に渡すと元に戻る。
- */
-async function decideDecision(env, id, answer, memo, until) {
-  const today = todayJst();
-  const pg = await notion(env, `/pages/${id}`);
-  const p = pg.properties ?? {};
-  const name = (p["名前"]?.title ?? []).map((t) => t.plain_text).join("") || "(無題)";
-  if (p["状態"]?.select?.name === "決着") throw new Error("already decided");
-  if (answer === "棚上げ" && !(/^\d{4}-\d{2}-\d{2}$/.test(until || "") && until > today)) throw new Error("棚上げには今日より後の見直し日が要る");
-  const relPages = (await Promise.all((p["関連タスク"]?.relation ?? []).slice(0, 10).map((r) => notion(env, `/pages/${r.id}`).catch(() => null)))).filter(Boolean);
-  const open = relPages.filter((x) => x.properties?.["完了"]?.checkbox !== true && !x.in_trash && !x.archived);
-  const undo = { prev: { state: p["状態"]?.select?.name ?? "提案中", decision: p["決定"]?.select?.name ?? null, conclusion: DEC_RT(p["結論"]), expect: DEC_RT(p["期待する結果"]), verifyDate: p["検証日"]?.date?.start ?? null, verifyResult: p["検証結果"]?.select?.name ?? null }, created: null, closed: [], moved: [] };
-  const props = { "状態": { select: { name: "決着" } }, "決定": { select: { name: answer } }, "決定日": { date: { start: today } } };
-  let did = "", kept = [];
-  if (answer === "着手する") {
-    let next = open[0] ? pageToTask(open[0]) : null;
-    if (!next) { // 動かすタスクが無い: 1 件起票して決定に結ぶ
-      const stem = decisionStem(name);
-      const due = deferDate(7);
-      const page = await notion(env, "/pages", { method: "POST", body: JSON.stringify({
-        parent: { type: "data_source_id", data_source_id: env.TASKS_DATA_SOURCE_ID },
-        icon: { type: "emoji", emoji: env.QUICK_ADD_ICON || "📥" },
-        properties: {
-          "名前": { title: [{ text: { content: (memo || `「${stem}」を進める`).slice(0, 200) } }] },
-          "説明": RTV(`なぜ: 決定「${name}」を ${today} の Kairos 見直しで「着手する」と決めたため\n何を: ${memo || "次の一手を 1 つ決めて進める"}` + (DEC_RT(p["問い"]) ? `\n判断時の材料: ${DEC_RT(p["問い"]).slice(0, 600)}` : "")),
-          "エリア": { select: { name: env.QUICK_ADD_AREA || "Inbox" } },
-          "ソース": { select: { name: "手動" } },
-          "ステータス": { status: { name: "未着手" } },
-          "開始日": { date: { start: today } },
-          "期日": { date: { start: due } },
-          "決定": { relation: [{ id }] },
-          ...((p["関連プロジェクト"]?.relation ?? []).length ? { "関連プロジェクト": { relation: p["関連プロジェクト"].relation.map((r) => ({ id: r.id })) } } : {}),
-        } }) });
-      next = pageToTask(page); undo.created = { id: page.id, name: next.name };
-      projStatCache.at = 0;
-      did = `タスクを起票: ${next.name}`;
-    } else did = `次は「${next.name}」`;
-    props["期待する結果"] = RTV(`${next.due || deferDate(7)} までにタスク「${next.name}」が完了している`);
-    props["検証日"] = { date: { start: addDays(today, 30) } };
-  } else if (answer === "棚上げ") {
-    for (const x of open) { // 動かないと決めたのに一覧へ上がってくるのを防ぐ。延期と同じ条件で期日も送る
-      const t = pageToTask(x);
-      if (t.start && t.start >= until) continue;
-      const tp = { "開始日": { date: { start: until } } };
-      if (t.due && (t.due < until || (t.start && t.due === t.start))) { if (hasRealDeadline(x, today)) { kept.push(t.name); continue; } tp["期日"] = { date: { start: until } }; }
-      undo.moved.push({ id: t.id, startRaw: t.startRaw, due: t.due });
-      await patchTask(env, t.id, tp);
-    }
-    props["期待する結果"] = RTV(`${until} まで動かさずに困っていない。その日に 続ける／やめる を新しい行で決め直す`);
-    props["検証日"] = { date: { start: until } };
-    did = `見直し ${until.slice(5).replace("-", "/")}` + (undo.moved.length ? `・関連タスク ${undo.moved.length} 件も送った` : "");
-  } else { // 削除 (やめる): 判断ごと無くなるので、ぶら下がったタスクも見送りで閉じる
-    for (const x of open) {
-      const t = pageToTask(x);
-      if (hasRealDeadline(x, today)) { kept.push(t.name); continue; }
-      undo.closed.push({ id: t.id, status: t.status, desc: t.rawDesc, aiSince: t.aiSince });
-      await patchTask(env, t.id, { ...doneProps(), "AI処理開始": { date: null }, "AI処理種別": { select: null },
-        "説明": RTV(`見送り (${today}, Kairos 見直し): 決定「${name.slice(0, 80)}」をやめた` + (t.rawDesc ? "\n" + t.rawDesc : "")) });
-    }
-    if (undo.closed.length) projStatCache.at = 0;
-    props["検証結果"] = { select: { name: "検証不要" } };
-    did = undo.closed.length ? `関連タスク ${undo.closed.length} 件を見送りで閉じた` : "";
-  }
-  if (kept.length) did += `${did ? "・" : ""}期限のある ${kept.length} 件は残した`;
-  // 結論 は「決めたこと・次の日付」を 1〜2 文で (Decisions 運用規約 §2)。定型の 1 語で終わらせない
-  props["結論"] = RTV(`${answer} (${today}, Kairos 見直し)` + (memo ? `: ${memo}` : "") + (did ? `。${did}` : ""));
-  await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: props }) });
-  return { ok: true, state: "決着", did, kept, undo };
-}
-// 決着の取り消し。応答で返した undo だけを信じ、起票の取り消しは「その決定に結ばれた未完了タスク」に限る
-async function undoDecision(env, id, u) {
-  const nid = (x) => String(x ?? "").replace(/-/g, "");
-  if (u?.created?.id) {
-    const page = await notion(env, `/pages/${u.created.id}`);
-    const linked = (page.properties?.["決定"]?.relation ?? []).some((r) => nid(r.id) === nid(id));
-    if (linked && page.properties?.["完了"]?.checkbox !== true) await notion(env, `/pages/${u.created.id}`, { method: "PATCH", body: JSON.stringify({ in_trash: true }) });
-  }
-  for (const c of (u?.closed ?? []).slice(0, 10)) await patchTask(env, c.id, { ...reopenProps(), ...(c.status ? { "ステータス": { status: { name: c.status } } } : {}), "説明": RTV(c.desc), "AI処理開始": { date: c.aiSince ? { start: c.aiSince } : null } });
-  for (const m of (u?.moved ?? []).slice(0, 10)) await patchTask(env, m.id, { "開始日": { date: m.startRaw ? { start: m.startRaw } : null }, "期日": { date: m.due ? { start: m.due } : null } });
-  const pv = u?.prev ?? {};
-  await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: {
-    "状態": { select: { name: ["提案中", "提示済み"].includes(pv.state) ? pv.state : "提案中" } }, "決定": { select: pv.decision ? { name: pv.decision } : null }, "決定日": { date: null },
-    "結論": RTV(pv.conclusion), "期待する結果": RTV(pv.expect), "検証日": { date: pv.verifyDate ? { start: pv.verifyDate } : null }, "検証結果": { select: pv.verifyResult ? { name: pv.verifyResult } : null } } }) });
-  projStatCache.at = 0;
-  return { ok: true, state: pv.state ?? "提案中" };
-}
-
 async function reviewQuestions(env) {
   const today = todayJst();
   const out = [];
@@ -724,19 +623,11 @@ async function reviewQuestions(env) {
       });
       continue;
     }
-    // 関連タスクの件数だけ見る (中身は答えたときに読む。ここで 1 件ずつ引くと問いの数だけ Notion を叩く)
-    const nRel = (p["関連タスク"]?.relation ?? []).length;
     out.push({
       kind: "decision", db: "Decisions", label: p["状態"]?.select?.name === "提示済み" ? "提示済みの未決" : "提案中", id: pg.id, url: pg.url,
       q: name, body: DEC_RT(p["問い"]).slice(0, 400) || null,
-      ctx: [["出所", DEC_RT(p["出所"]).slice(0, 60)], ["AI推奨", ai], ["PJ", pj.join("・")], ["関連タスク", nRel ? `${nRel} 件` : ""], ["日付", (p["日付"]?.date?.start ?? "").slice(0, 10)]].filter((x) => x[1]),
-      // 決着で終わらせない (2026-10-11): 着手=タスクが残る、棚上げ=見直し日にまた聞く、やめる=関連タスクも閉じる
-      options: [
-        { a: "着手する", t: "着手する", s: "決着・タスクを残す", pri: ai === "着手する" },
-        { a: "棚上げ", t: "棚上げ", s: "決着・見直し日にまた聞く", pri: ai === "棚上げ" },
-        { a: "削除", t: "やめる", s: nRel ? "決着・関連タスクも閉じる" : "決着・検証不要", pri: ai === "削除" },
-        { a: "skip", t: "今は決めない", s: "提示済みにして次回" }],
-      until: addDays(today, 30), noteHint: "次の一手を1行（着手ならタスク名）",
+      ctx: [["出所", DEC_RT(p["出所"]).slice(0, 60)], ["AI推奨", ai], ["PJ", pj.join("・")], ["日付", (p["日付"]?.date?.start ?? "").slice(0, 10)]].filter((x) => x[1]),
+      options: [{ a: "着手する", t: "着手する", s: "決着・次のアクションへ", pri: ai === "着手する" }, { a: "棚上げ", t: "棚上げ", s: "決着・今は動かない", pri: ai === "棚上げ" }, { a: "削除", t: "やめる", s: "決着・削除扱い", pri: ai === "削除" }, { a: "skip", t: "今は決めない", s: "提示済みにして次回" }],
       name,
     });
   }
@@ -777,7 +668,7 @@ async function reviewQuestions(env) {
   return { today, questions: out };
 }
 // 見直しの答えを Notion に書く。decision の決着・検証結果・繰越タスクの処理。PJ クローズは closeProject を使う
-async function reviewAnswer(env, kind, id, answer, note, until) {
+async function reviewAnswer(env, kind, id, answer, note) {
   const today = todayJst();
   const memo = (note || "").replace(/\s+/g, " ").trim().slice(0, 300);
   if (kind === "decision") {
@@ -786,7 +677,10 @@ async function reviewAnswer(env, kind, id, answer, note, until) {
       return { ok: true, state: "提示済み" };
     }
     if (!["着手する", "棚上げ", "削除"].includes(answer)) throw new Error("bad answer");
-    return decideDecision(env, id, answer, memo, until);
+    const props = { "状態": { select: { name: "決着" } }, "決定": { select: { name: answer } }, "決定日": { date: { start: today } },
+      "結論": { rich_text: [{ text: { content: (`${answer} (${today}, Kairos 見直し)` + (memo ? `: ${memo}` : "")).slice(0, 1900) } }] } };
+    await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: props }) });
+    return { ok: true, state: "決着" };
   }
   if (kind === "deps") { // 依存案 (2026-10-07): link=後続の 先行タスク に先行を足して決着、nolink=結ばずに決着、skip=提示済み
     const pg = await notion(env, `/pages/${id}`);
@@ -812,7 +706,7 @@ async function reviewAnswer(env, kind, id, answer, note, until) {
       projStatCache.at = 0;
     }
     const conclusion = `${answer === "nolink" ? "結ばない" : dated ? "結んで日程も置いた" : "結んだ"} (${today}, Kairos 見直し)` + (memo ? `: ${memo}` : "") + ` ${DEC_RT(pg.properties?.["結論"]).match(/\[deps [^\]]*\]/)?.[0] ?? ""}`;
-    await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: { "状態": { select: { name: "決着" } }, "決定": { select: { name: answer === "nolink" ? "削除" : "決定済み" } }, "決定日": { date: { start: today } }, "検証結果": { select: { name: "検証不要" } }, "結論": { rich_text: [{ text: { content: conclusion.slice(0, 1900) } }] } } }) });
+    await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: { "状態": { select: { name: "決着" } }, "決定": { select: { name: answer === "nolink" ? "削除" : "決定済み" } }, "決定日": { date: { start: today } }, "結論": { rich_text: [{ text: { content: conclusion.slice(0, 1900) } }] } } }) });
     return { ok: true, state: "決着", linked, dated };
   }
   if (kind === "dates") { // 日程案 (2026-10-07): apply=開始日・期日を書いて決着、nope=決着(削除)、skip=提示済み
@@ -831,7 +725,7 @@ async function reviewAnswer(env, kind, id, answer, note, until) {
       await patchTask(env, d.taskId, props);
     }
     const conclusion = `${answer === "apply" ? "日程を置いた" : "置かない"} (${today}, Kairos 見直し)` + (memo ? `: ${memo}` : "") + ` ${DEC_RT(pg.properties?.["結論"]).match(/\[dates [^\]]*\]/)?.[0] ?? ""}`;
-    await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: { "状態": { select: { name: "決着" } }, "決定": { select: { name: answer === "apply" ? "決定済み" : "削除" } }, "決定日": { date: { start: today } }, "検証結果": { select: { name: "検証不要" } }, "結論": { rich_text: [{ text: { content: conclusion.slice(0, 1900) } }] } } }) });
+    await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: { "状態": { select: { name: "決着" } }, "決定": { select: { name: answer === "apply" ? "決定済み" : "削除" } }, "決定日": { date: { start: today } }, "結論": { rich_text: [{ text: { content: conclusion.slice(0, 1900) } }] } } }) });
     return { ok: true, state: "決着" };
   }
   if (kind === "verify") {
@@ -1194,10 +1088,8 @@ export default {
       const mrv = path.match(/^\/api\/review\/(decision|verify|task-carry|habit|deps|dates)\/([0-9a-f-]{32,36})$/);
       if (mrv && req.method === "POST") {
         const b = await req.json().catch(() => ({}));
-        return json(await reviewAnswer(env, mrv[1], mrv[2], String(b.answer ?? ""), String(b.note ?? ""), String(b.until ?? "")));
+        return json(await reviewAnswer(env, mrv[1], mrv[2], String(b.answer ?? ""), String(b.note ?? "")));
       }
-      const mru = path.match(/^\/api\/review\/decision\/([0-9a-f-]{32,36})\/undo$/);
-      if (mru && req.method === "POST") return json(await undoDecision(env, mru[1], await req.json().catch(() => ({}))));
       // 🧭 役割タブ (Phase B-6): 読むだけ。書くのは 今週の目標 (今週の石) だけ
       if (path === "/api/roles" && req.method === "GET") return json(await rolesInfo(env));
       const mrg = path.match(/^\/api\/roles\/([0-9a-f-]{32,36})\/goal$/);
@@ -1237,6 +1129,7 @@ export default {
         if ("owner" in b) props["担当"] = { select: b.owner ? { name: b.owner } : null };
         if ("desc" in b) props["説明"] = { rich_text: [{ text: { content: String(b.desc ?? "").slice(0, 1900) } }] };
         if ("aiSince" in b) props["AI処理開始"] = { date: b.aiSince ? { start: b.aiSince } : null };
+        if (Array.isArray(b.env)) props["実行環境"] = { multi_select: b.env.map((name) => ({ name })) }; // 🌅 早朝向き の付け外しの取り消し (2026-10-12)
         // PJ の付け替えの取り消し (2026-10-06)。控えと今が違うときだけ戻す (他の操作の取り消しで PJ を触らない)
         if (Array.isArray(b.projectIds)) {
           const cur = await getTask(env, mr[1]);
@@ -1251,7 +1144,7 @@ export default {
         if (!Object.keys(props).length) return json({ error: "nothing to restore" }, 400);
         return json({ task: await patchTask(env, mr[1], props) });
       }
-      const m = path.match(/^\/api\/tasks\/([0-9a-f-]{32,36})\/(done|reopen|defer|wait|human|start|skip|dup|evening|daytime|ai|ai-clear|delegate|mit|mit-clear|due|project|doing|todo)$/);
+      const m = path.match(/^\/api\/tasks\/([0-9a-f-]{32,36})\/(done|reopen|defer|wait|human|start|skip|dup|evening|daytime|ai|ai-clear|delegate|mit|mit-clear|due|project|doing|todo|morning|morning-clear)$/);
       if (m && req.method === "POST") {
         const [, id, action] = m;
         // 🤖 を押した印。Claude を起動する直前に立て、Claude が終了時に空にする (§11)。ai-clear は人が手で外す用
@@ -1343,6 +1236,12 @@ export default {
         if (action === "human") return json({ task: await patchTask(env, id, { "ステータス": { status: { name: "人対応" } }, "AI処理開始": { date: null }, "AI処理種別": { select: null } }) });
         // 状態の切替 (2026-10-07, 利用者「人対応に変更するボタンがあってもいいかも」): シートの 🚦 状態 から 未着手／進行中 にも戻せる。進行中 は WIP に数える
         if (action === "doing") return json({ task: await patchTask(env, id, { "ステータス": { status: { name: "進行中" } } }) });
+        // 🌅 早朝向き (2026-10-12 利用者と決定): 実行環境 に「早朝」を足す／外す。家にいて家族は起きていない・音は出せない・時間はかけられる、という条件のタスク
+        if (action === "morning" || action === "morning-clear") {
+          const cur = await getTask(env, id);
+          const env2 = cur.env.filter((x) => x !== "早朝"); if (action === "morning") env2.push("早朝");
+          return json({ task: await patchTask(env, id, { "実行環境": { multi_select: env2.map((name) => ({ name })) } }) });
+        }
         if (action === "todo") return json({ task: await patchTask(env, id, { "ステータス": { status: { name: "未着手" } } }) });
         // 「明日へ」「週末に」「来週に」「開始日を選ぶ」はどれも **開始日** を動かす操作 (2026-09-27 決定)。
         // 期日 (2026-10-07 夜, 利用者と決定): 条件付きで一緒に動かす。
