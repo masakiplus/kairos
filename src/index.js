@@ -953,7 +953,59 @@ async function taskDetail(env, id) {
   ]);
   const t = pageToTask(page);
   const body = (blocks.results ?? []).map(blockText).filter((x) => x.trim()).join("\n");
-  return { id, desc: t.rawDesc || "", body, more: !!blocks.has_more, kind: page.properties?.["種類"]?.select?.name ?? null, labels: (page.properties?.["ラベル"]?.multi_select ?? []).map((o) => o.name) };
+  // 関連ページ (2026-10-13): 決定・PJ の名前を引いて、Kairos のリーダーで開けるようにする (最大 6 件)
+  const relIds = [
+    ...(page.properties?.["決定"]?.relation ?? []).map((r) => ({ id: r.id, kind: "決定" })),
+    ...(page.properties?.["関連プロジェクト"]?.relation ?? []).map((r) => ({ id: r.id, kind: "PJ" })),
+  ].slice(0, 6);
+  const related = await Promise.all(relIds.map(async (r) => {
+    try { const pg = await notion(env, `/pages/${r.id}`); const title = Object.values(pg.properties ?? {}).find((p) => p.type === "title"); return { id: r.id, kind: r.kind, name: (title?.title ?? []).map((x) => x.plain_text).join("") || "(無題)", icon: pg.icon?.emoji ?? "" }; }
+    catch (e) { return null; }
+  }));
+  return { id, desc: t.rawDesc || "", body, more: !!blocks.has_more, kind: page.properties?.["種類"]?.select?.name ?? null, labels: (page.properties?.["ラベル"]?.multi_select ?? []).map((o) => o.name), related: related.filter(Boolean) };
+}
+
+// 📄 Notion ページのリーダー表示 (2026-10-13): アプリを切り替えずに関連ページを読む。ブロックを簡約 JSON にして画面が描く。読み取り専用
+const RT_HTML = (v) => (v?.rich_text ?? []).map((x) => {
+  let t = String(x.plain_text ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  if (x.annotations?.code) t = `<code>${t}</code>`;
+  if (x.annotations?.bold) t = `<b>${t}</b>`;
+  if (x.annotations?.strikethrough) t = `<s>${t}</s>`;
+  const href = x.href || (x.type === "mention" && x.mention?.page?.id ? `https://www.notion.so/${x.mention.page.id.replace(/-/g, "")}` : null);
+  if (href) t = `<a href="${href.replace(/"/g, "")}">${t}</a>`;
+  return t;
+}).join("");
+async function readerBlocks(env, id, depth) {
+  const r = await notion(env, `/blocks/${id}/children?page_size=60`).catch(() => ({ results: [] }));
+  const out = [];
+  for (const b of r.results ?? []) {
+    const t = b.type, v = b[t] ?? {};
+    const row = { t, html: RT_HTML(v) };
+    if (t === "to_do") row.checked = !!v.checked;
+    if (t === "callout") row.icon = v.icon?.emoji ?? "";
+    if (t === "code") row.html = (v.rich_text ?? []).map((x) => x.plain_text).join("").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    if (t === "child_page") { row.html = v.title ?? ""; row.pageId = b.id; }
+    if (t === "child_database") { row.html = v.title ?? ""; }
+    if (t === "bookmark" || t === "embed" || t === "link_preview") { row.href = v.url ?? ""; row.html = v.url ?? ""; }
+    if (t === "image") { row.href = v.file?.url || v.external?.url || ""; }
+    if (t === "table") { row.html = "（表は Notion で）"; }
+    if (b.has_children && depth < 2 && t !== "child_page" && t !== "child_database" && t !== "table") row.children = await readerBlocks(env, b.id, depth + 1);
+    out.push(row);
+  }
+  return { blocks: out, more: !!r.has_more };
+}
+async function readerPage(env, id) {
+  const pg = await notion(env, `/pages/${id}`);
+  const title = Object.values(pg.properties ?? {}).find((p) => p.type === "title");
+  const props = [];
+  for (const [k, p] of Object.entries(pg.properties ?? {})) { // 短い基本プロパティだけ添える (select / status / date / checkbox)
+    if (p.type === "select" && p.select) props.push([k, p.select.name]);
+    else if (p.type === "status" && p.status) props.push([k, p.status.name]);
+    else if (p.type === "date" && p.date?.start) props.push([k, p.date.start.slice(0, 10)]);
+    else if (p.type === "checkbox" && p.checkbox) props.push([k, "✓"]);
+  }
+  const body = await readerBlocks(env, id, 0);
+  return { id, url: pg.url, icon: pg.icon?.emoji ?? "", name: (title?.title ?? []).map((x) => x.plain_text).join("") || "(無題)", props: props.slice(0, 8), ...body };
 }
 
 async function patchTask(env, id, properties) {
@@ -973,7 +1025,7 @@ const reopenProps = () => ({
   "ステータス": { status: { name: "未着手" } },
 });
 
-async function quickAdd(env, name, projectId) {
+async function quickAdd(env, name, projectId, envTags) {
   const today = todayJst();
   const page = await notion(env, "/pages", {
     method: "POST",
@@ -986,7 +1038,7 @@ async function quickAdd(env, name, projectId) {
         "ソース": { select: { name: "手動" } },
         "ステータス": { status: { name: "未着手" } },
         "開始日": { date: { start: today } }, // 原則きょう＝着手可 (2026-08-31)
-        "実行環境": { multi_select: [{ name: "iPhone" }] }, // スマホから入れたものはスマホで片付く前提
+        "実行環境": { multi_select: (envTags && envTags.length ? envTags : ["iPhone"]).map((n) => ({ name: n })) }, // 既定は「いまの状況」(画面が渡す。2026-10-13)。無ければ iPhone
         // PJ別タブの「この PJ にタスクを足す」「次のアクションを1件決める」(Phase B, 2026-10-06) から来たときは PJ に紐づける
         ...(projectId ? { "関連プロジェクト": { relation: [{ id: projectId }] } } : {}),
       },
@@ -1084,7 +1136,8 @@ export default {
         const name = String(body.name ?? "").trim();
         if (!name) return json({ error: "name required" }, 400);
         const projectId = /^[0-9a-f-]{32,36}$/.test(String(body.projectId ?? "")) ? body.projectId : null;
-        return json({ task: await quickAdd(env, name, projectId) }, 201);
+        const envTags = Array.isArray(body.env) ? body.env.map((x) => String(x).trim()).filter(Boolean).slice(0, 6) : null;
+        return json({ task: await quickAdd(env, name, projectId, envTags) }, 201);
       }
       // 📁 PJ別の見出し (Phase B-7/8, 2026-10-06): 進行中 PJ の ゴール・完了条件・件数・クローズ候補
       if (path === "/api/projects" && req.method === "GET") return json({ today: todayJst(), projects: await projectsInfo(env) });
@@ -1112,6 +1165,8 @@ export default {
       // 🧭 役割タブ (Phase B-6): 読むだけ。書くのは 今週の目標 (今週の石) だけ
       if (path === "/api/roles" && req.method === "GET") return json(await rolesInfo(env));
       if (path === "/api/where" && req.method === "GET") return json(await whereNow(env));
+      const mpg = path.match(/^\/api\/page\/([0-9a-f-]{32,36})$/);
+      if (mpg && req.method === "GET") return json(await readerPage(env, mpg[1]));
       const mrg = path.match(/^\/api\/roles\/([0-9a-f-]{32,36})\/goal$/);
       if (mrg && req.method === "POST") {
         const b = await req.json().catch(() => ({}));

@@ -314,6 +314,26 @@
   .toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .toast button{background:none;border:0;color:#6fa3ff;font-weight:700;font-size:15px;flex:none}
   .veil{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:10}
+  /* 📄 リーダー (2026-10-13): Notion のページをアプリを切り替えずに読む。シートの上にもう 1 枚 */
+  .reader{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column}
+  .reader .rh{display:flex;align-items:center;gap:8px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;border-bottom:1px solid var(--sep);background:var(--bg)}
+  .reader .rh button{border:0;background:var(--seg);color:var(--fg);border-radius:10px;padding:8px 12px;font-size:15px;font-weight:600}
+  .reader .rh .rt{flex:1;min-width:0;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .reader .rh a{color:var(--mute2);text-decoration:none;font-size:13px;flex:none}
+  .reader .rb{flex:1;overflow-y:auto;padding:12px 16px calc(24px + env(safe-area-inset-bottom));font-size:15px;line-height:1.6;word-break:break-word}
+  .reader .rb .rp{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.reader .rb .rp span{font-size:12px;color:var(--mute);background:var(--seg);border-radius:999px;padding:2px 8px}
+  .reader .rb h1{font-size:19px;margin:14px 0 4px}.reader .rb h2{font-size:17px;margin:12px 0 4px}.reader .rb h3{font-size:15px;margin:10px 0 2px}
+  .reader .rb p{margin:0 0 6px}.reader .rb ul,.reader .rb ol{margin:0 0 6px 1.3em;padding:0}.reader .rb li{margin:2px 0}
+  .reader .rb .todo{display:flex;gap:8px;align-items:flex-start;margin:2px 0}.reader .rb .todo i{flex:none;width:16px;height:16px;border:1.5px solid var(--mute);border-radius:4px;margin-top:4px;font-style:normal;font-size:11px;text-align:center;line-height:14px}.reader .rb .todo.on i{background:var(--acc);border-color:var(--acc);color:#fff}
+  .reader .rb .quote{border-left:3px solid var(--line);padding-left:10px;color:var(--mute);margin:4px 0 6px}
+  .reader .rb .callout{background:var(--card);border-radius:10px;padding:10px 12px;margin:6px 0;box-shadow:var(--shadow)}
+  .reader .rb pre{background:var(--card);border-radius:10px;padding:10px;font-size:12.5px;overflow-x:auto;white-space:pre-wrap}
+  .reader .rb hr{border:0;border-top:1px solid var(--sep);margin:10px 0}
+  .reader .rb .sub{display:block;margin:4px 0;color:var(--acc);text-decoration:none;font-weight:600}
+  .reader .rb a{color:var(--acc)}.reader .rb code{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--seg);border-radius:4px;padding:0 4px}
+  .reader .rb img{max-width:100%;border-radius:8px}
+  .desc .rel{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
+  .desc .rel a{font-size:12px;color:var(--acc);background:var(--accbg);border-radius:999px;padding:3px 9px;text-decoration:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:var(--bg);border-radius:18px 18px 0 0;padding:10px 12px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
   .sheet{transition:transform .18s;touch-action:pan-y;max-height:calc(100dvh - 28px);max-height:calc(100vh - 28px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
   @supports (height:100dvh){.sheet{max-height:calc(100dvh - 28px)}}
@@ -386,6 +406,7 @@
 </form>
 <div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="undo">元に戻す</button></div>
 <div id="sheetWrap" hidden><div class="veil" id="veil"></div><div class="sheet" id="sheet"></div></div>
+<div class="reader" id="reader" hidden><div class="rh"><button id="rdBack">‹ 戻る</button><div class="rt" id="rdTitle"></div><a id="rdOpen" href="#" target="_blank" rel="noopener">Notion ↗</a></div><div class="rb" id="rdBody"></div></div>
 <label for="datePick" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">開始日</label>
 <script>
 (() => {
@@ -1098,6 +1119,71 @@
     return claudeLink(`役割「${r.name}」のミッションを一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。1 問ずつ聞いて、最後に ミッション 列に 1 行（30 字以内）で書き、必要なら 3年後の姿・今年のゴール も埋めてください。`);
   }
 
+  // ---- 📄 リーダー (2026-10-13): Notion ページを Kairos の中で読む。Notion のリンク (notion.so / app.notion.com の 32 桁 id) はここで開く
+  const rdStack = [];
+  const notionIdOf = (href) => { const m = String(href || "").match(/(?:notion\.so|notion\.site|app\.notion\.com)\/(?:[^\s/?#]*-)?([0-9a-f]{32})(?:[?#]|$)/i) || String(href || "").match(/\/p\/(?:[^\s/?#]*-)?([0-9a-f]{32})/i); return m ? m[1] : null; };
+  function rdBlocks(bs, depth = 0) {
+    let out = "", list = null;
+    const close = () => { if (list) { out += `</${list}>`; list = null; } };
+    for (const b of bs || []) {
+      const kids = b.children && b.children.length ? rdBlocks(b.children, depth + 1) : "";
+      if (b.t === "bulleted_list_item" || b.t === "numbered_list_item") { const k = b.t === "bulleted_list_item" ? "ul" : "ol"; if (list !== k) { close(); out += `<${k}>`; list = k; } out += `<li>${b.html}${kids}</li>`; continue; }
+      close();
+      if (b.t === "paragraph") out += b.html || kids ? `<p>${b.html}</p>${kids}` : '<p style="height:6px"></p>';
+      else if (b.t === "heading_1") out += `<h1>${b.html}</h1>`;
+      else if (b.t === "heading_2") out += `<h2>${b.html}</h2>`;
+      else if (b.t === "heading_3") out += `<h3>${b.html}</h3>`;
+      else if (b.t === "to_do") out += `<div class="todo${b.checked ? " on" : ""}"><i>${b.checked ? "✓" : ""}</i><span>${b.html}</span></div>${kids}`;
+      else if (b.t === "quote") out += `<div class="quote">${b.html}${kids}</div>`;
+      else if (b.t === "callout") out += `<div class="callout">${b.icon ? b.icon + " " : ""}${b.html}${kids}</div>`;
+      else if (b.t === "toggle") out += `<details><summary>${b.html}</summary>${kids}</details>`;
+      else if (b.t === "code") out += `<pre>${b.html}</pre>`;
+      else if (b.t === "divider") out += "<hr>";
+      else if (b.t === "child_page") out += `<a href="#" class="sub" data-reader="${b.pageId}">📄 ${esc(b.html)}</a>`;
+      else if (b.t === "child_database") out += `<div class="quote">🗂 ${esc(b.html)}（DB は Notion で）</div>`;
+      else if (b.t === "bookmark" || b.t === "embed" || b.t === "link_preview") out += `<p><a href="${esc(b.href)}" target="_blank" rel="noopener">${esc(b.html).slice(0, 80)}</a></p>`;
+      else if (b.t === "image") out += b.href ? `<p><img src="${esc(b.href)}" alt="" loading="lazy"></p>` : "";
+      else if (b.t === "table") out += `<div class="quote">${b.html}</div>`;
+      else if (b.html) out += `<p>${b.html}</p>${kids}`;
+    }
+    close();
+    return out;
+  }
+  async function openReader(pageId, push = true) {
+    const r = $("#reader"); r.hidden = false;
+    if (push && r.dataset.id && r.dataset.id !== pageId) rdStack.push(r.dataset.id);
+    r.dataset.id = pageId;
+    $("#rdTitle").textContent = "読み込み中…"; $("#rdBody").innerHTML = ""; $("#rdOpen").href = "https://www.notion.so/" + pageId.replace(/-/g, "");
+    if (!history.state || !history.state.reader) history.pushState({ sheet: !!(history.state && history.state.sheet), reader: true }, "");
+    try {
+      const j = await api(`/api/page/${pageId}`);
+      if ($("#reader").dataset.id !== pageId) return;
+      $("#rdTitle").textContent = (j.icon ? j.icon + " " : "") + j.name; $("#rdOpen").href = j.url || $("#rdOpen").href;
+      $("#rdBody").innerHTML = (j.props && j.props.length ? `<div class="rp">${j.props.map(([k, v]) => `<span>${esc(k)}: ${esc(v)}</span>`).join("")}</div>` : "") +
+        (rdBlocks(j.blocks) || '<p style="color:var(--mute)">本文はありません</p>') + (j.more ? '<p style="color:var(--mute)">…（続きは Notion で）</p>' : "");
+      $("#rdBody").scrollTop = 0;
+    } catch (e) { $("#rdBody").innerHTML = `<p style="color:var(--over)">読み込めませんでした: ${esc(e.message)}</p>`; }
+  }
+  function closeReader() {
+    const r = $("#reader"); if (r.hidden) return;
+    if (rdStack.length) { openReader(rdStack.pop(), false); return; }
+    r.hidden = true; delete r.dataset.id;
+    if (history.state && history.state.reader) history.back();
+  }
+  $("#rdBack").onclick = closeReader;
+  $("#rdBody").addEventListener("click", (e) => {
+    const sub = e.target.closest("[data-reader]"); if (sub) { e.preventDefault(); openReader(sub.dataset.reader); return; }
+    const a = e.target.closest("a"); if (!a) return;
+    const id = notionIdOf(a.getAttribute("href")); if (id) { e.preventDefault(); openReader(id); return; }
+    if (/^https?:/.test(a.getAttribute("href") || "")) { a.target = "_blank"; a.rel = "noopener"; }
+  });
+  // シートの中の Notion リンク (概要・関連チップ) もリーダーで
+  $("#sheet").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-reader]"); if (chip) { e.preventDefault(); openReader(chip.dataset.reader); return; }
+    const a = e.target.closest(".desc a"); if (!a) return;
+    const id = notionIdOf(a.getAttribute("href")); if (id) { e.preventDefault(); openReader(id); }
+  });
+
   let searchSeq = 0;
   async function load(v = view, { silent } = {}) {
     if (v === "deps" || v === "graph") return; // つながりは openDeps/openGraph が引く。自動更新で一覧に戻さない
@@ -1353,7 +1439,8 @@
       const kv = [d.kind, ...(d.labels || [])].filter(Boolean).join(" · ");
       box.innerHTML = (kv ? `<div class="kv">${esc(kv)}</div>` : "") +
         (d.desc ? `<div class="dtext">${descHtml(d.desc)}</div>` : `<div class="dtext" style="color:var(--mute)">説明なし</div>`) +
-        (d.body ? `<div class="dbody">${descHtml(d.body)}${d.more ? "<div>…（続きは Notion）</div>" : ""}</div>` : "");
+        (d.body ? `<div class="dbody">${descHtml(d.body)}${d.more ? "<div>…（続きは Notion）</div>" : ""}</div>` : "") +
+        ((d.related || []).length ? `<div class="rel">${d.related.map((r) => `<a href="#" data-reader="${r.id}">📄 ${esc(r.kind)}: ${r.icon ? r.icon + " " : ""}${esc(r.name)}</a>`).join("")}</div>` : "");
       const long = [...box.querySelectorAll(".dtext,.dbody")].some((el) => el.scrollHeight > el.clientHeight + 2);
       if (long) { const a = document.createElement("a"); a.href = "#"; a.className = "more"; a.textContent = "もっと見る"; a.onclick = (e) => { e.preventDefault(); box.querySelectorAll(".dtext,.dbody").forEach((el) => el.classList.add("open")); a.remove(); }; box.appendChild(a); }
     }).catch(() => { const box = $("#descBox"); if (box && !t.rawDesc) box.innerHTML = `<div class="dtext" style="color:var(--mute)">概要を取得できませんでした</div>`; });
@@ -1487,7 +1574,11 @@
     if (e.key === "Escape") closeSheet();
     else if (sheetStep && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); sheetStep(e.key === "ArrowLeft" ? -1 : 1); }
   });
-  window.addEventListener("popstate", () => { if (!$("#sheetWrap").hidden) $("#sheetWrap").hidden = true; });
+  window.addEventListener("popstate", () => {
+    const r = $("#reader");
+    if (r && !r.hidden) { r.hidden = true; delete r.dataset.id; rdStack.length = 0; return; } // 端末の戻る＝リーダーを閉じる (シートは残る)
+    if (!$("#sheetWrap").hidden) $("#sheetWrap").hidden = true;
+  });
   $("#veil").onclick = closeSheet;
   // シートを下にスワイプで閉じる
   let shY = 0, shDy = 0, shOn = false;
@@ -1660,11 +1751,13 @@
     e.preventDefault(); const name = $("#addName").value.trim(); if (!name) return; $("#addName").value = "";
     const pj = addProject; // PJ別の「この PJ にタスクを足す」から来たときは紐づける (Phase B)
     try {
-      const j = await api("/api/tasks", { method: "POST", body: JSON.stringify({ name, ...(pj ? { projectId: pj.id } : {}) }) });
+      // 実行環境の既定は「いまの状況」(2026-10-13): 端末 (Mac か スマホ) ＋ 場所。シートの「できる状況」で直せる
+      const S = currentSit(); const envTags = [isMac ? "Mac" : "iPhone", S.place];
+      const j = await api("/api/tasks", { method: "POST", body: JSON.stringify({ name, env: envTags, ...(pj ? { projectId: pj.id } : {}) }) });
       // PJ に他の未完了があれば、その場で先行を選べるボタンを出す (2026-10-07, 依存の洗い出し D)
       const pjInfo = pj && (projInfo || []).find((p) => p.id === pj.id);
       if (pj && pjInfo && pjInfo.open > 0) toast(`追加: ${j.task.name} → ${j.task.project || pjInfo.label}`, () => openPredPick(j.task), "先行を選ぶ");
-      else toast("追加: " + j.task.name + (j.task.project ? ` → ${j.task.project}` : ""));
+      else toast("追加: " + j.task.name + (j.task.project ? ` → ${j.task.project}` : "") + `（${envTags.map((x) => TOOL_LABEL[x] || x).join("・")}）`);
       if (pj) { setAddProject(null); projInfoAt = 0; } load(view, { silent: true });
     }
     catch (err) { toast("追加失敗: " + err.message); $("#addName").value = name; }
