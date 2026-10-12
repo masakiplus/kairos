@@ -1164,7 +1164,7 @@ export default {
         if (!Object.keys(props).length) return json({ error: "nothing to restore" }, 400);
         return json({ task: await patchTask(env, mr[1], props) });
       }
-      const m = path.match(/^\/api\/tasks\/([0-9a-f-]{32,36})\/(done|reopen|defer|wait|human|start|skip|dup|evening|daytime|ai|ai-clear|delegate|mit|mit-clear|due|project|doing|todo|morning|morning-clear)$/);
+      const m = path.match(/^\/api\/tasks\/([0-9a-f-]{32,36})\/(done|reopen|defer|wait|human|start|skip|dup|evening|daytime|ai|ai-clear|delegate|mit|mit-clear|due|project|doing|todo|morning|morning-clear|env)$/);
       if (m && req.method === "POST") {
         const [, id, action] = m;
         // 🤖 を押した印。Claude を起動する直前に立て、Claude が終了時に空にする (§11)。ai-clear は人が手で外す用
@@ -1257,6 +1257,13 @@ export default {
         // 状態の切替 (2026-10-07, 利用者「人対応に変更するボタンがあってもいいかも」): シートの 🚦 状態 から 未着手／進行中 にも戻せる。進行中 は WIP に数える
         if (action === "doing") return json({ task: await patchTask(env, id, { "ステータス": { status: { name: "進行中" } } }) });
         // 🌅 早朝向き (2026-10-12 利用者と決定): 実行環境 に「早朝」を足す／外す。家にいて家族は起きていない・音は出せない・時間はかけられる、という条件のタスク
+        // 状況タグの付け替え (2026-10-13): set=カンマ区切り で 実行環境 を丸ごと置く。シートの「できる状況」のトグルが使う。選択肢はスキーマから読んで検証する
+        if (action === "env") {
+          const ds = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}`).catch(() => null);
+          const allowed = new Set((ds?.properties?.["実行環境"]?.multi_select?.options ?? []).map((o) => o.name));
+          const set = (url.searchParams.get("set") ?? "").split(",").map((x) => x.trim()).filter((x) => x && (!allowed.size || allowed.has(x)));
+          return json({ task: await patchTask(env, id, { "実行環境": { multi_select: [...new Set(set)].map((name) => ({ name })) } }) });
+        }
         if (action === "morning" || action === "morning-clear") {
           const cur = await getTask(env, id);
           const env2 = cur.env.filter((x) => x !== "早朝"); if (action === "morning") env2.push("早朝");

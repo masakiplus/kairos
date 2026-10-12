@@ -1234,10 +1234,12 @@
       ${t.done ? "" : `<div class="sect">🚦 状態${t.status ? `　<span style="color:var(--acc)">いま: ${esc(t.status)}</span>` : ""}</div>
       <div class="grid st4">
         ${[["todo", "未着手", "○"], ["doing", "進行中", "▶"], ["wait", "待ち", "⏸"], ["human", "人対応", "🧔"]].map(([a, n, ic]) => `<button data-a="${a}" data-keep="1" data-st="${n}" class="${t.status === n ? "pri" : ""}" ${t.blocked || t.status === n ? "disabled" : ""}>${ic} ${n}</button>`).join("")}
-      </div>
-      <div class="grid">${t.env.includes("早朝")
-        ? `<button data-a="morning-clear" data-keep="1" style="grid-column:1/-1">🌅 早朝向きから外す</button>`
-        : `<button data-a="morning" data-keep="1" style="grid-column:1/-1">🌅 早朝向きにする<small style="font-weight:400;color:var(--mute)">　家で静かに・時間をかけて</small></button>`}</div>`}
+      </div>`}
+      ${t.done ? "" : `<div class="sect">📍 できる状況 <small style="font-weight:400;color:var(--mute)">タグが付いた軸だけ条件になる。空＝どこでも</small></div>
+      <div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${x}</button>`).join("")}</div>
+      <div class="grid sit" style="grid-template-columns:repeat(4,1fr);margin-top:6px">${SIT_AXES.tool.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
+      ${COMPANIONS.length ? `<div class="grid sit" style="grid-template-columns:repeat(${Math.min(COMPANIONS.length, 3)},1fr);margin-top:6px">${COMPANIONS.map((x) => `<button data-env="${esc(x)}" class="${t.env.includes(x) ? "on" : ""}">👥 ${esc(x)}</button>`).join("")}</div>` : ""}
+      <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="早朝" class="${t.env.includes("早朝") ? "on" : ""}">🌅 早朝向き<small style="font-weight:400;color:${t.env.includes("早朝") ? "rgba(255,255,255,.8)" : "var(--mute)"}">　家で静かに・時間をかけて</small></button></div>`}
       <div class="sect">🤖 Claude に任せる</div>
       <div class="list">
         ${t.aiSession ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `Claude のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の Claude セッションを開く（続きを任せる）"}</a>` : ""}
@@ -1288,6 +1290,16 @@
     // 端末の「戻る」で閉じられるように履歴を1つ積む
     if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheetClose").onclick = closeSheet;
+    // 📍 できる状況のトグル (2026-10-13): 1 タップで 実行環境 を付け外し。↩ 対応 (snapOf に env)
+    $("#sheet").querySelectorAll("[data-env]").forEach((b) => b.onclick = () => {
+      const tag = b.dataset.env, had = t.env.includes(tag);
+      pushUndo(t, `${had ? "外す" : "付ける"} ${TOOL_LABEL[tag] || tag}: ${t.name}`);
+      t.env = had ? t.env.filter((x) => x !== tag) : [...t.env, tag];
+      openSheet(t, today); lastSig = ""; render(todayStr);
+      api(`/api/tasks/${t.id}/env?set=${encodeURIComponent(t.env.join(","))}`, { method: "POST" })
+        .then(() => toast(`${had ? "外した" : "付けた"}: ${TOOL_LABEL[tag] || tag} — ${t.name}`, undoLast))
+        .catch((e) => { toast("失敗: " + e.message); load(view, { silent: true }); });
+    });
     const sb = $("#sheetBack"); if (sb) sb.onclick = (ev) => { ev.preventDefault(); const back = sheetFrom; sheetFrom = null; openSheet(back, today); };
     sheetStep = (d) => { // 前後のタスクへ (ボタンと ←→ キーの両方から)
       const o = sheetOrder(), i = o.indexOf(t.id); if (i < 0) return;
