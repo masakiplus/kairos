@@ -159,16 +159,20 @@ const VIEWS = {
 };
 
 // 担当 (select) の選択肢 ＝ 委任できる相手。Notion のスキーマから読む (ハードコードしない。公開リポジトリ化 2026-10-08)
-let delegatesCache = { at: 0, list: [] };
-async function delegates(env) {
-  if (Date.now() - delegatesCache.at < 10 * 60_000 && delegatesCache.list.length) return delegatesCache.list;
+// 👥 一緒にいる人 (2026-10-12): 実行環境 の選択肢のうち「〜と」で終わるもの (例: 配偶者の名前＋と) を相手の軸として返す。名前はコードに書かない
+let delegatesCache = { at: 0, list: [], companions: [], ok: false };
+async function loadSchemaLists(env) {
+  if (Date.now() - delegatesCache.at < 10 * 60_000 && delegatesCache.list.length) return delegatesCache;
   try {
     const ds = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}`);
     const list = (ds.properties?.["担当"]?.select?.options ?? []).map((o) => o.name).filter(Boolean);
-    delegatesCache = { at: Date.now(), list };
+    const companions = (ds.properties?.["実行環境"]?.multi_select?.options ?? []).map((o) => o.name).filter((n) => n && n.length > 1 && n.endsWith("と"));
+    delegatesCache = { at: Date.now(), list, companions, ok: true };
   } catch (e) { /* 読めなければ前回の値 (無ければ空) */ }
-  return delegatesCache.list;
+  return delegatesCache;
 }
+async function delegates(env) { return (await loadSchemaLists(env)).list; }
+async function companions(env) { const c = await loadSchemaLists(env); return { list: c.companions, ok: c.ok }; } // ok=false ＝ まだ一度も読めていない (画面は前回の値を保つ)
 const AI_ACTIVE_MS = 2 * 60 * 60 * 1000; // 🤖 処理中とみなす上限 (2026-09-30 決定: 2時間)
 
 function pageToTask(page) {
@@ -1067,8 +1071,8 @@ export default {
     try {
       if (path === "/api/tasks" && req.method === "GET") {
         const view = url.searchParams.get("view") ?? "today";
-        const [tasks, wip, dl] = await Promise.all([listTasks(env, view), wipCount(env).catch(() => null), delegates(env)]);
-        return json({ view, today: todayJst(), tasks, wip, delegates: dl });
+        const [tasks, wip, dl, cp] = await Promise.all([listTasks(env, view), wipCount(env).catch(() => null), delegates(env), companions(env)]);
+        return json({ view, today: todayJst(), tasks, wip, delegates: dl, companions: cp.list, companionsOk: cp.ok });
       }
       if (path === "/api/search" && req.method === "GET") {
         const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);

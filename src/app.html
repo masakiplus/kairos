@@ -364,7 +364,7 @@
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
     </div>
   </div>
-  <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・時間帯）。タップで変更"></button></div>
+  <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・一緒にいる人・時間帯）。タップで変更"></button></div>
   <form class="srch" id="srch" hidden>
     <label for="srchQ" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">検索語</label>
     <input id="srchQ" type="search" placeholder="名前・説明で検索（スペースで AND）" autocomplete="off" enterkeyhint="search">
@@ -397,6 +397,7 @@
   wideMq.addEventListener("change", () => { if (view === "deps") render(todayStr); });
   // Phase B (2026-10-06): PJ別の見出し情報 (/api/projects) と 役割タブ (/api/roles)。追加欄の PJ 紐づけ
   let projInfo = null, projInfoAt = 0, rolesData = null, addProject = null;
+  let COMPANIONS = []; try { COMPANIONS = JSON.parse(localStorage.getItem("companions") || "[]"); } catch (e) {} // 👥 実行環境 の「〜と」タグ。Worker がスキーマから読む (2026-10-12)
   let DELEGATES = JSON.parse(localStorage.getItem("delegates") || "[]"); // 担当 の選択肢。Worker が Notion のスキーマから読んで /api/tasks に添える
   const ICONS = {
     star: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.5 1.2 6.4L12 17.3l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8L12 2.8z" fill="#f7c948"/></svg>',
@@ -563,7 +564,7 @@
         <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
         <div class="body">
           <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
-          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${t.env.length ? `<span>${t.env.join("・")}</span>` : ""}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}</div>
+          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${t.env.length ? `<span>${esc(t.env.join("・"))}</span>` : ""}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}</div>
         </div>
         ${t.aiActive && t.aiSession
           ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="Claude のセッションを開く" data-sess>💬</a>`
@@ -589,7 +590,7 @@
     if (view === "graph") { $("#add").hidden = true; renderGraph(today); return; }
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
-    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, tasks.length, S0.place, S0.tools.join(","), S0.morning, sigOf(tasks)].join("\u0001");
+    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
@@ -663,7 +664,7 @@
   }
   const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Notion を更新し、終わったら 📻 Sessions に足跡を 1 行。";
   // ---- いまの状況 (2026-10-12, OmniFocus のタグ／パースペクティブの「端末に応じて切り替わる」版) ----
-  // 実行環境 の選択肢を 3 軸に読む。タグが付いている軸ごとに 1 つ以上が今の状況と合えば「いまできる」。タグが無い軸は不問
+  // 実行環境 の選択肢を 4 軸に読む (👥 相手 は 2026-10-12。「〜と」で終わる選択肢＝その人と一緒のときにできる)。タグが付いている軸ごとに 1 つ以上が今の状況と合えば「いまできる」。タグが無い軸は不問
   const SIT_AXES = { place: ["自宅", "職場", "外出"], tool: ["Mac", "iPhone", "電話", "紙・郵送"], time: ["早朝"] };
   const TOOL_LABEL = { Mac: "Mac", iPhone: "スマホ", "電話": "電話", "紙・郵送": "紙" };
   const isMorning = () => { const h = new Date().getHours(); return h >= 4 && h < 7; }; // 早朝の窓。端末の時刻で判定
@@ -681,12 +682,14 @@
     if (whereData && whereData.place && !whereData.stale) { place = whereData.place === "自宅" || whereData.place === "職場" ? whereData.place : "外出"; src = whereData.place === "伊豆" ? "位置: 伊豆" : "位置"; }
     const tools = isMac ? ["Mac", "iPhone", "電話"] : ["iPhone", "電話"];
     if (place === "自宅" && !isMorning()) tools.push("紙・郵送");
-    return { place, tools, src, morning: isMorning(), key: `${isMac ? "mac" : "phone"}|${place}|${isMorning() ? "am" : h < 19 ? "day" : "night"}` };
+    // 👥 家にいる (早朝以外) ＝ 一緒にいる人は全員いる。外出・職場・早朝は誰もいない扱い (一緒に出かけているときはチップで手で足す)
+    const withs = place === "自宅" && !isMorning() ? [...COMPANIONS] : [];
+    return { place, tools, withs, src, morning: isMorning(), key: `${isMac ? "mac" : "phone"}|${place}|${isMorning() ? "am" : h < 19 ? "day" : "night"}` };
   }
   function currentSit() {
     const auto = inferSit();
     let m = null; try { m = JSON.parse(localStorage.getItem("sit:manual") || "null"); } catch (e) {}
-    if (m && m.key === auto.key && Date.now() - m.at < 6 * 3600_000) return { ...auto, place: m.place || auto.place, tools: m.tools || auto.tools, manual: true };
+    if (m && m.key === auto.key && Date.now() - m.at < 6 * 3600_000) return { ...auto, place: m.place || auto.place, tools: m.tools || auto.tools, withs: Array.isArray(m.withs) ? m.withs : ((m.place || auto.place) === "自宅" && !isMorning() ? [...COMPANIONS] : []), manual: true };
     if (m) localStorage.removeItem("sit:manual"); // 端末・時間帯・曜日の推定が変わったら手動の指定は自然に消える
     return { ...auto, manual: false };
   }
@@ -695,26 +698,29 @@
     const S = currentSit(), env = t.env || [];
     const pl = env.filter((x) => SIT_AXES.place.includes(x)); if (pl.length && !pl.includes(S.place)) return pl.map((x) => x + "で").join("／");
     const tl = env.filter((x) => SIT_AXES.tool.includes(x)); if (tl.length && !tl.some((x) => S.tools.includes(x))) return tl.map((x) => TOOL_LABEL[x] || x).join("／") + "が要る";
+    const wl = env.filter((x) => COMPANIONS.includes(x)); /* スキーマから読めた相手だけで判定 (読めないときに推測で沈めない) */ if (wl.length && !wl.some((x) => (S.withs || []).includes(x))) return wl.map((x) => x + "一緒のとき").join("／");
     return "";
   }
   function renderSit() {
     const S = currentSit(), b = $("#sitChip"); if (!b) return;
     b.className = S.manual ? "manual" : "";
-    b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${S.morning ? " · 🌅 早朝" : ""} <small>${S.manual ? "手動" : "自動（" + S.src + "）"}</small>`;
+    b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${(S.withs || []).length ? " · 👥 " + S.withs.map(esc).join("・") : ""}${S.morning ? " · 🌅 早朝" : ""} <small>${S.manual ? "手動" : "自動（" + S.src + "）"}</small>`;
   }
   function openSitPick() {
-    const S = currentSit(); let place = S.place; const tools = new Set(S.tools);
+    const S = currentSit(); let place = S.place; const tools = new Set(S.tools); const withs = new Set(S.withs || []);
     const draw = () => {
       $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>📍 いまの状況</h3><button class="close" aria-label="閉じる">✕</button></div>
       <div class="sub">合わないタスクは一覧の末尾「💤 いまはできない」に沈みます（隠しません）。場所は 📍 今の居場所（スマホの位置）、道具は端末、時間帯は時刻から自動で決まり、ここで変えた値は推定が変わるまで有効${whereData && whereData.place ? `。いまの位置: ${esc(whereData.place)}${whereData.stale ? "（3 時間以上前の受信なので使っていません）" : ""}` : ""}</div>
       <div class="sect">場所</div><div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-place="${x}" class="${place === x ? "on" : ""}">${x}</button>`).join("")}</div>
       <div class="sect">手元にある道具</div><div class="grid sit" style="grid-template-columns:repeat(4,1fr)">${SIT_AXES.tool.map((x) => `<button data-tool="${x}" class="${tools.has(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
+      ${COMPANIONS.length ? `<div class="sect">一緒にいる人 <small style="font-weight:400;color:var(--mute)">家では一緒・外では別、が既定</small></div><div class="grid sit" style="grid-template-columns:repeat(${Math.min(COMPANIONS.length, 4)},1fr)">${COMPANIONS.map((x) => `<button data-with="${esc(x)}" class="${withs.has(x) ? "on" : ""}">👥 ${esc(x)}</button>`).join("")}</div>` : ""}
       <div class="sect">時間帯</div><div class="sub">${S.morning ? "🌅 早朝（04:00〜06:59）— 早朝向きを先頭に出しています" : "日中・夜（早朝向きは通常の節に混ざります）"}</div>
       <div class="grid"><button class="pri" id="sitOk">この状況にする</button><button class="skip" id="sitAuto">自動に戻す</button></div>`;
       $("#sheet").querySelector(".close").onclick = closeSheet;
-      $("#sheet").querySelectorAll("[data-place]").forEach((b) => b.onclick = () => { place = b.dataset.place; draw(); });
+      $("#sheet").querySelectorAll("[data-place]").forEach((b) => b.onclick = () => { place = b.dataset.place; withs.clear(); if (place === "自宅" && !isMorning()) COMPANIONS.forEach((x) => withs.add(x)); draw(); }); // 場所を変えたら 👥 も既定 (家＝一緒) に合わせ直す
       $("#sheet").querySelectorAll("[data-tool]").forEach((b) => b.onclick = () => { if (tools.has(b.dataset.tool)) tools.delete(b.dataset.tool); else tools.add(b.dataset.tool); draw(); });
-      $("#sitOk").onclick = () => { localStorage.setItem("sit:manual", JSON.stringify({ place, tools: [...tools], at: Date.now(), key: inferSit().key })); closeSheet(); lastSig = ""; render(todayStr); };
+      $("#sheet").querySelectorAll("[data-with]").forEach((b) => b.onclick = () => { if (withs.has(b.dataset.with)) withs.delete(b.dataset.with); else withs.add(b.dataset.with); draw(); });
+      $("#sitOk").onclick = () => { localStorage.setItem("sit:manual", JSON.stringify({ place, tools: [...tools], withs: [...withs], at: Date.now(), key: inferSit().key })); closeSheet(); lastSig = ""; render(todayStr); };
       $("#sitAuto").onclick = () => { localStorage.removeItem("sit:manual"); closeSheet(); lastSig = ""; render(todayStr); };
     };
     draw();
@@ -1112,6 +1118,7 @@
       const j = await api("/api/tasks?view=" + v);
       tasks = j.tasks; writeCache(v, j);
       if (Array.isArray(j.delegates) && j.delegates.length) { DELEGATES = j.delegates; localStorage.setItem("delegates", JSON.stringify(DELEGATES)); }
+      if (Array.isArray(j.companions) && j.companionsOk) { COMPANIONS = j.companions; try { localStorage.setItem("companions", JSON.stringify(COMPANIONS)); } catch (e) {} }
       render(j.today); $("#stale").hidden = true; $("#n-" + v).textContent = tasks.length;
       // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
       const w = j.wip; const we = $("#wip");
