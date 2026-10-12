@@ -640,7 +640,7 @@
     }
     // 状況に合わないものは末尾に沈める (隠さない。期限切れを見失わないため, 2026-10-12)。今日やる・今日できる・スマホで だけ
     if (view === "today" || view === "can" || view === "phone") {
-      const un = tasks.filter((t) => !t.done && !t.aiActive && t.status !== "人対応" && !t.blocked && unavailWhy(t));
+      const un = tasks.filter((t) => !t.done && !t.aiActive && !t.blocked && unavailWhy(t)); // 🧔 人対応 も沈める (2026-10-12: 本人の手番でも、その場でできなければ同じ)
       if (un.length) {
         const why = [...new Set(un.map(unavailWhy))].slice(0, 3).join("・");
         secs = [...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !un.includes(t))]), [`💤 いまはできない <small style="font-weight:400;color:var(--mute)">${esc(why)}</small>`, "unav", un]];
