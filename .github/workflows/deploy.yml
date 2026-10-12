@@ -44,7 +44,8 @@ jobs:
             --var ROLES_DATA_SOURCE_ID:"${{ vars.ROLES_DATA_SOURCE_ID }}" \
             --var DECISIONS_DATA_SOURCE_ID:"${{ vars.DECISIONS_DATA_SOURCE_ID }}" \
             --var HABITS_DATA_SOURCE_ID:"${{ vars.HABITS_DATA_SOURCE_ID }}" \
-            --var HABIT_LOG_DATA_SOURCE_ID:"${{ vars.HABIT_LOG_DATA_SOURCE_ID }}"
+            --var HABIT_LOG_DATA_SOURCE_ID:"${{ vars.HABIT_LOG_DATA_SOURCE_ID }}" \
+            --var PRESENCE_PAGE_ID:"${{ vars.PRESENCE_PAGE_ID }}"
       - name: 反映の確認
         if: steps.gate.outputs.go == '1' && vars.PUBLIC_URL != ''
         run: |

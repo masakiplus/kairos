@@ -11,6 +11,7 @@ Kairos は Notion の 6 つのデータベース（データソース）を読�
 | `DECISIONS_DATA_SOURCE_ID` | 🧠 Decisions | 見直しタブ（未決・検証・依存案・日程案）・PJ クローズの決着行 |
 | `HABITS_DATA_SOURCE_ID` | 🔁 Habits | 見直しタブの習慣申告 |
 | `HABIT_LOG_DATA_SOURCE_ID` | 📒 Habit Log | 習慣申告の記録先 |
+| `PRESENCE_PAGE_ID`（任意） | 📍 今の居場所（ページ 1 枚） | いまの状況の「場所」。select `区分`（自宅／職場／伊豆／外出）と date `最終受信` を読むだけ。書くのは外部の位置受信 |
 
 データソース ID は Notion API の `GET /v1/databases/{id}` の `data_sources[].id`（2025-09 以降の API）。URL の 32 桁 ID はデータベース ID で、別物。
 

@@ -5,7 +5,7 @@
 #   APP_TOKEN    — この PWA を開くための共有トークン。初回だけ ?t=<APP_TOKEN> で開くと Cookie に入る
 # vars (データソース ID。ローカルは .dev.vars、本番は GitHub Actions の Variables → deploy.yml が --var で渡す):
 #   TASKS_DATA_SOURCE_ID, PROJECTS_DATA_SOURCE_ID, ROLES_DATA_SOURCE_ID, DECISIONS_DATA_SOURCE_ID,
-#   HABITS_DATA_SOURCE_ID, HABIT_LOG_DATA_SOURCE_ID
+#   HABITS_DATA_SOURCE_ID, HABIT_LOG_DATA_SOURCE_ID, PRESENCE_PAGE_ID (任意)
 name = "tasks-pwa"
 main = "src/index.js"
 compatibility_date = "2026-09-01"

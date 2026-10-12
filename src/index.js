@@ -465,6 +465,21 @@ async function habitLog(env, habitId, done, note, source = "manual") {
   return { id: page.id, name, done: !!done };
 }
 
+// 📍 今の居場所 (2026-10-12): 位置受信 Worker が書き換える Notion ページ (区分: 自宅／職場／伊豆／外出、最終受信) を読む。Kairos の「いまの状況」の場所の出どころ。
+// PRESENCE_PAGE_ID が無ければ null (画面は曜日・時刻の推定に落ちる)。最終受信が 3 時間より古ければ stale
+let whereCache = { at: 0, data: null };
+async function whereNow(env) {
+  if (!env.PRESENCE_PAGE_ID) return { place: null, source: "none" };
+  if (Date.now() - whereCache.at < 60_000 && whereCache.data) return whereCache.data;
+  const pg = await notion(env, `/pages/${env.PRESENCE_PAGE_ID}`);
+  const p = pg.properties ?? {};
+  const place = p["区分"]?.select?.name ?? null, at = p["最終受信"]?.date?.start ?? null, since = p["変化時刻"]?.date?.start ?? null;
+  const stale = !at || Date.now() - Date.parse(at) > 3 * 3600_000;
+  const data = { place, at, since, stale, source: "presence" };
+  whereCache = { at: Date.now(), data };
+  return data;
+}
+
 // 🧭 象限 (C-10, 2026-10-06): コヴィー／アイゼンハワーの 重要×緊急。緊急＝期日が 3 日以内 (期限切れ含む)。重要＝⭐今日の3つ・今週の石・優先度 p1/p2
 async function quadrant(env) {
   const today = todayJst();
@@ -1092,6 +1107,7 @@ export default {
       }
       // 🧭 役割タブ (Phase B-6): 読むだけ。書くのは 今週の目標 (今週の石) だけ
       if (path === "/api/roles" && req.method === "GET") return json(await rolesInfo(env));
+      if (path === "/api/where" && req.method === "GET") return json(await whereNow(env));
       const mrg = path.match(/^\/api\/roles\/([0-9a-f-]{32,36})\/goal$/);
       if (mrg && req.method === "POST") {
         const b = await req.json().catch(() => ({}));

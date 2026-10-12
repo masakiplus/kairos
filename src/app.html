@@ -582,7 +582,7 @@
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
     $("#add").hidden = view === "roles" || view === "review";
-    $("#sitbar").hidden = !(view === "today" || view === "can" || view === "phone"); renderSit();
+    $("#sitbar").hidden = !(view === "today" || view === "can" || view === "phone"); if (!$("#sitbar").hidden) pollWhere(); renderSit();
     if (view === "roles") { renderRoles(today); return; }
     if (view === "review") { renderReview(today); return; }
     if (view === "deps") { $("#add").hidden = true; renderDeps(today); return; }
@@ -667,13 +667,21 @@
   const SIT_AXES = { place: ["自宅", "職場", "外出"], tool: ["Mac", "iPhone", "電話", "紙・郵送"], time: ["早朝"] };
   const TOOL_LABEL = { Mac: "Mac", iPhone: "スマホ", "電話": "電話", "紙・郵送": "紙" };
   const isMorning = () => { const h = new Date().getHours(); return h >= 4 && h < 7; }; // 早朝の窓。端末の時刻で判定
+  // 📍 今の居場所 (位置受信 Worker → Notion) を場所の第一の出どころにする。古い (3h) か取れないときは曜日・時刻の推定に落ちる
+  let whereData = null, whereAt = 0;
+  function pollWhere() {
+    if (Date.now() - whereAt < 5 * 60_000) return;
+    whereAt = Date.now();
+    api("/api/where").then((j) => { whereData = j; lastSig = ""; render(todayStr); }).catch(() => {});
+  }
   function inferSit() {
     const d = new Date(), h = d.getHours(), dow = d.getDay();
     const workday = dow >= 1 && dow <= 5 && dow !== 3; // 水曜は在宅
-    const place = workday && h >= 9 && h < 19 ? "職場" : "自宅";
+    let place = workday && h >= 9 && h < 19 ? "職場" : "自宅", src = "曜日";
+    if (whereData && whereData.place && !whereData.stale) { place = whereData.place === "自宅" || whereData.place === "職場" ? whereData.place : "外出"; src = whereData.place === "伊豆" ? "位置: 伊豆" : "位置"; }
     const tools = isMac ? ["Mac", "iPhone", "電話"] : ["iPhone", "電話"];
     if (place === "自宅" && !isMorning()) tools.push("紙・郵送");
-    return { place, tools, morning: isMorning(), key: `${isMac ? "mac" : "phone"}|${place}|${isMorning() ? "am" : h < 19 ? "day" : "night"}` };
+    return { place, tools, src, morning: isMorning(), key: `${isMac ? "mac" : "phone"}|${place}|${isMorning() ? "am" : h < 19 ? "day" : "night"}` };
   }
   function currentSit() {
     const auto = inferSit();
@@ -692,13 +700,13 @@
   function renderSit() {
     const S = currentSit(), b = $("#sitChip"); if (!b) return;
     b.className = S.manual ? "manual" : "";
-    b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${S.morning ? " · 🌅 早朝" : ""} <small>${S.manual ? "手動" : "自動"}</small>`;
+    b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${S.morning ? " · 🌅 早朝" : ""} <small>${S.manual ? "手動" : "自動（" + S.src + "）"}</small>`;
   }
   function openSitPick() {
     const S = currentSit(); let place = S.place; const tools = new Set(S.tools);
     const draw = () => {
       $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>📍 いまの状況</h3><button class="close" aria-label="閉じる">✕</button></div>
-      <div class="sub">合わないタスクは一覧の末尾「💤 いまはできない」に沈みます（隠しません）。端末・時刻・曜日から自動で決まり、ここで変えた値は推定が変わるまで有効</div>
+      <div class="sub">合わないタスクは一覧の末尾「💤 いまはできない」に沈みます（隠しません）。場所は 📍 今の居場所（スマホの位置）、道具は端末、時間帯は時刻から自動で決まり、ここで変えた値は推定が変わるまで有効${whereData && whereData.place ? `。いまの位置: ${esc(whereData.place)}${whereData.stale ? "（3 時間以上前の受信なので使っていません）" : ""}` : ""}</div>
       <div class="sect">場所</div><div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-place="${x}" class="${place === x ? "on" : ""}">${x}</button>`).join("")}</div>
       <div class="sect">手元にある道具</div><div class="grid sit" style="grid-template-columns:repeat(4,1fr)">${SIT_AXES.tool.map((x) => `<button data-tool="${x}" class="${tools.has(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
       <div class="sect">時間帯</div><div class="sub">${S.morning ? "🌅 早朝（04:00〜06:59）— 早朝向きを先頭に出しています" : "日中・夜（早朝向きは通常の節に混ざります）"}</div>

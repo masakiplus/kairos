@@ -7,3 +7,5 @@ ROLES_DATA_SOURCE_ID=
 DECISIONS_DATA_SOURCE_ID=
 HABITS_DATA_SOURCE_ID=
 HABIT_LOG_DATA_SOURCE_ID=
+# 任意: 📍 今の居場所 ページ (区分: 自宅/職場/伊豆/外出 を外部の位置受信が書く)。無ければ場所は曜日・時刻から推定
+PRESENCE_PAGE_ID=
