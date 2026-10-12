@@ -53,9 +53,12 @@
   .row.ai.run .go.sess{color:#7c5cff} .row.ai.upd .go.sess{color:#0a84ff}
   .sheet .list a.sess{font-weight:600}
   .desc{background:var(--card);border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.5;color:var(--fg);box-shadow:var(--shadow)}
-  .desc .dtext{white-space:pre-wrap;word-break:break-word;max-height:9.5em;overflow:hidden;position:relative}
+  .desc .dtext{word-break:break-word;max-height:9.5em;overflow:hidden;position:relative}
+  .desc ul,.desc ol{margin:2px 0 2px 1.3em;padding:0}.desc li{margin:1px 0}.desc .dh{font-weight:700;margin-top:4px}.desc .dgap{height:6px}
+  .desc code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--seg);border-radius:4px;padding:0 4px}
+  .desc a{color:var(--acc);text-decoration:none}
   .desc .dtext.open{max-height:none}
-  .desc .dbody{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--mute);white-space:pre-wrap;word-break:break-word;font-size:13px;max-height:12em;overflow:hidden}
+  .desc .dbody{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--mute);word-break:break-word;font-size:13px;max-height:12em;overflow:hidden}
   .desc .dbody.open{max-height:none}
   .desc .more{display:block;margin-top:6px;color:var(--acc);font-size:13px;font-weight:600;text-decoration:none}
   .desc .kv{font-size:12px;color:var(--mute);margin-bottom:6px}
@@ -548,7 +551,31 @@
 
   // ---- 描画 ----
   const W = "日月火水木金土";
-  const descHtml = (txt) => esc(txt).replace(/^(なぜ|何を|留意|留意点)[:：]\s*/gm, (m, k) => `<b class="dk">${k}</b> `);
+  // 📝 概要の軽い Markdown 描画 (2026-10-13 利用者の指示「マークダウンそのままでなく HTML で」)。見出し・箇条書き・番号・太字・コード・リンク・裸の URL。それ以外は改行をそのまま
+  function mdInline(t) {
+    return esc(t)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[^"'>])(https?:\/\/[^\s<）」]+)/g, (m, pre, u) => `${pre}<a href="${u}" target="_blank" rel="noopener">${u.length > 48 ? u.slice(0, 45) + "…" : u}</a>`)
+      .replace(/^(なぜ|何を|留意|留意点|出所|完了条件)[:：]\s*/, (m, k) => `<b class="dk">${k}</b> `);
+  }
+  function descHtml(txt) {
+    const lines = String(txt || "").replace(/\r/g, "").split("\n");
+    let out = "", list = null; // list: "ul" | "ol" | null
+    const close = () => { if (list) { out += `</${list}>`; list = null; } };
+    for (const raw of lines) {
+      const l = raw.trimEnd();
+      let m;
+      if ((m = l.match(/^\s*([-*・]|\d+[.)])\s+(.*)$/))) { const kind = /^\d/.test(m[1]) ? "ol" : "ul"; if (list !== kind) { close(); out += `<${kind}>`; list = kind; } out += `<li>${mdInline(m[2])}</li>`; continue; }
+      close();
+      if ((m = l.match(/^(#{1,3})\s+(.*)$/))) { out += `<div class="dh">${mdInline(m[2])}</div>`; continue; }
+      if (!l.trim()) { out += '<div class="dgap"></div>'; continue; }
+      out += `<div>${mdInline(l)}</div>`;
+    }
+    close();
+    return out;
+  }
   const fmtTime = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; };
   function fmtDate(d) { const [y, m, dd] = d.split("-"); return `${+m}/${+dd} (${W[new Date(d + "T00:00:00").getDay()]})`; }
   function dueHtml(t, today) {
@@ -1326,7 +1353,7 @@
       const kv = [d.kind, ...(d.labels || [])].filter(Boolean).join(" · ");
       box.innerHTML = (kv ? `<div class="kv">${esc(kv)}</div>` : "") +
         (d.desc ? `<div class="dtext">${descHtml(d.desc)}</div>` : `<div class="dtext" style="color:var(--mute)">説明なし</div>`) +
-        (d.body ? `<div class="dbody">${esc(d.body)}${d.more ? "\n…（続きは Notion）" : ""}</div>` : "");
+        (d.body ? `<div class="dbody">${descHtml(d.body)}${d.more ? "<div>…（続きは Notion）</div>" : ""}</div>` : "");
       const long = [...box.querySelectorAll(".dtext,.dbody")].some((el) => el.scrollHeight > el.clientHeight + 2);
       if (long) { const a = document.createElement("a"); a.href = "#"; a.className = "more"; a.textContent = "もっと見る"; a.onclick = (e) => { e.preventDefault(); box.querySelectorAll(".dtext,.dbody").forEach((el) => el.classList.add("open")); a.remove(); }; box.appendChild(a); }
     }).catch(() => { const box = $("#descBox"); if (box && !t.rawDesc) box.innerHTML = `<div class="dtext" style="color:var(--mute)">概要を取得できませんでした</div>`; });
