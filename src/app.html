@@ -101,6 +101,13 @@
   .go{flex:none;width:36px;height:36px;border-radius:18px;border:0;background:var(--accbg);color:var(--acc);display:flex;align-items:center;justify-content:center}
   .empty{padding:56px 20px;text-align:center;color:var(--mute2)}
   .hint{font-size:12px;color:var(--mute2);text-align:center;padding-top:4px}
+  /* いまの状況チップ (2026-10-12): 場所・道具・時間帯。タブは増やさず、ここ 1 つで一覧の並びを変える */
+  .sitbar{display:flex;justify-content:center;margin-top:2px}
+  .sitbar button{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:0;border-radius:999px;background:var(--seg);color:var(--fg);font-size:12px;font-weight:600}
+  .sitbar button small{font-weight:500;color:var(--mute)}
+  .sitbar button.manual{background:var(--accbg);color:var(--acc)}
+  .sheet .grid.sit button.on{background:var(--acc);color:#fff}
+  .sec h2.unav{color:var(--mute2)}
   .stale{font-size:12px;color:var(--p2);text-align:center}
   .stale.wip{color:var(--over)}
   /* ⭐ 今日の3つ (MIT, 2026-10-06) */
@@ -357,6 +364,7 @@
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
     </div>
   </div>
+  <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・時間帯）。タップで変更"></button></div>
   <form class="srch" id="srch" hidden>
     <label for="srchQ" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">検索語</label>
     <input id="srchQ" type="search" placeholder="名前・説明で検索（スペースで AND）" autocomplete="off" enterkeyhint="search">
@@ -574,13 +582,14 @@
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
     $("#add").hidden = view === "roles" || view === "review";
+    $("#sitbar").hidden = !(view === "today" || view === "can" || view === "phone"); renderSit();
     if (view === "roles") { renderRoles(today); return; }
     if (view === "review") { renderReview(today); return; }
     if (view === "deps") { $("#add").hidden = true; renderDeps(today); return; }
     if (view === "graph") { $("#add").hidden = true; renderGraph(today); return; }
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
-    const sig = [view, today, searchQ, projInfoAt, tasks.length, sigOf(tasks)].join("\u0001");
+    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, tasks.length, S0.place, S0.tools.join(","), S0.morning, sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
@@ -628,6 +637,14 @@
       const mr = tasks.filter((t) => !t.done && !t.blocked && !t.aiActive && t.status !== "人対応" && t.env.includes("早朝")).sort((a, b) => (a.priority || "p9").localeCompare(b.priority || "p9") || (b.mit ? 1 : 0) - (a.mit ? 1 : 0) || (a.due || "9999").localeCompare(b.due || "9999"));
       if (mr.length) secs = [["🌅 早朝にゆっくり <small style=\"font-weight:400;color:var(--mute)\">相談が要るものは準備まで</small>", "mrh", mr], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !mr.includes(t))])];
     }
+    // 状況に合わないものは末尾に沈める (隠さない。期限切れを見失わないため, 2026-10-12)。今日やる・今日できる・スマホで だけ
+    if (view === "today" || view === "can" || view === "phone") {
+      const un = tasks.filter((t) => !t.done && !t.aiActive && t.status !== "人対応" && !t.blocked && unavailWhy(t));
+      if (un.length) {
+        const why = [...new Set(un.map(unavailWhy))].slice(0, 3).join("・");
+        secs = [...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !un.includes(t))]), [`💤 いまはできない <small style="font-weight:400;color:var(--mute)">${esc(why)}</small>`, "unav", un]];
+      }
+    }
     const pjOf = new Map((view === "project" && projInfo || []).map((p) => [p.label, p]));
     list.innerHTML = secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
       if (view === "project" && cls === "prjh") {
@@ -645,7 +662,56 @@
     return a.join("、") + (ts.length > n ? `、…ほか ${ts.length - n} 件` : "");
   }
   const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Notion を更新し、終わったら 📻 Sessions に足跡を 1 行。";
-  const isMorning = () => { const h = new Date().getHours(); return h >= 4 && h < 7; }; // 早朝の窓 (2026-10-12)。端末の時刻で判定
+  // ---- いまの状況 (2026-10-12, OmniFocus のタグ／パースペクティブの「端末に応じて切り替わる」版) ----
+  // 実行環境 の選択肢を 3 軸に読む。タグが付いている軸ごとに 1 つ以上が今の状況と合えば「いまできる」。タグが無い軸は不問
+  const SIT_AXES = { place: ["自宅", "職場", "外出"], tool: ["Mac", "iPhone", "電話", "紙・郵送"], time: ["早朝"] };
+  const TOOL_LABEL = { Mac: "Mac", iPhone: "スマホ", "電話": "電話", "紙・郵送": "紙" };
+  const isMorning = () => { const h = new Date().getHours(); return h >= 4 && h < 7; }; // 早朝の窓。端末の時刻で判定
+  function inferSit() {
+    const d = new Date(), h = d.getHours(), dow = d.getDay();
+    const workday = dow >= 1 && dow <= 5 && dow !== 3; // 水曜は在宅
+    const place = workday && h >= 9 && h < 19 ? "職場" : "自宅";
+    const tools = isMac ? ["Mac", "iPhone", "電話"] : ["iPhone", "電話"];
+    if (place === "自宅" && !isMorning()) tools.push("紙・郵送");
+    return { place, tools, morning: isMorning(), key: `${isMac ? "mac" : "phone"}|${place}|${isMorning() ? "am" : h < 19 ? "day" : "night"}` };
+  }
+  function currentSit() {
+    const auto = inferSit();
+    let m = null; try { m = JSON.parse(localStorage.getItem("sit:manual") || "null"); } catch (e) {}
+    if (m && m.key === auto.key && Date.now() - m.at < 6 * 3600_000) return { ...auto, place: m.place || auto.place, tools: m.tools || auto.tools, manual: true };
+    if (m) localStorage.removeItem("sit:manual"); // 端末・時間帯・曜日の推定が変わったら手動の指定は自然に消える
+    return { ...auto, manual: false };
+  }
+  // 合わない理由 (軸名) を返す。合えば ""
+  function unavailWhy(t) {
+    const S = currentSit(), env = t.env || [];
+    const pl = env.filter((x) => SIT_AXES.place.includes(x)); if (pl.length && !pl.includes(S.place)) return pl.map((x) => x + "で").join("／");
+    const tl = env.filter((x) => SIT_AXES.tool.includes(x)); if (tl.length && !tl.some((x) => S.tools.includes(x))) return tl.map((x) => TOOL_LABEL[x] || x).join("／") + "が要る";
+    return "";
+  }
+  function renderSit() {
+    const S = currentSit(), b = $("#sitChip"); if (!b) return;
+    b.className = S.manual ? "manual" : "";
+    b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${S.morning ? " · 🌅 早朝" : ""} <small>${S.manual ? "手動" : "自動"}</small>`;
+  }
+  function openSitPick() {
+    const S = currentSit(); let place = S.place; const tools = new Set(S.tools);
+    const draw = () => {
+      $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>📍 いまの状況</h3><button class="close" aria-label="閉じる">✕</button></div>
+      <div class="sub">合わないタスクは一覧の末尾「💤 いまはできない」に沈みます（隠しません）。端末・時刻・曜日から自動で決まり、ここで変えた値は推定が変わるまで有効</div>
+      <div class="sect">場所</div><div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-place="${x}" class="${place === x ? "on" : ""}">${x}</button>`).join("")}</div>
+      <div class="sect">手元にある道具</div><div class="grid sit" style="grid-template-columns:repeat(4,1fr)">${SIT_AXES.tool.map((x) => `<button data-tool="${x}" class="${tools.has(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
+      <div class="sect">時間帯</div><div class="sub">${S.morning ? "🌅 早朝（04:00〜06:59）— 早朝向きを先頭に出しています" : "日中・夜（早朝向きは通常の節に混ざります）"}</div>
+      <div class="grid"><button class="pri" id="sitOk">この状況にする</button><button class="skip" id="sitAuto">自動に戻す</button></div>`;
+      $("#sheet").querySelector(".close").onclick = closeSheet;
+      $("#sheet").querySelectorAll("[data-place]").forEach((b) => b.onclick = () => { place = b.dataset.place; draw(); });
+      $("#sheet").querySelectorAll("[data-tool]").forEach((b) => b.onclick = () => { if (tools.has(b.dataset.tool)) tools.delete(b.dataset.tool); else tools.add(b.dataset.tool); draw(); });
+      $("#sitOk").onclick = () => { localStorage.setItem("sit:manual", JSON.stringify({ place, tools: [...tools], at: Date.now(), key: inferSit().key })); closeSheet(); lastSig = ""; render(todayStr); };
+      $("#sitAuto").onclick = () => { localStorage.removeItem("sit:manual"); closeSheet(); lastSig = ""; render(todayStr); };
+    };
+    draw();
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+  }
   function metaHtml(v) {
     const ts = tasks.filter((t) => !t.done);
     let label = "", sub = "", q = "";
@@ -1518,6 +1584,7 @@
   });
   const _render = render; render = (today) => { todayStr = today; _render(today); };
   $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) load(b.dataset.v); };
+  $("#sitChip").onclick = openSitPick;
   // 検索 (2026-10-04): 🔍 で検索欄を出し、入力が止まって 350ms で引く。✕ か空 Esc で元のタブへ
   function openSearch() {
     if (view !== "search") { searchBack = view; view = "search"; }
