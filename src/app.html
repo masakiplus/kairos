@@ -493,8 +493,8 @@
   function claudeHref(t, mode, chain) {
     const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
     let ask = mode === "update"
-      ? "の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。相談したいことがあれば一問一答で。"
-      : "を進めてください。必要なら時間調整・実行まで含め、終わったら操作規約どおり完了処理まで。";
+      ? "の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。相談したいことがあれば一問一答で。決めたことはタスクの本文に詳しく書き、関連するノート・ファイル・URL は本文にリンクで並べてください。"
+      : "を進めてください。必要なら時間調整・実行まで含め、終わったら操作規約どおり完了処理まで。成果・決定事項はタスクの本文に詳しく書き、関連するノート・ファイル・URL は本文にリンクで並べてください（進行中も同様）。";
     // 先行が残っていれば順送り実行を頼む (設計 §3-3)。人の手が要る先行で止まるのは Claude 側の規約
     if (mode === "run" && chain && chain.length) {
       ask = "を進めたいのですが、先行タスクが未完了です。先行から順に「" +
@@ -1440,7 +1440,7 @@
       box.innerHTML = (kv ? `<div class="kv">${esc(kv)}</div>` : "") +
         (d.desc ? `<div class="dtext">${descHtml(d.desc)}</div>` : `<div class="dtext" style="color:var(--mute)">説明なし</div>`) +
         (d.body ? `<div class="dbody">${descHtml(d.body)}${d.more ? "<div>…（続きは Notion）</div>" : ""}</div>` : "") +
-        ((d.related || []).length ? `<div class="rel">${d.related.map((r) => `<a href="#" data-reader="${r.id}">📄 ${esc(r.kind)}: ${r.icon ? r.icon + " " : ""}${esc(r.name)}</a>`).join("")}</div>` : "");
+        ((d.related || []).length || (d.links || []).length ? `<div class="rel">${(d.related || []).map((r) => `<a href="#" data-reader="${r.id}">📄 ${esc(r.kind)}: ${r.icon ? r.icon + " " : ""}${esc(r.name)}</a>`).join("")}${(d.links || []).map((l) => l.kind === "notion" ? `<a href="#" data-reader="${l.pageId}">📄 ${esc(l.title)}</a>` : `<a href="${esc(l.url)}" target="_blank" rel="noopener">${{ drive: "📁", gmail: "✉️", github: "🐙" }[l.kind] || "🌐"} ${esc(l.title)}</a>`).join("")}</div>` : "");
       const long = [...box.querySelectorAll(".dtext,.dbody")].some((el) => el.scrollHeight > el.clientHeight + 2);
       if (long) { const a = document.createElement("a"); a.href = "#"; a.className = "more"; a.textContent = "もっと見る"; a.onclick = (e) => { e.preventDefault(); box.querySelectorAll(".dtext,.dbody").forEach((el) => el.classList.add("open")); a.remove(); }; box.appendChild(a); }
     }).catch(() => { const box = $("#descBox"); if (box && !t.rawDesc) box.innerHTML = `<div class="dtext" style="color:var(--mute)">概要を取得できませんでした</div>`; });

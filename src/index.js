@@ -962,7 +962,26 @@ async function taskDetail(env, id) {
     try { const pg = await notion(env, `/pages/${r.id}`); const title = Object.values(pg.properties ?? {}).find((p) => p.type === "title"); return { id: r.id, kind: r.kind, name: (title?.title ?? []).map((x) => x.plain_text).join("") || "(無題)", icon: pg.icon?.emoji ?? "" }; }
     catch (e) { return null; }
   }));
-  return { id, desc: t.rawDesc || "", body, more: !!blocks.has_more, kind: page.properties?.["種類"]?.select?.name ?? null, labels: (page.properties?.["ラベル"]?.multi_select ?? []).map((o) => o.name), related: related.filter(Boolean) };
+  // 🔗 関連リンク (2026-10-14 規約: 成果・決定事項は本文に、関連するノート・ファイル・URL は本文にリンクで): 説明と本文からリンクを集める
+  const links = [], seen = new Set();
+  const addLink = (url, title) => {
+    url = String(url || "").trim(); if (!/^https?:\/\//.test(url) || seen.has(url)) return; seen.add(url);
+    const nid = url.match(/(?:notion\.so|notion\.site|app\.notion\.com)\/(?:[^\s/?#]*-)?([0-9a-f]{32})(?:[?#]|$)/i) || url.match(/\/p\/(?:[^\s/?#]*-)?([0-9a-f]{32})/i);
+    const kind = nid ? "notion" : /(docs|drive|sheets|slides)\.google\.com/.test(url) ? "drive" : /mail\.google\.com/.test(url) ? "gmail" : /github\.com/.test(url) ? "github" : "web";
+    let label = String(title || "").trim();
+    if (!label || label === url) { try { const u = new URL(url); label = u.hostname.replace(/^www\./, "") + (u.pathname.length > 1 ? u.pathname.slice(0, 24) : ""); } catch (e) { label = url.slice(0, 40); } }
+    links.push({ url, title: label.slice(0, 60), kind, pageId: nid ? nid[1] : null });
+  };
+  for (const m of String(t.rawDesc || "").matchAll(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g)) addLink(m[2], m[1]);
+  for (const m of String(t.rawDesc || "").matchAll(/https?:\/\/[^\s<）」\]]+/g)) addLink(m[0]);
+  for (const b of blocks.results ?? []) {
+    const v = b[b.type] ?? {};
+    for (const x of v.rich_text ?? []) { if (x.href) addLink(x.href, x.plain_text); else if (x.type === "mention" && x.mention?.page?.id) addLink("https://www.notion.so/" + x.mention.page.id.replace(/-/g, ""), x.plain_text); }
+    if (["bookmark", "link_preview", "embed"].includes(b.type) && v.url) addLink(v.url, (v.caption || []).map((c) => c.plain_text).join(""));
+    if (["file", "pdf", "image", "video"].includes(b.type)) { const u = v.external?.url || v.file?.url; if (u) addLink(u, v.name || (v.caption || []).map((c) => c.plain_text).join("") || b.type); }
+    if (b.type === "child_page") addLink("https://www.notion.so/" + b.id.replace(/-/g, ""), v.title);
+  }
+  return { id, desc: t.rawDesc || "", body, more: !!blocks.has_more, kind: page.properties?.["種類"]?.select?.name ?? null, labels: (page.properties?.["ラベル"]?.multi_select ?? []).map((o) => o.name), related: related.filter(Boolean), links: links.slice(0, 12) };
 }
 
 // 📄 Notion ページのリーダー表示 (2026-10-13): アプリを切り替えずに関連ページを読む。ブロックを簡約 JSON にして画面が描く。読み取り専用
