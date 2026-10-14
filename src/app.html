@@ -202,6 +202,23 @@
   .rvc .db{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--accbg);color:var(--acc)}
   .rvc .db.Tasks{background:#fde7e5;color:#b23b32}.rvc .db.Decisions{background:#ffe6b3;color:#8a5a00}
   .rvc .rq{font-size:19px;font-weight:700;line-height:1.35}
+  /* 決めるタブの型 (2026-10-15 A〜F): 種類の帯・なぜ今か・種類チップ・図・スライド */
+  .rvc .kb{display:flex;align-items:center;gap:8px;margin:-18px -16px 0;padding:10px 16px;border-radius:16px 16px 0 0;font-size:13px;font-weight:700;color:#fff}
+  .rvc .kb small{margin-left:auto;font-weight:500;opacity:.85}
+  .rvc .kb.decision{background:#8a5a00}.rvc .kb.project-close{background:#2f6fd6}.rvc .kb.task-carry{background:#b23b32}.rvc .kb.verify{background:#5e5ce6}.rvc .kb.habit{background:#2a8a5a}.rvc .kb.deps{background:#6b4fa0}.rvc .kb.dates{background:#c47a1a}
+  .rvc .why{font-size:13px;color:var(--mute);margin-top:-6px}
+  .rvc .fig{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:12px;background:var(--bg);font-size:14px}
+  .rvc .fig .nd{display:flex;align-items:center;gap:8px}.rvc .fig .nd b{font-weight:600;flex:1;min-width:0}.rvc .fig .nd small{color:var(--mute);flex:none}
+  .rvc .fig .ar{color:var(--mute);padding-left:6px;font-size:12px}
+  .rvc .fig .dd{display:flex;align-items:center;gap:8px}.rvc .fig .dd .old{color:var(--mute);text-decoration:line-through}.rvc .fig .dd .new{font-weight:700;color:var(--acc)}.rvc .fig .dd .diff{font-size:12px;color:var(--mute)}
+  .rvc .opts button .rsn{display:block;font-size:12px;font-weight:400;color:var(--mute);margin-top:2px}.rvc .opts button.pri .rsn{color:rgba(255,255,255,.85)}
+  .rvc .opts button .tx{display:flex;flex-direction:column;flex:1;min-width:0}
+  .kchips{display:flex;gap:6px;overflow-x:auto;padding:0 2px 2px;scrollbar-width:none}.kchips::-webkit-scrollbar{display:none}
+  .kchips button{flex:none;border:0;border-radius:999px;padding:6px 11px;font-size:13px;font-weight:600;background:var(--seg);color:var(--fg)}
+  .kchips button.on{background:var(--acc);color:#fff}.kchips button .n{opacity:.75;font-weight:500;margin-left:4px}
+  .kchips button.later{background:transparent;color:var(--mute);border:1px dashed var(--line)}
+  @keyframes rvin{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+  .rvc.in{animation:rvin .18s ease-out}
   .rvc .rb{font-size:14px;line-height:1.5;color:var(--fg);white-space:pre-wrap;max-height:9em;overflow:auto}
   .rvc .ctx{display:flex;flex-direction:column;gap:5px;padding:10px 12px;border-radius:10px;background:var(--bg);font-size:13px;color:var(--mute);line-height:1.45}
   .rvc .ctx b{font-weight:400;color:var(--mute2);margin-right:6px}
@@ -386,7 +403,7 @@
     <div class="trow sub">
       <button data-v="project">PJ別<span class="n" id="n-project"></span></button>
       <button data-v="roles">役割</button>
-      <button data-v="review">見直し<span class="n" id="n-review"></span></button>
+      <button data-v="review">決める<span class="n" id="n-review"></span></button>
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
     </div>
   </div>
@@ -415,7 +432,7 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const views = ["today", "can", "phone", "doing", "project", "delegated"];
-  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "見直し", deps: "つながり", graph: "つながり", quad: "象限" };
+  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", deps: "つながり", graph: "つながり", quad: "象限" };
   let reviewData = null, reviewPos = 0, reviewSkipped = new Set(), reviewShowAll = false; // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
   let graphData = null, quadData = null; // 1 タスク 3 列 (C-11a)・象限 (C-10)
@@ -876,28 +893,95 @@
       '<div class="hint">編集は Claude で。ここで動かせるのは「今週の石」の置き換えだけ</div>' + metaHtml("roles");
   }
   // 🗂 見直し (Phase C-9): 1 問ずつ。答えは Worker が Notion に書く。「今は決めない」は端末内で飛ばす (Decisions は 提示済み にする)
-  function reviewList() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind)) : []; }
+  // 決めるタブ (2026-10-15 改修 A〜F): 種類の帯＋なぜ今か＋定型の問い＋種類チップ＋依存・日程は図
+  const KIND = {
+    "decision": { ic: "🧠", t: "未決を決める" }, "project-close": { ic: "📁", t: "PJ を閉じる？" }, "task-carry": { ic: "↻", t: "繰り越し" },
+    "verify": { ic: "🔍", t: "決めたことの答え合わせ" }, "habit": { ic: "🔁", t: "習慣" }, "deps": { ic: "⏭", t: "順番の提案" }, "dates": { ic: "📅", t: "日程の提案" },
+  };
+  const md = (d) => d ? fmtDate(String(d).slice(0, 10)).split(" ")[0] : "";
+  let reviewKind = null, reviewLater = new Set(); // 種類チップで絞る／「この種類は後で」(端末内)
+  function reviewList() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind) && !reviewLater.has(q.kind)) : []; }
+  function reviewWhy(q) {
+    const m = q.meta || {};
+    if (q.kind === "decision") return m.state === "提示済み" ? `前に「今は決めない」にした問い${m.shown ? `（${md(m.shown)} 提示）` : ""}。${m.src ? "出所: " + m.src : ""}` : `${m.at ? md(m.at) + " に起票。" : ""}${m.src ? "出所: " + m.src : "提案中のまま"}`;
+    if (q.kind === "project-close") return `未完了 0 件・完了 ${m.done ?? "?"} 件${m.lastDone ? `。最後の完了は ${md(m.lastDoneAt)}「${m.lastDone}」` : ""}`;
+    if (q.kind === "task-carry") return `夜間の棚卸しで ${m.carry ?? q.label} 回繰り越し${m.firstDue ? `（最初の期日 ${md(m.firstDue)}）` : ""}。まだ生きているか`;
+    if (q.kind === "verify") return `${m.decided ? md(m.decided) + " に決め、" : ""}検証日 ${md(m.verifyAt)} が来た`;
+    if (q.kind === "habit") return m.freq === "毎日" ? "今日の記録がまだ無い" : `今週の記録がまだ無い（${m.freq}）`;
+    if (q.kind === "deps") return `夜間の棚卸しが ${md(m.at)} に提案${m.why ? "。" + m.why : ""}`;
+    if (q.kind === "dates") return `夜間の棚卸しが ${md(m.at)} に提案${m.why ? "。" + m.why : ""}`;
+    return "";
+  }
+  // 問いの文を定型に: 「〈対象〉を、どうする？」
+  function reviewAsk(q) {
+    const m = q.meta || {}, nm = (x) => `「${esc(x)}」`;
+    if (q.kind === "decision") return `${nm(q.name || q.q)}を、どうする？`;
+    if (q.kind === "project-close") return `PJ ${nm(q.name)}を、閉じる？`;
+    if (q.kind === "task-carry") return `${nm(q.name)}を、まだやる？`;
+    if (q.kind === "verify") return `${nm(q.name)}は、当たった？`;
+    if (q.kind === "habit") return m.freq === "毎日" ? `今日、${nm(q.name)}はやった？` : `今週、${nm(q.name)}はできた？`;
+    if (q.kind === "deps") return `${nm(m.pred?.name || "先行")}の後に ${nm(m.succ?.name || "後続")}。この順番にする？`;
+    if (q.kind === "dates") return `${nm(m.task?.name || q.name)}の日程を、この案にする？`;
+    return esc(q.q);
+  }
+  function reviewFig(q) {
+    const m = q.meta || {};
+    if (q.kind === "deps" && m.pred && m.succ) {
+      const dd = (a, b) => (a && b) ? ` <span class="diff">${(() => { const n = dayDiff(b, a); return n === 0 ? "同日" : n > 0 ? `+${n} 日` : `${n} 日`; })()}</span>` : "";
+      return `<div class="fig">
+        <div class="nd"><span>①</span><b>${esc(m.pred.name)}</b><small>${m.pred.done ? "完了" : m.pred.due ? "期日 " + md(m.pred.due) : "期日なし"}</small></div>
+        <div class="ar">↓ 終わってから</div>
+        <div class="nd"><span>②</span><b>${esc(m.succ.name)}</b><small>${m.succ.start ? "開始 " + md(m.succ.start) + " " : ""}${m.succ.due ? "期日 " + md(m.succ.due) : "期日なし"}</small></div>
+        ${m.sstart || m.sdue ? `<div class="dd">後続の日程も: ${m.sstart ? `<span class="old">${md(m.succ.start) || "開始なし"}</span>→<span class="new">開始 ${md(m.sstart)}</span>${dd(m.succ.start, m.sstart)}` : ""} ${m.sdue ? `<span class="old">${md(m.succ.due) || "期日なし"}</span>→<span class="new">期日 ${md(m.sdue)}</span>${dd(m.succ.due, m.sdue)}` : ""}</div>` : ""}
+      </div>`;
+    }
+    if (q.kind === "dates" && (m.start || m.due)) {
+      const t = m.task || {};
+      const row = (lab, cur, nxt) => nxt ? `<div class="dd"><span>${lab}</span><span class="old">${cur ? md(cur) : "なし"}</span>→<span class="new">${md(nxt)}</span>${cur ? `<span class="diff">${(() => { const n = dayDiff(nxt, cur); return n === 0 ? "同日" : n > 0 ? `+${n} 日` : `${n} 日`; })()}</span>` : ""}</div>` : "";
+      return `<div class="fig">${row("開始", t.start, m.start)}${row("期日", t.due, m.due)}</div>`;
+    }
+    if (q.kind === "verify") return `<div class="fig">${m.conclusion ? `<div><b>決めたこと</b>　${esc(m.conclusion)}</div>` : ""}${m.expect ? `<div><b>期待した結果</b>　${esc(m.expect)}</div>` : ""}</div>`;
+    return "";
+  }
+  function reviewOptions(q) {
+    const m = q.meta || {};
+    return q.options.map((o, i) => {
+      const rsn = q.kind === "decision" && m.ai && o.a === m.ai ? `AI の推奨${m.expect ? "：" + esc(m.expect.slice(0, 50)) : ""}` : (o.s ? esc(o.s) : "");
+      return `<button data-ans="${esc(o.a)}" class="${o.pri ? "pri" : ""}"><span class="no">${i + 1}</span><span class="tx">${esc(o.t)}${rsn ? `<span class="rsn">${rsn}</span>` : ""}</span></button>`;
+    }).join("");
+  }
   function renderReview(today) {
     const list = $("#list");
     if (!reviewData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
-    const qs = reviewList(), total = reviewData.questions.length, done = total - qs.length;
-    $("#n-review").textContent = qs.length || ""; // 答えた・飛ばした分を引いた残り (2026-10-10 利用者の報告「0 件でも 2 件のまま」)
-    if (!qs.length) { list.innerHTML = `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}</div><div class="hint">問いは 棚卸し・Decisions・PJ のクローズ候補・繰越 3 回超 から機械的に作る。理由が要るものは Claude へ</div>` + metaHtml("review"); return; }
-    const q = qs[0];
-    const ctx = (q.ctx || []).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(String(v))}</div>`).join("");
-    const opts = q.options.map((o, i) => `<button data-ans="${esc(o.a)}" class="${o.pri ? "pri" : ""}"><span class="no">${i + 1}</span>${esc(o.t)}${o.s ? `<small>${esc(o.s)}</small>` : ""}</button>`).join("");
+    const all = reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind));
+    const total = reviewData.questions.length, done = total - all.length;
+    const counts = {}; for (const q of all) counts[q.kind] = (counts[q.kind] || 0) + 1;
+    if (reviewKind && !counts[reviewKind]) reviewKind = null; // 絞っていた種類が尽きたら全体へ
+    const qs = reviewList().filter((q) => !reviewKind || q.kind === reviewKind);
+    $("#n-review").textContent = reviewList().length || "";
+    const chips = Object.keys(KIND).filter((k) => counts[k]).map((k) => `<button data-kind="${k}" class="${reviewKind === k ? "on" : ""}${reviewLater.has(k) ? " later" : ""}">${KIND[k].ic} ${KIND[k].t}<span class="n">${counts[k]}</span></button>`).join("");
+    const chipBar = Object.keys(counts).length > 1 || reviewLater.size ? `<div class="kchips"><button data-kind="" class="${reviewKind ? "" : "on"}">すべて<span class="n">${all.length}</span></button>${chips}</div>` : "";
+    if (!qs.length) {
+      const laterN = all.filter((q) => reviewLater.has(q.kind)).length;
+      list.innerHTML = chipBar + `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}${laterN ? `<div style="font-size:13px;color:var(--mute);margin-top:6px">後回しにした ${laterN} 問は、上のチップから戻せます</div>` : ""}</div>` + metaHtml("review");
+      return;
+    }
+    const q = qs[0], K = KIND[q.kind] || { ic: "❓", t: q.label || "" };
+    const fig = reviewFig(q);
+    const ctx = fig ? "" : (q.ctx || []).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(String(v))}</div>`).join("");
     const needNote = q.kind !== "project-close";
-    list.innerHTML = `<div class="rvp"><div class="bar"><i style="width:${total ? Math.round(done / total * 100) : 0}%"></i></div><span>${done + 1} / ${total} 問</span></div>
-      <div class="rvc" data-qid="${q.id}" data-kind="${q.kind}">
-        <div class="rh"><span class="db ${q.db}">${q.db}</span><span>${esc(q.label || "")}</span><a href="${q.url}" target="_blank" rel="noopener" style="margin-left:auto;color:var(--mute2);text-decoration:none">Notion ↗</a></div>
-        <div class="rq">${esc(q.q)}</div>
-        ${q.body ? `<div class="rb">${esc(q.body)}</div>` : ""}
-        ${ctx ? `<div class="ctx">${ctx}</div>` : ""}
+    list.innerHTML = chipBar + `<div class="rvp"><div class="bar"><i style="width:${total ? Math.round(done / total * 100) : 0}%"></i></div><span>${done + 1} / ${total} 問</span></div>
+      <div class="rvc in" data-qid="${q.id}" data-kind="${q.kind}">
+        <div class="kb ${q.kind}"><span>${K.ic} ${K.t}</span><small>${esc(q.db)}${q.label && q.label !== K.t ? " · " + esc(q.label) : ""}</small><a href="${q.url}" target="_blank" rel="noopener" style="color:rgba(255,255,255,.85);text-decoration:none;font-weight:500">Notion ↗</a></div>
+        <div class="rq">${reviewAsk(q)}</div>
+        <div class="why">${esc(reviewWhy(q))}</div>
+        ${q.body && q.kind === "decision" ? `<div class="rb">${esc(q.body)}</div>` : ""}
+        ${fig}${ctx ? `<div class="ctx">${ctx}</div>` : ""}
         ${needNote ? `<input class="rnote" id="rvNote" placeholder="理由・学びを1行（任意）" autocomplete="off">` : ""}
-        <div class="opts">${opts}</div>
-        <a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${ICONS.claude} 理由を話しながら決めたい（Claude へ）</a>
+        <div class="opts">${reviewOptions(q)}</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${ICONS.claude} 理由を話しながら決める</a>${counts[q.kind] > 1 ? `<a class="rcl" href="#" data-later="${q.kind}" style="color:var(--mute)">${K.ic} この種類は後で（${counts[q.kind]}）</a>` : ""}</div>
       </div>
-      ${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${n.db}</span><span>${esc(n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}
+      ${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${(KIND[n.kind] || {}).ic || ""} ${(KIND[n.kind] || {}).t || n.db}</span><span>${esc(n.name || n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}
       <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは Claude に逃がす</div>` + metaHtml("review");
   }
   function reviewClaudeHref(q) {
@@ -1729,9 +1813,11 @@
       // 「このあと」の問いをタップ＝その問いを先頭に (2026-10-10 利用者の提案「どれからスタートするか選べるように」)
       const pk = e.target.closest("[data-rvpick]"); if (pk && reviewData) { const i = reviewData.questions.findIndex((n) => n.id + n.kind === pk.dataset.rvpick); if (i > 0) { const [x] = reviewData.questions.splice(i, 1); reviewData.questions.unshift(x); render(todayStr); window.scrollTo({ top: 0, behavior: "smooth" }); } return; }
       if (e.target.closest("[data-rvmore]")) { reviewShowAll = true; render(todayStr); return; }
+      const kc = e.target.closest(".kchips [data-kind]"); if (kc) { const k = kc.dataset.kind; if (k && reviewLater.has(k)) reviewLater.delete(k); reviewKind = k || null; render(todayStr); return; } // 種類チップ: 絞る／後回しを戻す
+      const lt = e.target.closest("[data-later]"); if (lt) { e.preventDefault(); reviewLater.add(lt.dataset.later); if (reviewKind === lt.dataset.later) reviewKind = null; render(todayStr); toast(`${(KIND[lt.dataset.later] || {}).t || ""} は後回し（チップで戻せる）`); return; }
       const b = e.target.closest("[data-ans]"); if (!b) return;
-      const card = b.closest(".rvc"); const q = reviewList()[0];
-      if (q && card && card.dataset.qid === q.id) reviewAnswer(q, b.dataset.ans);
+      const card = b.closest(".rvc"); const q = card && reviewData && reviewData.questions.find((x) => x.id === card.dataset.qid && x.kind === card.dataset.kind);
+      if (q) reviewAnswer(q, b.dataset.ans);
       return;
     }
     if (view === "roles") {

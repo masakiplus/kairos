@@ -604,6 +604,7 @@ async function reviewQuestions(env) {
   // (2) PJ クローズ候補 — その場で決着できる
   for (const p of projects.filter((p) => p.closable)) out.push({
     kind: "project-close", db: "Projects", label: "クローズ可否", id: p.id, url: p.url,
+    meta: { done: p.done, cond: p.cond || "", lastDone: p.lastDone || "", lastDoneAt: p.lastDoneAt || "", roles: p.roles || [] },
     q: `「${p.name}」のタスクは ${p.done} 件とも完了しています。クローズしますか？`,
     ctx: [["完了条件", p.cond || "未記入"], ["最後の完了", p.lastDone ? `${p.lastDoneAt ? p.lastDoneAt.slice(5).replace("-", "/") + " " : ""}${p.lastDone}` : "—"], ["役割", (p.roles || []).join("・") || "—"]].filter((x) => x[1]),
     options: [{ a: "close", t: "クローズする", s: "Decisions に決着行", pri: true }, { a: "add", t: "まだ続ける", s: "次のアクションを起票" }, { a: "skip", t: "今は決めない", s: "次回また聞く" }],
@@ -620,8 +621,11 @@ async function reviewQuestions(env) {
     if (p["種別"]?.select?.name === "依存案") {
       const d = parseDepsRow(p);
       if (!d) continue;
+      const [pt, st] = await Promise.all([getTask(env, d.predId).catch(() => null), getTask(env, d.succId).catch(() => null)]);
+      if (st && st.predIds.map((x) => x.replace(/-/g, "")).includes(d.predId.replace(/-/g, ""))) continue; // もう結ばれている
       out.push({
         kind: "deps", db: "Decisions", label: "依存の提案", id: pg.id, url: pg.url,
+        meta: { pred: { name: pt?.name || d.predName, due: pt?.due || null, start: pt?.start || null, done: !!pt?.done }, succ: { name: st?.name || d.succName, due: st?.due || null, start: st?.start || null }, sstart: d.sstart, sdue: d.sdue, why: DEC_RT(p["問い"]).slice(0, 120), at: (p["日付"]?.date?.start ?? "").slice(0, 10) },
         q: name, body: DEC_RT(p["問い"]).slice(0, 300) || null,
         ctx: [["先に", d.predName], ["後に", d.succName], ["後続の日程", [d.sstart && `開始 ${d.sstart.slice(5).replace("-", "/")}`, d.sdue && `期日 ${d.sdue.slice(5).replace("-", "/")}`].filter(Boolean).join("・")], ["PJ", pj.join("・")]].filter((x) => x[1]),
         options: [{ a: "link", t: d.sstart || d.sdue ? "結んで日程も置く" : "結ぶ", s: `「${d.succName.slice(0, 14)}」の先行に入れる`, pri: true }, ...(d.sstart || d.sdue ? [{ a: "linkonly", t: "結ぶだけ", s: "日程は触らない" }] : []), { a: "nolink", t: "結ばない", s: "順番の制約は無い" }, { a: "skip", t: "今は決めない", s: "提示済みにして次回" }],
@@ -633,8 +637,11 @@ async function reviewQuestions(env) {
     if (p["種別"]?.select?.name === "日程案") {
       const d = parseDatesRow(p);
       if (!d) continue;
+      const tt = await getTask(env, d.taskId).catch(() => null);
+      if (tt && tt.done) continue;
       out.push({
         kind: "dates", db: "Decisions", label: "日程の提案", id: pg.id, url: pg.url,
+        meta: { task: tt ? { name: tt.name, start: tt.start, due: tt.due } : null, start: d.start, due: d.due, why: DEC_RT(p["問い"]).slice(0, 120), at: (p["日付"]?.date?.start ?? "").slice(0, 10) },
         q: name, body: DEC_RT(p["問い"]).slice(0, 300) || null,
         ctx: [["開始日", d.start], ["期日", d.due], ["PJ", pj.join("・")]].filter((x) => x[1]),
         options: [{ a: "apply", t: "この日程にする", s: "開始日・期日を書く", pri: true }, { a: "nope", t: "置かない", s: "日程は決めない" }, { a: "skip", t: "今は決めない", s: "提示済みにして次回" }],
@@ -644,6 +651,7 @@ async function reviewQuestions(env) {
     }
     out.push({
       kind: "decision", db: "Decisions", label: p["状態"]?.select?.name === "提示済み" ? "提示済みの未決" : "提案中", id: pg.id, url: pg.url,
+      meta: { state: p["状態"]?.select?.name ?? "", at: (p["日付"]?.date?.start ?? "").slice(0, 10), shown: (p["提示日"]?.date?.start ?? "").slice(0, 10), ai, src: DEC_RT(p["出所"]).slice(0, 60), expect: DEC_RT(p["期待する結果"]).slice(0, 120) },
       q: name, body: DEC_RT(p["問い"]).slice(0, 400) || null,
       ctx: [["出所", DEC_RT(p["出所"]).slice(0, 60)], ["AI推奨", ai], ["PJ", pj.join("・")], ["日付", (p["日付"]?.date?.start ?? "").slice(0, 10)]].filter((x) => x[1]),
       options: [{ a: "着手する", t: "着手する", s: "決着・次のアクションへ", pri: ai === "着手する" }, { a: "棚上げ", t: "棚上げ", s: "決着・今は動かない", pri: ai === "棚上げ" }, { a: "削除", t: "やめる", s: "決着・削除扱い", pri: ai === "削除" }, { a: "skip", t: "今は決めない", s: "提示済みにして次回" }],
@@ -656,6 +664,7 @@ async function reviewQuestions(env) {
     if (t.carry < 3 || t.owner) continue;
     out.push({
       kind: "task-carry", db: "Tasks", label: `繰越 ${t.carry} 回`, id: t.id, url: t.url,
+      meta: { carry: t.carry, due: t.due, start: t.start, priority: t.priority, firstDue: ((t.rawDesc || "").match(/初回期日 (\d{4}-\d{2}-\d{2})/) || [])[1] || null },
       q: `「${t.name}」は棚卸しで ${t.carry} 回繰り越されています。まだやりますか？`,
       ctx: [["期日", t.due || "なし"], ["PJ", t.projectIds.map((id) => names.get(id)).filter(Boolean).join("・")], ["優先度", t.priority]].filter((x) => x[1]),
       options: [{ a: "skip-done", t: "やめる（見送りで完了）", s: "説明に見送りの根拠を残す" }, { a: "mit", t: "⭐ 今日の3つに入れて片付ける", s: "今日やる" }, { a: "nextweek", t: "来週に送る", s: "開始日を来週の月曜に", }, { a: "skip", t: "今は決めない", s: "次回また聞く" }],
@@ -666,6 +675,7 @@ async function reviewQuestions(env) {
   try {
     for (const h of await habitsDue(env)) out.push({
       kind: "habit", db: "Habits", label: h.freq, id: h.id, url: h.url,
+      meta: { freq: h.freq, rule: h.rule, roles: h.roles || [] },
       q: h.freq === "毎日" ? `今日「${h.name}」はやりましたか？` : `今週「${h.name}」（${h.freq}）はできましたか？`,
       ctx: [["判定", h.rule], ["役割", (h.roles || []).join("・")]].filter((x) => x[1]),
       options: [{ a: "done", t: "やった", s: "Habit Log に達成で記録", pri: true }, { a: "miss", t: "やらなかった", s: "未達で記録（正直に）" }, { a: "skip", t: "今は決めない", s: "次回また聞く" }],
@@ -678,6 +688,7 @@ async function reviewQuestions(env) {
     const name = (p["名前"]?.title ?? []).map((t) => t.plain_text).join("");
     out.push({
       kind: "verify", db: "Decisions", label: "検証待ち", id: pg.id, url: pg.url,
+      meta: { decided: (p["決定日"]?.date?.start ?? "").slice(0, 10), verifyAt: (p["検証日"]?.date?.start ?? "").slice(0, 10), conclusion: DEC_RT(p["結論"]).slice(0, 160), expect: DEC_RT(p["期待する結果"]).slice(0, 160) },
       q: `「${name}」は決めてから検証日を迎えました。結果は？`,
       ctx: [["結論", DEC_RT(p["結論"]).slice(0, 120)], ["期待する結果", DEC_RT(p["期待する結果"]).slice(0, 120)], ["検証日", (p["検証日"]?.date?.start ?? "").slice(0, 10)]].filter((x) => x[1]),
       options: [{ a: "当たり", t: "当たり", s: "期待どおりだった", pri: true }, { a: "部分的", t: "部分的", s: "一部だけ" }, { a: "外れ", t: "外れ", s: "期待と違った" }, { a: "検証不要", t: "検証不要", s: "見なくてよい" }],
