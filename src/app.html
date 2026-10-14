@@ -22,7 +22,10 @@
   #undoBtn .n{position:absolute;top:-4px;right:-4px;font-size:10px;font-weight:700;background:var(--acc);color:#fff;border-radius:8px;padding:0 4px;line-height:14px}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   [hidden]{display:none!important} /* .toast 等の display:flex に hidden 属性が負けないように */
-  html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,"SF Pro Text","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,"SF Pro Text","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  /* タップの手応え (2026-10-15 利用者の報告「タップのレスポンスが悪い」): 押した瞬間に見た目が変わる。遅延なし */
+  button:active,.row .card:active,.sheet .list a:active,.meta a:active,.rvc .opts button:active,.rel a:active,.snext button:active,.rpj button:active{opacity:.7;transition:none}
+  .tabs button:active,.grid button:active{transform:scale(.97);transition:none}
   header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(14px + env(safe-area-inset-top)) 20px 12px;display:flex;flex-direction:column;gap:12px}
   .ttl{display:flex;align-items:center;gap:10px}
   .ttl h1{margin:0;font-size:28px;font-weight:700;letter-spacing:-.4px}
@@ -734,7 +737,12 @@
     const withs = place === "自宅" && !isMorning() ? [...COMPANIONS] : [];
     return { place, tools, withs, src, morning: isMorning(), key: `${isMac ? "mac" : "phone"}|${place}|${isMorning() ? "am" : h < 19 ? "day" : "night"}` };
   }
+  let sitMemo = null, sitMemoAt = 0;
   function currentSit() {
+    if (sitMemo && Date.now() - sitMemoAt < 500) return sitMemo; // 1 回の描画の中で 200 回呼ばれるので短く覚える
+    sitMemo = currentSit0(); sitMemoAt = Date.now(); return sitMemo;
+  }
+  function currentSit0() {
     const auto = inferSit();
     let m = null; try { m = JSON.parse(localStorage.getItem("sit:manual") || "null"); } catch (e) {}
     if (m && m.key === auto.key && Date.now() - m.at < 6 * 3600_000) return { ...auto, place: m.place || auto.place, tools: m.tools || auto.tools, withs: Array.isArray(m.withs) ? m.withs : ((m.place || auto.place) === "自宅" && !isMorning() ? [...COMPANIONS] : []), manual: true };
@@ -1229,7 +1237,7 @@
     else if (!silent) $("#list").innerHTML = '<div class="empty">読み込み中…</div>';
     try {
       const j = await api("/api/tasks?view=" + v);
-      tasks = j.tasks; writeCache(v, j);
+      tasks = applyPending(j.tasks); writeCache(v, j);
       if (Array.isArray(j.delegates) && j.delegates.length) { DELEGATES = j.delegates; localStorage.setItem("delegates", JSON.stringify(DELEGATES)); }
       if (Array.isArray(j.companions) && j.companionsOk) { COMPANIONS = j.companions; try { localStorage.setItem("companions", JSON.stringify(COMPANIONS)); } catch (e) {} }
       render(j.today); $("#stale").hidden = true; $("#n-" + v).textContent = tasks.length;
@@ -1265,7 +1273,25 @@
   }
 
   // ---- 操作 ----
+  // 楽観更新の「戻り」防止 (2026-10-15 利用者の報告「タップしても反映まで間があり誤タップしがち」):
+  // 操作直後の取り直しで Notion 側の反映が遅れていると、消したはずの行が一瞬戻って並びがずれる。操作から 25 秒は、取り直した結果にこちらの状態を重ねる
+  const pending = new Map(); // id → { until, hide?:true, patch?:{...} }
+  const PENDING_MS = 25_000;
+  function markPending(id, p) { pending.set(id, { ...p, until: Date.now() + PENDING_MS }); }
+  function applyPending(list) {
+    const now = Date.now(); let changed = false;
+    for (const [id, p] of pending) if (p.until < now) pending.delete(id);
+    if (!pending.size) return list;
+    const out = [];
+    for (const t of list) {
+      const p = pending.get(t.id); if (!p) { out.push(t); continue; }
+      if (p.hide) { changed = true; continue; }
+      out.push({ ...t, ...p.patch });
+    }
+    return out;
+  }
   function removeRow(id) {
+    markPending(id, { hide: true });
     tasks = tasks.filter((t) => t.id !== id);
     const el = document.querySelector(`.row[data-id="${id}"]`);
     if (el) { const g = el.parentElement, s = g.parentElement; el.remove(); if (!g.children.length) s.remove(); }
@@ -1291,6 +1317,7 @@
   function renderUndo() { const b = $("#undoBtn"); b.hidden = !undoStack.length; $("#undoN").textContent = undoStack.length || ""; b.title = undoStack.length ? `取り消す: ${undoStack[undoStack.length - 1].label}` : ""; }
   async function undoLast() {
     const u = undoStack.pop(); if (!u) return;
+    pending.delete(u.id); // 取り消したら、重ねていた状態も外す
     localStorage.setItem(UNDO_KEY, JSON.stringify(undoStack)); renderUndo();
     try { await api(`/api/tasks/${u.id}/restore`, { method: "POST", body: JSON.stringify(u.snap) }); toast(`取り消し: ${u.label}`); }
     catch (e) { toast("取り消し失敗: " + e.message); }
@@ -1308,8 +1335,9 @@
       if (base0 === "mit" || base0 === "mit-clear") t.mit = base0 === "mit";
       else if (base0 === "morning" || base0 === "morning-clear") t.env = [...t.env.filter((x) => x !== "早朝"), ...(base0 === "morning" ? ["早朝"] : [])];
       else if (ST[base0]) t.status = ST[base0]; else t.evening = action === "evening";
+      markPending(t.id, { patch: { mit: t.mit, env: t.env, status: t.status, evening: t.evening } });
       render(todayStr);
-    } else removeRow(t.id);
+    } else { removeRow(t.id); if (base0 === "reopen") pending.delete(t.id); }
     try {
       const j = await api(`/api/tasks/${t.id}/${action}`, { method: "POST" });
       const base = action.split("?")[0];
@@ -1408,6 +1436,7 @@
       const tag = b.dataset.env, had = t.env.includes(tag);
       pushUndo(t, `${had ? "外す" : "付ける"} ${TOOL_LABEL[tag] || tag}: ${t.name}`);
       t.env = had ? t.env.filter((x) => x !== tag) : [...t.env, tag];
+      markPending(t.id, { patch: { env: t.env } });
       openSheet(t, today); lastSig = ""; render(todayStr);
       api(`/api/tasks/${t.id}/env?set=${encodeURIComponent(t.env.join(","))}`, { method: "POST" })
         .then(() => toast(`${had ? "外した" : "付けた"}: ${TOOL_LABEL[tag] || tag} — ${t.name}`, undoLast))
