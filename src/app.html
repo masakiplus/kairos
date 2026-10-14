@@ -702,9 +702,10 @@
     const mit = view === "search" ? [] : tasks.filter((t) => t.mit && !t.done);
     if (mit.length) secs = [[`⭐ 今日の3つ${mit.length > 3 ? ` <span style="color:var(--over)">（${mit.length} 件。3つに絞る）</span>` : ""}`, "mith", mit], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.mit)])];
     // 🌅 早朝 (2026-10-12): 04:00〜06:59 に開いたとき、今日やる・今日できる の先頭に 早朝向き (実行環境に 早朝) の着手可を出す。昼間は節を作らない (通常の節に混ざる)
-    if (isMorning() && (view === "today" || view === "can")) {
+    const SQ = currentSit();
+    if (SQ.quiet && (view === "today" || view === "can")) {
       const mr = tasks.filter((t) => !t.done && !t.blocked && !t.aiActive && t.status !== "人対応" && t.env.includes("早朝")).sort((a, b) => (a.priority || "p9").localeCompare(b.priority || "p9") || (b.mit ? 1 : 0) - (a.mit ? 1 : 0) || (a.due || "9999").localeCompare(b.due || "9999"));
-      if (mr.length) secs = [["🌅 早朝にゆっくり <small style=\"font-weight:400;color:var(--mute)\">相談が要るものは準備まで</small>", "mrh", mr], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !mr.includes(t))])];
+      if (mr.length) secs = [[`${SQ.morning ? "🌅 早朝にゆっくり" : "🌙 静かな時間に"} <small style="font-weight:400;color:var(--mute)">相談が要るものは準備まで</small>`, "mrh", mr], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !mr.includes(t))])];
     }
     // 状況に合わないものは末尾に沈める (隠さない。期限切れを見失わないため, 2026-10-12)。今日やる・今日できる・スマホで だけ
     if (view === "today" || view === "can" || view === "phone") {
@@ -748,11 +749,15 @@
     const workday = dow >= 1 && dow <= 5 && dow !== 3; // 水曜は在宅
     let place = workday && h >= 9 && h < 19 ? "職場" : "自宅", src = "曜日";
     if (whereData && whereData.place && !whereData.stale) { place = whereData.place === "自宅" || whereData.place === "職場" ? whereData.place : "外出"; src = whereData.place === "伊豆" ? "位置: 伊豆" : "位置"; }
-    const tools = isMac ? ["Mac", "iPhone", "電話"] : ["iPhone", "電話"];
-    if (place === "自宅" && !isMorning()) tools.push("紙・郵送");
-    // 👥 家にいる (早朝以外) ＝ 一緒にいる人は全員いる。外出・職場・早朝は誰もいない扱い (一緒に出かけているときはチップで手で足す)
-    const withs = place === "自宅" && !isMorning() ? [...COMPANIONS] : [];
-    return { place, tools, withs, src, morning: isMorning(), key: `${isMac ? "mac" : "phone"}|${place}|${isMorning() ? "am" : h < 19 ? "day" : "night"}` };
+    // 🌙 深夜 (22:00〜03:59) と 🌅 早朝 (04:00〜06:59) は「静かな時間」: 電話はできない・店や郵便は動いていない・家族は寝ている (2026-10-15 利用者の指摘「深夜にできないことが上位に上がる」)
+    const quiet = h >= 22 || h < 7;
+    const tools = isMac ? ["Mac", "iPhone"] : ["iPhone"];
+    if (!quiet) tools.push("電話");
+    if (place === "自宅" && !quiet) tools.push("紙・郵送");
+    // 👥 家にいる (静かな時間以外) ＝ 一緒にいる人は全員いる。外出・職場・深夜・早朝は誰もいない扱い (一緒に出かけているときはチップで手で足す)
+    const withs = place === "自宅" && !quiet ? [...COMPANIONS] : [];
+    const slot = isMorning() ? "am" : (h >= 22 || h < 4) ? "late" : h < 19 ? "day" : "night";
+    return { place, tools, withs, src, morning: isMorning(), quiet, slot, key: `${isMac ? "mac" : "phone"}|${place}|${slot}` };
   }
   let sitMemo = null, sitMemoAt = 0;
   function currentSit() {
@@ -762,7 +767,7 @@
   function currentSit0() {
     const auto = inferSit();
     let m = null; try { m = JSON.parse(localStorage.getItem("sit:manual") || "null"); } catch (e) {}
-    if (m && m.key === auto.key && Date.now() - m.at < 6 * 3600_000) return { ...auto, place: m.place || auto.place, tools: m.tools || auto.tools, withs: Array.isArray(m.withs) ? m.withs : ((m.place || auto.place) === "自宅" && !isMorning() ? [...COMPANIONS] : []), manual: true };
+    if (m && m.key === auto.key && Date.now() - m.at < 6 * 3600_000) return { ...auto, place: m.place || auto.place, tools: m.tools || auto.tools, withs: Array.isArray(m.withs) ? m.withs : ((m.place || auto.place) === "自宅" && !auto.quiet ? [...COMPANIONS] : []), manual: true };
     if (m) localStorage.removeItem("sit:manual"); // 端末・時間帯・曜日の推定が変わったら手動の指定は自然に消える
     return { ...auto, manual: false };
   }
@@ -777,7 +782,7 @@
   function renderSit() {
     const S = currentSit(), b = $("#sitChip"); if (!b) return;
     b.className = S.manual ? "manual" : "";
-    b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${(S.withs || []).length ? " · 👥 " + S.withs.map(esc).join("・") : ""}${S.morning ? " · 🌅 早朝" : ""} <small>${S.manual ? "手動" : "自動（" + S.src + "）"}</small>`;
+    b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${(S.withs || []).length ? " · 👥 " + S.withs.map(esc).join("・") : ""}${S.morning ? " · 🌅 早朝" : S.slot === "late" ? " · 🌙 深夜" : ""} <small>${S.manual ? "手動" : "自動（" + S.src + "）"}</small>`;
   }
   function openSitPick() {
     const S = currentSit(); let place = S.place; const tools = new Set(S.tools); const withs = new Set(S.withs || []);
@@ -787,7 +792,7 @@
       <div class="sect">場所</div><div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-place="${x}" class="${place === x ? "on" : ""}">${x}</button>`).join("")}</div>
       <div class="sect">手元にある道具</div><div class="grid sit" style="grid-template-columns:repeat(4,1fr)">${SIT_AXES.tool.map((x) => `<button data-tool="${x}" class="${tools.has(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
       ${COMPANIONS.length ? `<div class="sect">一緒にいる人 <small style="font-weight:400;color:var(--mute)">家では一緒・外では別、が既定</small></div><div class="grid sit" style="grid-template-columns:repeat(${Math.min(COMPANIONS.length, 4)},1fr)">${COMPANIONS.map((x) => `<button data-with="${esc(x)}" class="${withs.has(x) ? "on" : ""}">👥 ${esc(x)}</button>`).join("")}</div>` : ""}
-      <div class="sect">時間帯</div><div class="sub">${S.morning ? "🌅 早朝（04:00〜06:59）— 早朝向きを先頭に出しています" : "日中・夜（早朝向きは通常の節に混ざります）"}</div>
+      <div class="sect">時間帯</div><div class="sub">${S.morning ? "🌅 早朝（04:00〜06:59）— 早朝向きを先頭に出しています。電話・郵便・家族は無し" : S.slot === "late" ? "🌙 深夜（22:00〜03:59）— 電話・郵便・家族は無しとして沈めます" : "日中・夜（早朝向きは通常の節に混ざります）"}</div>
       <div class="grid"><button class="pri" id="sitOk">この状況にする</button><button class="skip" id="sitAuto">自動に戻す</button></div>`;
       $("#sheet").querySelector(".close").onclick = closeSheet;
       $("#sheet").querySelectorAll("[data-place]").forEach((b) => b.onclick = () => { place = b.dataset.place; withs.clear(); if (place === "自宅" && !isMorning()) COMPANIONS.forEach((x) => withs.add(x)); draw(); }); // 場所を変えたら 👥 も既定 (家＝一緒) に合わせ直す
@@ -802,9 +807,9 @@
   function metaHtml(v) {
     const ts = tasks.filter((t) => !t.done);
     let label = "", sub = "", q = "";
-    if ((v === "today" || v === "can") && isMorning() && ts.some((t) => t.env.includes("早朝"))) {
+    if ((v === "today" || v === "can") && currentSit().quiet && ts.some((t) => t.env.includes("早朝"))) {
       const mr = ts.filter((t) => t.env.includes("早朝") && !t.blocked);
-      label = "Claude と早朝の 1 本を決める"; sub = "時間をかける 1 件に絞って段取り";
+      label = currentSit().morning ? "Claude と早朝の 1 本を決める" : "Claude と静かな時間の 1 本を決める"; sub = "時間をかける 1 件に絞って段取り";
       q = `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めたいです。候補: ${taskLines(mr)}。1 件に絞り、家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にして、段取りを 3 ステップで組んでください。選んだものは ⭐ 今日の3つ に入れ、残りは触らないでください。${META_TAIL}`;
       return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${ICONS.claude} ${label}</a><small>${sub}</small></div>`;
     }
