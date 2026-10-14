@@ -442,6 +442,7 @@
   // Phase B (2026-10-06): PJ別の見出し情報 (/api/projects) と 役割タブ (/api/roles)。追加欄の PJ 紐づけ
   let projInfo = null, projInfoAt = 0, rolesData = null, addProject = null;
   let COMPANIONS = []; try { COMPANIONS = JSON.parse(localStorage.getItem("companions") || "[]"); } catch (e) {} // 👥 実行環境 の「〜と」タグ。Worker がスキーマから読む (2026-10-12)
+  let PHONE_ENV = "スマホ"; try { PHONE_ENV = localStorage.getItem("phoneEnv") || PHONE_ENV; } catch (e) {} // 📱 スマホの選択肢名 (2026-10-15 に iPhone からリネーム)。Worker がスキーマに実在する方を /api/tasks に添える
   let DELEGATES = JSON.parse(localStorage.getItem("delegates") || "[]"); // 担当 の選択肢。Worker が Notion のスキーマから読んで /api/tasks に添える
   const ICONS = {
     star: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.5 1.2 6.4L12 17.3l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8L12 2.8z" fill="#f7c948"/></svg>',
@@ -752,8 +753,8 @@
   const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Notion を更新し、終わったら 📻 Sessions に足跡を 1 行。";
   // ---- いまの状況 (2026-10-12, OmniFocus のタグ／パースペクティブの「端末に応じて切り替わる」版) ----
   // 実行環境 の選択肢を 4 軸に読む (👥 相手 は 2026-10-12。「〜と」で終わる選択肢＝その人と一緒のときにできる)。タグが付いている軸ごとに 1 つ以上が今の状況と合えば「いまできる」。タグが無い軸は不問
-  const SIT_AXES = { place: ["自宅", "職場", "外出"], tool: ["Mac", "iPhone", "電話", "紙・郵送"], time: ["早朝"] };
-  const TOOL_LABEL = { Mac: "Mac", iPhone: "スマホ", "電話": "電話", "紙・郵送": "紙" };
+  const SIT_AXES = { place: ["自宅", "職場", "外出"], tool: ["Mac", PHONE_ENV, "電話", "紙・郵送"], time: ["早朝"] }; // tool[1] はスマホ (Worker から来た名前で差し替わる)
+  const TOOL_LABEL = { Mac: "Mac", "スマホ": "スマホ", iPhone: "スマホ", "電話": "電話", "紙・郵送": "紙" };
   const isMorning = () => { const h = new Date().getHours(); return h >= 4 && h < 7; }; // 早朝の窓。端末の時刻で判定
   // 📍 今の居場所 (位置受信 Worker → Notion) を場所の第一の出どころにする。古い (3h) か取れないときは曜日・時刻の推定に落ちる
   let whereData = null, whereAt = 0;
@@ -769,7 +770,7 @@
     if (whereData && whereData.place && !whereData.stale) { place = whereData.place === "自宅" || whereData.place === "職場" ? whereData.place : "外出"; src = whereData.place === "伊豆" ? "位置: 伊豆" : "位置"; }
     // 🌙 深夜 (22:00〜03:59) と 🌅 早朝 (04:00〜06:59) は「静かな時間」: 電話はできない・店や郵便は動いていない・家族は寝ている (2026-10-15 利用者の指摘「深夜にできないことが上位に上がる」)
     const quiet = h >= 22 || h < 7;
-    const tools = isMac ? ["Mac", "iPhone"] : ["iPhone"];
+    const tools = isMac ? ["Mac", PHONE_ENV] : [PHONE_ENV];
     if (!quiet) tools.push("電話");
     if (place === "自宅" && !quiet) tools.push("紙・郵送");
     // 👥 家にいる (静かな時間以外) ＝ 一緒にいる人は全員いる。外出・職場・深夜・早朝は誰もいない扱い (一緒に出かけているときはチップで手で足す)
@@ -1347,6 +1348,7 @@
       tasks = applyPending(j.tasks); writeCache(v, j);
       if (Array.isArray(j.delegates) && j.delegates.length) { DELEGATES = j.delegates; localStorage.setItem("delegates", JSON.stringify(DELEGATES)); }
       if (Array.isArray(j.companions) && j.companionsOk) { COMPANIONS = j.companions; try { localStorage.setItem("companions", JSON.stringify(COMPANIONS)); } catch (e) {} }
+      if (typeof j.phoneEnv === "string" && j.phoneEnv && j.phoneEnv !== PHONE_ENV) { PHONE_ENV = j.phoneEnv; SIT_AXES.tool[1] = PHONE_ENV; sitMemo = null; try { localStorage.setItem("phoneEnv", PHONE_ENV); } catch (e) {} } // スマホの選択肢名が変わったら手元の軸も揃える
       render(j.today); $("#stale").hidden = true; $("#n-" + v).textContent = tasks.length;
       // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
       const w = j.wip; const we = $("#wip");
@@ -1890,7 +1892,7 @@
     const pj = addProject; // PJ別の「この PJ にタスクを足す」から来たときは紐づける (Phase B)
     try {
       // 実行環境の既定は「いまの状況」(2026-10-13): 端末 (Mac か スマホ) ＋ 場所。シートの「できる状況」で直せる
-      const S = currentSit(); const envTags = [isMac ? "Mac" : "iPhone", S.place];
+      const S = currentSit(); const envTags = [isMac ? "Mac" : PHONE_ENV, S.place];
       const j = await api("/api/tasks", { method: "POST", body: JSON.stringify({ name, env: envTags, ...(pj ? { projectId: pj.id } : {}) }) });
       // PJ に他の未完了があれば、その場で先行を選べるボタンを出す (2026-10-07, 依存の洗い出し D)
       const pjInfo = pj && (projInfo || []).find((p) => p.id === pj.id);

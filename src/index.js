@@ -88,6 +88,8 @@ function deferTo(to) {
 
 // Notion 側に同じフィルタのビューを 3 本置いて突き合わせられるようにしてある。式プロパティは文字列一致で引く。
 const NOT_DONE = { property: "完了", checkbox: { equals: false } };
+// 📱 スマホの選択肢名 (2026-10-15): 「iPhone」を「スマホ」にリネームした。書くときはスキーマに実在する方を使う (Notion 側のリネーム前後どちらでも動く。無い名前を書くと別の選択肢が勝手に生える)
+const PHONE_ENV_NAMES = ["スマホ", "iPhone"];
 const NOT_WAITING = { property: "ステータス", status: { does_not_equal: "待ち" } };
 const STARTABLE = { property: "着手可否", formula: { string: { equals: "着手可" } } };
 const VIEWS = {
@@ -145,7 +147,8 @@ const VIEWS = {
         STARTABLE,
         {
           or: [
-            { property: "実行環境", multi_select: { contains: "iPhone" } },
+            // 「スマホ」(2026-10-15 リネーム。旧名 iPhone)。移行中はどちらの名前でも拾う
+            ...PHONE_ENV_NAMES.map((n) => ({ property: "実行環境", multi_select: { contains: n } })),
             { property: "実行環境", multi_select: { contains: "電話" } },
           ],
         },
@@ -160,18 +163,23 @@ const VIEWS = {
 
 // 担当 (select) の選択肢 ＝ 委任できる相手。Notion のスキーマから読む (ハードコードしない。公開リポジトリ化 2026-10-08)
 // 👥 一緒にいる人 (2026-10-12): 実行環境 の選択肢のうち「〜と」で終わるもの (例: 配偶者の名前＋と) を相手の軸として返す。名前はコードに書かない
-let delegatesCache = { at: 0, list: [], companions: [], ok: false };
+let delegatesCache = { at: 0, list: [], companions: [], ok: false, phone: "スマホ" };
 async function loadSchemaLists(env) {
   if (Date.now() - delegatesCache.at < 10 * 60_000 && delegatesCache.list.length) return delegatesCache;
   try {
     const ds = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}`);
     const list = (ds.properties?.["担当"]?.select?.options ?? []).map((o) => o.name).filter(Boolean);
     const companions = (ds.properties?.["実行環境"]?.multi_select?.options ?? []).map((o) => o.name).filter((n) => n && n.length > 1 && n.endsWith("と"));
-    delegatesCache = { at: Date.now(), list, companions, ok: true };
+    const envNames = (ds.properties?.["実行環境"]?.multi_select?.options ?? []).map((o) => o.name);
+    const phone = PHONE_ENV_NAMES.find((n) => envNames.includes(n)) ?? PHONE_ENV_NAMES[0];
+    delegatesCache = { at: Date.now(), list, companions, ok: true, phone };
   } catch (e) { /* 読めなければ前回の値 (無ければ空) */ }
   return delegatesCache;
 }
 async function delegates(env) { return (await loadSchemaLists(env)).list; }
+async function phoneEnvName(env) { return (await loadSchemaLists(env)).phone; }
+// 画面や旧キャッシュが旧名で渡してきても、スキーマに実在する名前に揃える
+function normEnvTags(tags, phone) { return [...new Set((tags ?? []).map((n) => (PHONE_ENV_NAMES.includes(n) ? phone : n)))]; }
 async function companions(env) { const c = await loadSchemaLists(env); return { list: c.companions, ok: c.ok }; } // ok=false ＝ まだ一度も読めていない (画面は前回の値を保つ)
 const AI_ACTIVE_MS = 2 * 60 * 60 * 1000; // 🤖 処理中とみなす上限 (2026-09-30 決定: 2時間)
 
@@ -837,7 +845,7 @@ function passesView(t, view, today) {
   if (view === "today") return !!t.due && t.due <= today;
   if (view === "can" || view === "phone") {
     if (t.status === "待ち") return false;
-    if (view === "phone") return t.env.includes("iPhone") || t.env.includes("電話");
+    if (view === "phone") return t.env.some((x) => PHONE_ENV_NAMES.includes(x)) || t.env.includes("電話");
     if (!t.due) return true;
     const d = Math.round((Date.parse(t.due + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86_400_000);
     return d >= 1 && d <= 7;
@@ -1057,6 +1065,7 @@ const reopenProps = () => ({
 
 async function quickAdd(env, name, projectId, envTags) {
   const today = todayJst();
+  const phoneEnv = await phoneEnvName(env); // スマホ (旧 iPhone) の実在する選択肢名
   const page = await notion(env, "/pages", {
     method: "POST",
     body: JSON.stringify({
@@ -1068,7 +1077,7 @@ async function quickAdd(env, name, projectId, envTags) {
         "ソース": { select: { name: "手動" } },
         "ステータス": { status: { name: "未着手" } },
         "開始日": { date: { start: today } }, // 原則きょう＝着手可 (2026-08-31)
-        "実行環境": { multi_select: (envTags && envTags.length ? envTags : ["iPhone"]).map((n) => ({ name: n })) }, // 既定は「いまの状況」(画面が渡す。2026-10-13)。無ければ iPhone
+        "実行環境": { multi_select: normEnvTags(envTags && envTags.length ? envTags : [phoneEnv], phoneEnv).map((n) => ({ name: n })) }, // 既定は「いまの状況」(画面が渡す。2026-10-13)。無ければ スマホ
         // PJ別タブの「この PJ にタスクを足す」「次のアクションを1件決める」(Phase B, 2026-10-06) から来たときは PJ に紐づける
         ...(projectId ? { "関連プロジェクト": { relation: [{ id: projectId }] } } : {}),
       },
@@ -1154,7 +1163,7 @@ export default {
       if (path === "/api/tasks" && req.method === "GET") {
         const view = url.searchParams.get("view") ?? "today";
         const [tasks, wip, dl, cp] = await Promise.all([listTasks(env, view), wipCount(env).catch(() => null), delegates(env), companions(env)]);
-        return json({ view, today: todayJst(), tasks, wip, delegates: dl, companions: cp.list, companionsOk: cp.ok });
+        return json({ view, today: todayJst(), tasks, wip, delegates: dl, companions: cp.list, companionsOk: cp.ok, phoneEnv: cp.ok ? (await phoneEnvName(env)) : undefined });
       }
       if (path === "/api/search" && req.method === "GET") {
         const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
@@ -1346,7 +1355,8 @@ export default {
         if (action === "env") {
           const ds = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}`).catch(() => null);
           const allowed = new Set((ds?.properties?.["実行環境"]?.multi_select?.options ?? []).map((o) => o.name));
-          const set = (url.searchParams.get("set") ?? "").split(",").map((x) => x.trim()).filter((x) => x && (!allowed.size || allowed.has(x)));
+          const phone = PHONE_ENV_NAMES.find((n) => allowed.has(n)) ?? (await phoneEnvName(env));
+          const set = normEnvTags((url.searchParams.get("set") ?? "").split(",").map((x) => x.trim()).filter(Boolean), phone).filter((x) => !allowed.size || allowed.has(x));
           return json({ task: await patchTask(env, id, { "実行環境": { multi_select: [...new Set(set)].map((name) => ({ name })) } }) });
         }
         if (action === "morning" || action === "morning-clear") {
