@@ -858,18 +858,25 @@ function dedupeTasks(arr) { const seen = new Set(); return arr.filter((t) => { c
 async function listTasks(env, view) {
   let spec = VIEWS[view];
   if (!spec) throw new Error(`unknown view: ${view}`);
-  if (view === "phone") { // スマホの選択肢名はスキーマに実在する方 (リネーム前後で変わる) に差し替える
-    const names = (await loadSchemaLists(env)).phoneNames;
-    spec = JSON.parse(JSON.stringify(spec).replace('{"property":"実行環境","multi_select":{"contains":"PHONE_FILTER_SLOT"}}', names.map((n) => JSON.stringify({ property: "実行環境", multi_select: { contains: n } })).join(",")));
-  }
+  const phoneSpec = (names) => JSON.parse(JSON.stringify(VIEWS.phone).replace('{"property":"実行環境","multi_select":{"contains":"PHONE_FILTER_SLOT"}}', names.map((n) => JSON.stringify({ property: "実行環境", multi_select: { contains: n } })).join(",")));
+  if (view === "phone") spec = phoneSpec((await loadSchemaLists(env)).phoneNames); // スマホの選択肢名はスキーマに実在する方 (リネーム前後で変わる) に差し替える
   const today = todayJst();
   const out = [];
   let cursor;
   do {
-    const r = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}/query`, {
-      method: "POST",
-      body: JSON.stringify({ ...spec, page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }),
-    });
+    let r;
+    try {
+      r = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}/query`, {
+        method: "POST",
+        body: JSON.stringify({ ...spec, page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }),
+      });
+    } catch (e) {
+      // 選択肢名が変わった直後 (スキーマのキャッシュが 10 分古い) は「option not found」で弾かれる。キャッシュを捨てて一度だけ組み直す (2026-10-15 の iPhone→スマホ で実測)
+      if (view !== "phone" || cursor || !/not found for property/.test(String(e?.message ?? e))) throw e;
+      delegatesCache.at = 0;
+      spec = phoneSpec((await loadSchemaLists(env)).phoneNames);
+      r = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({ ...spec, page_size: 100 }) });
+    }
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
       if (passesView(t, view, today)) out.push(t);
