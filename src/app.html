@@ -625,6 +625,13 @@
     if (t.due === today) return `<span class="today">今日</span>`;
     return `<span>${fmtDate(t.due)}</span>`;
   }
+  // 行の状況タグ (2026-10-15): いまの状況と合わない軸だけ出す (合っているタグは情報にならずノイズ)。🌅 早朝はいつも出す
+  function envChip(t) {
+    if (!t.env || !t.env.length) return "";
+    const S = currentSit();
+    const show = t.env.filter((x) => x === "早朝" ? true : SIT_AXES.place.includes(x) ? x !== S.place : SIT_AXES.tool.includes(x) ? !S.tools.includes(x) : COMPANIONS.includes(x) ? !(S.withs || []).includes(x) : true);
+    return show.length ? `<span>${esc(show.map((x) => x === "早朝" ? "🌅" : TOOL_LABEL[x] || x).join("・"))}</span>` : "";
+  }
   function rowHtml(t, today) {
     return `<div class="row${t.blocked ? " blocked" : ""}${t.done ? " dn" : ""}${t.mit && !t.done ? " mit" : ""}${t.aiActive ? (t.aiMode === "更新" ? " ai upd" : " ai run") : t.status === "人対応" ? " hu" : ""}" data-id="${t.id}">
       <div class="under"><span>🤖 Claude へ</span><span>明日へ →</span></div>
@@ -632,7 +639,7 @@
         <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
         <div class="body">
           <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
-          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${t.env.length ? `<span>${esc(t.env.join("・"))}</span>` : ""}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}</div>
+          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}</div>
         </div>
         ${t.aiActive && t.aiSession
           ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="Claude のセッションを開く" data-sess>💬</a>`
@@ -689,6 +696,17 @@
       secs = [...g.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].length - a[1].length).map(([name, ts]) => [name, "prjh", ts]);
     } else if (view === "doing") {
       secs = [["▶ 進行中", "", tasks]]; // 🤖 処理中・🧔 人対応 は下で独立した節に分かれる (2026-10-08)
+    } else if (view === "can") {
+      // 今日できる (2026-10-15): 前倒し候補を「期日まで」で区切る。なぜ候補か (着手できて期日が 1〜7 日 or 日付なし) を見出しに
+      const dd = (t) => dayDiff(t.due, today);
+      secs = [
+        [`期日まで 3 日以内 <small style="font-weight:400;color:var(--mute)">先に片付けると楽</small>`, "", tasks.filter((t) => t.due && dd(t) <= 3)],
+        [`今週中 <small style="font-weight:400;color:var(--mute)">期日まで 4〜7 日</small>`, "", tasks.filter((t) => t.due && dd(t) > 3)],
+        [`日付なし <small style="font-weight:400;color:var(--mute)">着手できる・いつでも</small>`, "", tasks.filter((t) => !t.due)],
+      ];
+    } else if (view === "phone") {
+      // スマホで (2026-10-15): 📞 電話する と 📱 スマホで片付ける に分ける
+      secs = [["📞 電話する", "", tasks.filter((t) => t.env.includes("電話"))], ["📱 スマホで片付ける", "", tasks.filter((t) => !t.env.includes("電話"))]];
     } else {
       secs = [["期日あり", "", tasks.filter((t) => t.due)], ["日付なし", "", tasks.filter((t) => !t.due)]];
     }
