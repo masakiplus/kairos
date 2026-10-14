@@ -147,8 +147,8 @@ const VIEWS = {
         STARTABLE,
         {
           or: [
-            // 「スマホ」(2026-10-15 リネーム。旧名 iPhone)。移行中はどちらの名前でも拾う
-            ...PHONE_ENV_NAMES.map((n) => ({ property: "実行環境", multi_select: { contains: n } })),
+            // 「スマホ」(2026-10-15 リネーム。旧名 iPhone)。Notion は無い選択肢名のフィルタを 400 で弾くので、listTasks がスキーマに実在する名前で差し替える (PHONE_FILTER_SLOT)
+            { property: "実行環境", multi_select: { contains: "PHONE_FILTER_SLOT" } },
             { property: "実行環境", multi_select: { contains: "電話" } },
           ],
         },
@@ -163,7 +163,7 @@ const VIEWS = {
 
 // 担当 (select) の選択肢 ＝ 委任できる相手。Notion のスキーマから読む (ハードコードしない。公開リポジトリ化 2026-10-08)
 // 👥 一緒にいる人 (2026-10-12): 実行環境 の選択肢のうち「〜と」で終わるもの (例: 配偶者の名前＋と) を相手の軸として返す。名前はコードに書かない
-let delegatesCache = { at: 0, list: [], companions: [], ok: false, phone: "スマホ" };
+let delegatesCache = { at: 0, list: [], companions: [], ok: false, phone: "スマホ", phoneNames: ["スマホ", "iPhone"] };
 async function loadSchemaLists(env) {
   if (Date.now() - delegatesCache.at < 10 * 60_000 && delegatesCache.list.length) return delegatesCache;
   try {
@@ -171,8 +171,9 @@ async function loadSchemaLists(env) {
     const list = (ds.properties?.["担当"]?.select?.options ?? []).map((o) => o.name).filter(Boolean);
     const companions = (ds.properties?.["実行環境"]?.multi_select?.options ?? []).map((o) => o.name).filter((n) => n && n.length > 1 && n.endsWith("と"));
     const envNames = (ds.properties?.["実行環境"]?.multi_select?.options ?? []).map((o) => o.name);
-    const phone = PHONE_ENV_NAMES.find((n) => envNames.includes(n)) ?? PHONE_ENV_NAMES[0];
-    delegatesCache = { at: Date.now(), list, companions, ok: true, phone };
+    const phoneNames = PHONE_ENV_NAMES.filter((n) => envNames.includes(n));
+    const phone = phoneNames[0] ?? PHONE_ENV_NAMES[0];
+    delegatesCache = { at: Date.now(), list, companions, ok: true, phone, phoneNames: phoneNames.length ? phoneNames : [...PHONE_ENV_NAMES] };
   } catch (e) { /* 読めなければ前回の値 (無ければ空) */ }
   return delegatesCache;
 }
@@ -855,8 +856,12 @@ function passesView(t, view, today) {
 
 function dedupeTasks(arr) { const seen = new Set(); return arr.filter((t) => { const k = t.id.replace(/-/g, ""); if (seen.has(k)) return false; seen.add(k); return true; }); }
 async function listTasks(env, view) {
-  const spec = VIEWS[view];
+  let spec = VIEWS[view];
   if (!spec) throw new Error(`unknown view: ${view}`);
+  if (view === "phone") { // スマホの選択肢名はスキーマに実在する方 (リネーム前後で変わる) に差し替える
+    const names = (await loadSchemaLists(env)).phoneNames;
+    spec = JSON.parse(JSON.stringify(spec).replace('{"property":"実行環境","multi_select":{"contains":"PHONE_FILTER_SLOT"}}', names.map((n) => JSON.stringify({ property: "実行環境", multi_select: { contains: n } })).join(",")));
+  }
   const today = todayJst();
   const out = [];
   let cursor;
