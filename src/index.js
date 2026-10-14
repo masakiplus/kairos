@@ -847,6 +847,7 @@ function passesView(t, view, today) {
   if (view === "can" || view === "phone") {
     if (t.status === "待ち") return false;
     if (view === "phone") return t.env.some((x) => PHONE_ENV_NAMES.includes(x)) || t.env.includes("電話");
+    if (t.env.includes("早朝")) return true; // 🌅 早朝向きは期日に関係なく渡す (2026-10-15: 静かな時間の 🌅 節に全部並べる。昼間は画面が 7 日より先を落とす)
     if (!t.due) return true;
     const d = Math.round((Date.parse(t.due + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86_400_000);
     return d >= 1 && d <= 7;

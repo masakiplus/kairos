@@ -700,9 +700,10 @@
     } else if (view === "can") {
       // 今日できる (2026-10-15): 前倒し候補を「期日まで」で区切る。なぜ候補か (着手できて期日が 1〜7 日 or 日付なし) を見出しに
       const dd = (t) => dayDiff(t.due, today);
+      const far = (t) => t.env.includes("早朝") && t.due && dd(t) > 7; // 🌅 早朝向きは Worker が期日に関係なく渡す。通常の節には 7 日以内だけ (静かな時間は下の 🌅 節が全部拾う, 2026-10-15)
       secs = [
-        [`期日まで 3 日以内 <small style="font-weight:400;color:var(--mute)">先に片付けると楽</small>`, "", tasks.filter((t) => t.due && dd(t) <= 3)],
-        [`今週中 <small style="font-weight:400;color:var(--mute)">期日まで 4〜7 日</small>`, "", tasks.filter((t) => t.due && dd(t) > 3)],
+        [`期日まで 3 日以内 <small style="font-weight:400;color:var(--mute)">先に片付けると楽</small>`, "", tasks.filter((t) => !far(t) && t.due && dd(t) <= 3)],
+        [`今週中 <small style="font-weight:400;color:var(--mute)">期日まで 4〜7 日</small>`, "", tasks.filter((t) => !far(t) && t.due && dd(t) > 3)],
         [`日付なし <small style="font-weight:400;color:var(--mute)">着手できる・いつでも</small>`, "", tasks.filter((t) => !t.due)],
       ];
     } else if (view === "phone") {
