@@ -227,9 +227,12 @@ function parseMdFile(text) {
 function jstToday() { return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10); }
 const dstr = (v) => (v && typeof v === "object" ? v.start : v) || null;
 
-async function labList(env, view) {
+/** 読むだけの問い合わせは近くの読み取りレプリカへ (D1 read replication, 2026-10-17)。?primary=1 なら主に */
+const rdb = (env, primary) => (!primary && env.DB.withSession ? env.DB.withSession("first-unconstrained") : env.DB);
+
+async function labList(env, view, primary) {
   const t0 = Date.now();
-  const r = await env.DB.prepare(
+  const r = await rdb(env, primary).prepare(
     `SELECT id, title, props FROM docs WHERE collection = 'tasks' AND json_extract(props, '$."完了"') = 0`
   ).all();
   const tDb = Date.now() - t0;
@@ -245,7 +248,7 @@ async function labList(env, view) {
     if (view === "project" && !t.project) continue;
     tasks.push(t);
   }
-  return { view, today, tasks, n: tasks.length, scanned: (r.results || []).length, ms_db: tDb, ms_total: Date.now() - t0 };
+  return { view, today, tasks, n: tasks.length, scanned: (r.results || []).length, ms_db: tDb, ms_total: Date.now() - t0, region: r.meta?.served_by_region ?? null, primary: r.meta?.served_by_primary ?? null };
 }
 
 // ---------- ルーター ----------
@@ -334,13 +337,27 @@ export async function labRoute(req, env, url, json) {
     return json({ by: by.results, conv: agg, links: links.results });
   }
 
-  if (path === "/api/lab/list" && req.method === "GET") return json(await labList(env, q("view") || "today"));
+  if (path === "/api/lab/list" && req.method === "GET") return json(await labList(env, q("view") || "today", q("primary") === "1"));
+
+  if (path === "/api/lab/ping" && req.method === "GET") {
+    const out = {};
+    for (const [k, db] of [["primary", env.DB], ["session", rdb(env, false)]]) {
+      const ms = [];
+      let meta = null;
+      for (let i = 0; i < 5; i++) { const t = Date.now(); const r = await db.prepare("SELECT 1 AS x").all(); ms.push(Date.now() - t); meta = r.meta; }
+      out[k] = { ms, region: meta?.served_by_region ?? null, served_by_primary: meta?.served_by_primary ?? null, colo: req.cf?.colo ?? null };
+    }
+    return json(out);
+  }
 
   if (path === "/api/lab/doc" && req.method === "GET") {
     const t0 = Date.now();
-    const row = await env.DB.prepare(`SELECT * FROM docs WHERE id = ?`).bind(nid(q("id"))).first();
-    const back = await env.DB.prepare(`SELECT from_id, kind FROM links WHERE to_id = ? LIMIT 50`).bind(nid(q("id"))).all();
-    return json({ doc: row, backlinks: back.results, ms: Date.now() - t0 });
+    const db = rdb(env, q("primary") === "1");
+    const [a, b] = await db.batch([ // 1 往復で本文とバックリンクを取る
+      db.prepare(`SELECT * FROM docs WHERE id = ?`).bind(nid(q("id"))),
+      db.prepare(`SELECT from_id, kind FROM links WHERE to_id = ? LIMIT 50`).bind(nid(q("id"))),
+    ]);
+    return json({ doc: (a.results || [])[0] ?? null, backlinks: b.results, ms: Date.now() - t0, region: a.meta?.served_by_region ?? null });
   }
 
   if (path === "/api/lab/export" && req.method === "GET") {
