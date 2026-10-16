@@ -11,6 +11,12 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
+# D1 移行の実験 (2026-10-17)。/api/lab/* だけが使う。正本はまだ Notion
+[[d1_databases]]
+binding = "DB"
+database_name = "kairos"
+database_id = "95888659-eb22-4937-9875-b139a096c5d9"
+
 [observability]
 enabled = true
 
