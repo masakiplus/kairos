@@ -1,10 +1,11 @@
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {setTimeout as pause} from 'node:timers/promises';
 const [configPath, outputDir, phase='all'] = process.argv.slice(2);
 if(!configPath||!outputDir||!process.env.APP_TOKEN)throw new Error('Usage: node --env-file=.dev.vars scripts/migrate-native.mjs <github-vars.json> <private-output-dir> [props|bodies|all]');
 const vars=JSON.parse(await readFile(configPath,'utf8'));
 const origin=vars.find(v=>v.name==='PUBLIC_URL')?.value;
 if(origin!=='https://tasks-pwa.masaki-saito.workers.dev')throw new Error('Unexpected Worker destination');
+if(!['props','bodies','all'].includes(phase))throw new Error('Unknown migration phase');
 const root=outputDir.replace(/\/$/,'')+'/';await mkdir(root,{recursive:true,mode:0o700});
 async function api(path){const r=await fetch(origin+'/api/storage/'+path,{method:'POST',headers:{Authorization:'Bearer '+process.env.APP_TOKEN},redirect:'error',signal:AbortSignal.timeout(180000)});if(!r.ok){await writeFile(root+'last-error.json',await r.text(),{mode:0o600});throw new Error(path.split('?')[0]+' HTTP '+r.status);}return r.json();}
 if(phase==='props'||phase==='all'){
@@ -15,7 +16,7 @@ if(phase==='props'||phase==='all'){
 
 if(phase==='bodies'||phase==='all'){
 let state;try{state=JSON.parse(await readFile(root+'body-state.json','utf8'));}catch{state={done:[],queue:[],assets:[],assetsDone:[],databasesDone:[],pagesDone:[],errors:[],blocks:0};}
-let writing=Promise.resolve();const save=()=>{const data=JSON.stringify(state);return writing=writing.then(()=>writeFile(root+'body-state.json',data,{mode:0o600}));};
+let writing=Promise.resolve();const save=()=>{const data=JSON.stringify(state);return writing=writing.then(async()=>{await writeFile(root+'body-state.json.tmp',data,{mode:0o600});await rename(root+'body-state.json.tmp',root+'body-state.json');});};
 const clean=id=>id.replace(/-/g,'').toLowerCase();
 async function bodyApi(path,get=false){for(let attempt=0;attempt<4;attempt++){try{const r=await fetch(origin+'/api/storage/'+path,{method:get?'GET':'POST',headers:{Authorization:'Bearer '+process.env.APP_TOKEN},redirect:'error',signal:AbortSignal.timeout(180000)});if(r.ok)return await r.json();await writeFile(root+'last-body-error.json',await r.text(),{mode:0o600});if(r.status<500&&r.status!==429)throw new Error('HTTP '+r.status);if(attempt===3)throw new Error('HTTP '+r.status);}catch(e){if(attempt===3||/HTTP 4/.test(e.message))throw e;}await pause((attempt+1)*2000);}throw new Error('No response');}
 const empty=await bodyApi('complete-empty');for(const id of empty.ids)if(!state.done.includes(id))state.done.push(id);state.queue=state.queue.filter(id=>!state.done.includes(id));
@@ -41,6 +42,6 @@ while(true){
  const manifest=await bodyApi('status?manifest=1',true);add(manifest.ids);await save();if(!state.queue.length)break;
 }
 for(const id of state.assets)if(!state.assetsDone.includes(id)){try{const r=await bodyApi('capture-asset?id='+id);state.assetsDone.push(id);console.log('asset saved',state.assetsDone.length,'bytes',r.size);}catch(e){state.errors.push({kind:'asset',id,error:e.message});}await save();}
-console.log('Body pass complete',JSON.stringify({bodies:state.done.length,blocks:state.blocks,assets:state.assetsDone.length,errors:state.errors.length}));
+console.log('Body pass complete',JSON.stringify({bodies:state.done.length,blocks:state.blocks,assets:state.assetsDone.length,errors:state.errors.length}));if(state.errors.length)process.exitCode=2;
 
 }
