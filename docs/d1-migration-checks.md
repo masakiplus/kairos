@@ -25,13 +25,14 @@ Notion が正本の間、`/api/lab/*` で D1 の写しを検査する。本番�
 
 ## ローカルと CI
 
-Node.js 22.13 以降で実行する。追加依存や Cloudflare / Notion の認証情報は不要。
+Node.js 22.13 以降で実行する。`npm ci` で依存を取得する。Cloudflare / Notion の認証情報は不要。
 
 ```sh
+npm ci
 npm run check
 npm test
 ```
 
-構文検査は src のすべての JavaScript と app.html のインライン script が対象。テストはメモリ内 SQLite に実際の SQL を実行し、正常往復、空 DB、不足・余分、各列の差分、本文未完了、変換欠落、不正取込と部分書込防止を検査する。D1 固有の実行環境と本番データでの確認は別途必要。
+構文検査は src のすべての JavaScript と app.html のインライン script が対象。テストはメモリ内 SQLite に実際の SQL を実行し、正常往復、空 DB、不足・余分、各列の差分、本文未完了、変換欠落、不正取込と部分書込防止を検査する。さらに `lab.d1.test.mjs` が、Wrangler に同梱される Miniflare の Worker ランタイムとローカル D1 を使い、ページ分割した export/import、部分書込防止、不足・余分・メタ差分、不正 JSON と未完了の判定を検証する。本番データでの確認は別途必要。
 
-ブランチ push / PR 時に check workflow、デプロイ前にも同じ検査を実行する。
+ブランチ push / PR 時に check workflow、デプロイ前にも同じ検査を実行する。check workflow では gitleaks 8.30.1 による全履歴の秘密検査も行う。配布バイナリは SHA256 を固定して検証し、検出値はログで伏せる。

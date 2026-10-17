@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci
       - name: 構文・D1 移行検査
         run: |
           npm run check
@@ -34,7 +35,6 @@ jobs:
       - name: wrangler deploy
         if: steps.gate.outputs.go == '1'
         run: |
-          npm ci
           npx wrangler deploy \
             --var TASKS_DATA_SOURCE_ID:"${{ vars.TASKS_DATA_SOURCE_ID }}" \
             --var PROJECTS_DATA_SOURCE_ID:"${{ vars.PROJECTS_DATA_SOURCE_ID }}" \
