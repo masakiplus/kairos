@@ -388,6 +388,15 @@
   .sheet .notion{display:flex;justify-content:center;padding:13px 10px;color:var(--acc);font-size:15px;font-weight:600;text-decoration:none}
   .done-ring{background:var(--acc);border-color:var(--acc);display:flex;align-items:center;justify-content:center}
   svg{flex:none}
+  .aibar{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:13px;color:var(--mute)}
+  .aibar select{max-width:65%;min-height:36px;padding:5px 10px;border:1px solid var(--sep);border-radius:9px;background:var(--card);color:var(--fg);font:inherit}
+  #aiHandoff{width:min(440px,calc(100% - 24px));max-height:85dvh;overflow:auto;border:1px solid var(--sep);border-radius:18px;padding:20px;background:var(--bg);color:var(--fg);box-shadow:0 12px 40px #0004}
+  #aiHandoff::backdrop{background:#0006}
+  .aihead{display:flex;align-items:center;gap:12px}.aihead h2{margin:0;flex:1;font-size:19px}
+  #aiHandoff p{font-size:14px;color:var(--mute)}#aiHandoff label{font-size:13px}
+  #aiHandoff textarea{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid var(--sep);border-radius:10px;background:var(--card);color:var(--fg);font-family:inherit;font-size:14px;line-height:1.6;resize:vertical}
+  #aiHandoff button,#aiOpen{min-height:44px;padding:10px 14px;border:0;border-radius:10px;background:var(--acc);color:white;font-size:15px;text-align:center;text-decoration:none}
+  #aiCopy,#aiOpen{display:block;width:100%;margin-top:10px}#aiHandoffClose{background:var(--seg)!important;color:var(--fg)!important}
 </style>
 </head>
 <body>
@@ -408,6 +417,7 @@
     </div>
   </div>
   <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・一緒にいる人・時間帯）。タップで変更"></button></div>
+  <div class="aibar"><label for="aiProvider">任せるAI</label><select id="aiProvider"><option value="claude">Claude</option><option value="chatgpt">ChatGPT</option><option value="antigravity">Antigravity</option></select></div>
   <form class="srch" id="srch" hidden>
     <label for="srchQ" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">検索語</label>
     <input id="srchQ" type="search" placeholder="名前・説明で検索（スペースで AND）" autocomplete="off" enterkeyhint="search">
@@ -426,6 +436,14 @@
 </form>
 <div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="undo">元に戻す</button></div>
 <div id="sheetWrap" hidden><div class="veil" id="veil"></div><div class="sheet" id="sheet"></div></div>
+<dialog id="aiHandoff" aria-labelledby="aiHandoffTitle">
+  <div class="aihead"><h2 id="aiHandoffTitle"></h2><button type="button" id="aiHandoffClose" aria-label="受け渡しを閉じる">✕</button></div>
+  <p id="aiHandoffHelp"></p>
+  <label for="aiHandoffText">渡す依頼文</label><textarea id="aiHandoffText" readonly rows="7"></textarea>
+  <p id="aiCopyStatus" role="status" aria-live="polite"></p>
+  <button type="button" id="aiCopy">依頼文をコピー</button>
+  <a id="aiOpen" target="_blank" rel="noopener noreferrer"></a>
+</dialog>
 <div class="reader" id="reader" hidden><div class="rh"><button id="rdBack">‹ 戻る</button><div class="rt" id="rdTitle"></div><a id="rdOpen" href="#" target="_blank" rel="noopener">Notion ↗</a></div><div class="rb" id="rdBody"></div></div>
 <label for="datePick" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">開始日</label>
 <script>
@@ -510,31 +528,64 @@
     return j;
   };
 
-  // ---- Claude へ投げるリンク (Notion の式列「🤖 Claudeへ」と同じ文面) ----
-  function claudeHref(t, mode, chain) {
+  // ---- AI app routing (pure helpers; regression tests read this block) ----
+  const AI_APPS = { claude: "Claude", chatgpt: "ChatGPT", antigravity: "Antigravity" };
+  let aiProvider = "claude";
+  try { const saved = localStorage.getItem("kairos_ai_app"); if (Object.hasOwn(AI_APPS, saved)) aiProvider = saved; } catch (e) {}
+  const aiName = () => AI_APPS[aiProvider];
+  const aiIcon = () => aiProvider === "claude" ? ICONS.claude : "🤖";
+  function sessionProvider(url) {
+    try {
+      const u = new URL(url);
+      if (u.protocol !== "https:" || u.username || u.password) return null;
+      if (u.hostname === "claude.ai") return "claude";
+      if (["chatgpt.com", "chat.openai.com"].includes(u.hostname)) return "chatgpt";
+      if (u.hostname === "antigravity.google" || u.hostname === "www.antigravity.google") return "antigravity";
+    } catch (e) {}
+    return null;
+  }
+  function handoffHref(prompt, session = null) {
+    return "#ai-handoff=" + encodeURIComponent(JSON.stringify({ provider: aiProvider, prompt, session }));
+  }
+  function taskPrompt(t, mode, chain, provider = aiProvider) {
     const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
     let ask = mode === "update"
       ? "の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。相談したいことがあれば一問一答で。決めたことはタスクの本文に詳しく書き、関連するノート・ファイル・URL は本文にリンクで並べてください。"
       : "を進めてください。必要なら時間調整・実行まで含め、終わったら操作規約どおり完了処理まで。成果・決定事項はタスクの本文に詳しく書き、関連するノート・ファイル・URL は本文にリンクで並べてください（進行中も同様）。";
-    // 先行が残っていれば順送り実行を頼む (設計 §3-3)。人の手が要る先行で止まるのは Claude 側の規約
     if (mode === "run" && chain && chain.length) {
       ask = "を進めたいのですが、先行タスクが未完了です。先行から順に「" +
         chain.map((c, i) => `${i + 1}. ${c.name}（${c.url}）`).join("、") +
         "」→ 最後に本タスク の順で進めてください。各タスクを終えるたびに操作規約どおり完了処理をし、判断が要る・人の手が要る・失敗した時点で止まって報告してください。";
     }
-    // タスク名を文頭に置く。チャットの要約タイトルが「Notion タスクの更新」で埋まらないように (2026-09-29)
-    const q = "「" + t.name + "」" + ask + "（Notion ✅ Tasks のタスク。ページ: " + page + " ）\nKairos から渡したので AI処理開始 が立っています。まず read_conversation(\"current\") でこのチャットの URL を取り、タスクの AIセッション に書いてください。完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。";
+    const handoff = provider === "claude"
+      ? 'Kairos から渡したので AI処理開始 が立っています。まず read_conversation("current") でこのチャットの URL を取り、タスクの AIセッション に書いてください。'
+      : 'Kairos からの依頼です。前のAIが途中まで処理した可能性があるため、現在のタスクを確認し、完了済みの登録や更新を重複実行しないでください。Notionを更新できる場合は、実行を始めるときに AI処理開始 を記録し、このチャットのURLを取得できる場合は AIセッション に書いてください。必要な接続や操作規約を確認できない場合は質問し、実行していない操作を完了と報告しないでください。';
+    return "「" + t.name + "」" + ask + "（Notion ✅ Tasks のタスク。ページ: " + page + " ）\n" + handoff + "完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。";
+  }
+  function claudeHref(t, mode, chain) {
+    const q = taskPrompt(t, mode, chain);
+    if (aiProvider !== "claude") return handoffHref(q, sessionProvider(t.aiSession) === aiProvider ? t.aiSession : null);
     return claudeLink(q);
   }
-  // 任意の文面で Claude を開くリンク (役割タブ・PJ別の「Claude へ」用, 2026-10-06)。端末ごとの開き方は claudeHref と同じ
+  // 役割・見直し・依存など、任意の依頼文も同じアプリ選択を使う。
   function claudeLink(q) {
+    if (aiProvider !== "claude") return handoffHref(q);
     const web = "https://claude.ai/new?q=" + encodeURIComponent(q);
     if (isAndroid) return "intent://claude.ai/new?q=" + encodeURIComponent(q) +
       "#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=" + encodeURIComponent(web) + ";end";
-    // Mac: デスクトップ版 Claude。claude://new?q= は文面が渡らず、claude://claude.ai/new?q= だと渡る (2026-09-29 実機確認)
     if (isMac) return "claude://claude.ai/new?q=" + encodeURIComponent(q);
     return web;
   }
+  function sessionHref(u) {
+    const provider = sessionProvider(u);
+    if (!provider) return "#";
+    if (provider !== "claude") return u;
+    const bare = u.replace(/^https?:\/\//, "");
+    if (isAndroid) return "intent://" + bare + "#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=" + encodeURIComponent(u) + ";end";
+    if (isMac) return "claude://" + bare;
+    return u;
+  }
+  // ---- end AI app routing ----
 
   // 📅 カレンダーに予定を入れる (タイムブロッキング, 2026-10-06)。Google カレンダーの新規予定テンプレートを開くだけで、資格情報は持たない。
   // 日付は 開始日 (先) → 期日 (今日以降) → 今日。時刻は 9:00〜10:00 を仮置き (カレンダー側で動かす)。カレンダーの選択は URL で指定できないので手で家族のカレンダーに
@@ -552,15 +603,6 @@
     return u.toString();
   }
 
-  // 処理中の Claude のチャットを開く (2026-10-03)。Android はアプリの intent、Mac はデスクトップ版の claude:// で既存チャットへ
-  function sessionHref(u) {
-    if (!u) return "#";
-    const bare = u.replace(/^https?:\/\//, "");
-    if (isAndroid) return "intent://" + bare + "#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=" + encodeURIComponent(u) + ";end";
-    if (isMac) return "claude://" + bare;
-    return u;
-  }
-
   // 🤖 を押したら印 (AI処理開始=今) を立ててから Claude を開く (2026-09-30)。印は Claude が終了時に外す。2時間で表示は自然に戻る
   // 2026-10-04: API を await してから遷移すると、Android Chrome が「ユーザー操作の直後」とみなさず intent:// を蹴って
   // browser_fallback_url (Web 版) に落ちる＝Chrome で開いてしまう。印の API は投げっぱなし (keepalive) にして、ジェスチャーの中で即座に遷移する
@@ -572,7 +614,7 @@
   }
   // 過去に Claude で扱ったタスク (AIセッション あり) は、進める／更新する も **そのセッションの続き** で始める (2026-10-08 利用者の指示)。
   // 既存チャットには文面を URL で渡せないので、文面はクリップボードに入れて「貼って送る」運用にする。新しいチャットで始めたいときはシートの別リンク
-  function aiHref(t, mode = "run", chain) { return t.aiSession ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
+  function aiHref(t, mode = "run", chain) { return aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
   function aiPrompt(t, mode = "run") {
     const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
     return mode === "update"
@@ -585,11 +627,68 @@
     toast("前回のセッションを開きます。文面をコピーしたので貼って送ってください");
   }
   function goClaude(t, href, mode = "run") {
-    markAi(t, mode, !!t.aiSession);
-    if (t.aiSession) copyPrompt(t, mode);
+    if (href.startsWith("#ai-handoff=")) { openAiHandoff(href); return; }
+    markAi(t, mode, sessionProvider(t.aiSession) === "claude");
+    if (sessionProvider(t.aiSession) === "claude") copyPrompt(t, mode);
     location.href = href;
     render(todayStr);
   }
+
+  // ---- AI handoff UI ----
+  function openAiHandoff(href) {
+    let data;
+    try { data = JSON.parse(decodeURIComponent(href.slice("#ai-handoff=".length))); } catch (e) { return; }
+    if (!["chatgpt", "antigravity"].includes(data.provider) || typeof data.prompt !== "string") return;
+    const name = AI_APPS[data.provider], dialog = $("#aiHandoff");
+    $("#aiHandoffTitle").textContent = name + " に渡す";
+    $("#aiHandoffText").value = data.prompt;
+    $("#aiCopyStatus").textContent = "まだコピーしていません";
+    $("#aiHandoffHelp").textContent = data.provider === "chatgpt"
+      ? "依頼文をコピーし、ChatGPTアプリのチャットに貼って送ってください。開くリンクは、端末の設定によってブラウザで開きます。"
+      : "依頼文をコピーし、MacのAntigravityのチャットに貼って送ってください。スマホでは文面をコピーして引き継げます。";
+    const open = $("#aiOpen"), resume = sessionProvider(data.session) === data.provider;
+    open.href = resume ? data.session : data.provider === "chatgpt" ? "https://chatgpt.com/" : "https://antigravity.google/";
+    open.textContent = resume ? "前回のチャットを開く" : data.provider === "chatgpt" ? "ChatGPTを開く" : "Antigravityの案内を開く";
+    if (!dialog.open) {
+      history.pushState({ ...(history.state || {}), aiHandoff: true }, "");
+      dialog.showModal();
+    }
+  }
+  $("#aiProvider").value = aiProvider;
+  $("#aiProvider").onchange = () => {
+    const selected = $("#aiProvider").value;
+    if (!Object.hasOwn(AI_APPS, selected)) return;
+    aiProvider = selected;
+    try { localStorage.setItem("kairos_ai_app", selected); } catch (e) {}
+    // 選択を変えた時だけ一覧のリンクも作り直す。
+    lastSig = ""; render(todayStr);
+    if (!$("#sheetWrap").hidden) {
+      if ($("#claudeRun") && sheetTask) openSheet(sheetTask, todayStr);
+      else closeSheet();
+    }
+  };
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest('a[href^="#ai-handoff="]');
+    if (!a) return;
+    // 既存のタスク用onclickより先に止め、コピー/アプリを開くだけで処理中にしない。
+    e.preventDefault(); e.stopImmediatePropagation(); openAiHandoff(a.getAttribute("href"));
+  }, true);
+  function closeAiHandoff() {
+    if (history.state && history.state.aiHandoff) history.back();
+    else $("#aiHandoff").close();
+  }
+  $("#aiHandoffClose").onclick = closeAiHandoff;
+  $("#aiHandoff").oncancel = (e) => { e.preventDefault(); closeAiHandoff(); };
+  $("#aiCopy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($("#aiHandoffText").value);
+      $("#aiCopyStatus").textContent = "コピーしました。チャットに貼って送ってください";
+    } catch (e) {
+      const field = $("#aiHandoffText"); field.focus(); field.select();
+      $("#aiCopyStatus").textContent = "コピーできませんでした。上の依頼文を長押ししてコピーしてください";
+    }
+  };
+  // ---- end AI handoff UI ----
 
   // ---- 描画 ----
   const W = "日月火水木金土";
@@ -642,9 +741,9 @@
           <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
           <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}</div>
         </div>
-        ${t.aiActive && t.aiSession
-          ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="Claude のセッションを開く" data-sess>💬</a>`
-          : `<button class="go" aria-label="Claudeへ" data-claude>${ICONS.claude}</button>`}
+        ${t.aiActive && sessionProvider(t.aiSession)
+          ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="AI のセッションを開く" data-sess>💬</a>`
+          : `<button class="go" aria-label="${aiName()}へ" data-claude>${aiIcon()}</button>`}
       </div></div>`;
   }
   // 描き直しの間引き (2026-10-07 キビキビ対応): 一覧の中身が前回と同じなら DOM を作り直さない。
@@ -714,10 +813,10 @@
     }
     // 🤖 処理中 は一番上に独立した節で出し、他の節からは外す (2026-09-30)
     const ai = tasks.filter((t) => t.aiActive);
-    if (ai.length) secs = [["🤖 Claude が処理中", "aih", ai], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.aiActive)])];
+    if (ai.length) secs = [["🤖 AI が処理中", "aih", ai], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.aiActive)])];
     // 🧔 人対応 (Claude が止めて本人の手番) は 処理中 の次に独立した節で (2026-10-03)
     const hu = tasks.filter((t) => t.status === "人対応" && !t.aiActive);
-    if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ["🧔 本人の手番（Claude が止めた）", "huh", hu], ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
+    if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ["🧔 本人の手番（AI が止めた）", "huh", hu], ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
     // ⭐ 今日の3つ (MIT, 2026-10-06) は一番上。4件以上なら見出しで注意 (検索タブでは節を作らない)
     const mit = view === "search" ? [] : tasks.filter((t) => t.mit && !t.done);
     if (mit.length) secs = [[`⭐ 今日の3つ${mit.length > 3 ? ` <span style="color:var(--over)">（${mit.length} 件。3つに絞る）</span>` : ""}`, "mith", mit], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.mit)])];
@@ -744,7 +843,7 @@
       }
       return `<section class="sec"><h2 class="${cls}">${cls === "prjh" ? esc(h) + `<span class="n">${ts.length}</span>` : h}</h2><div class="group">${ts.map((t) => rowHtml(t, today)).join("")}</div></section>`;
     }).join("") +
-      '<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 Claude に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>' + metaHtml(view);
+      '<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>' + metaHtml(view);
   }
   // 各タブの一番下: そのタブ全体を Claude と見返すメタ操作 (2026-10-10)。1 件ずつの 🤖 とは別に「一覧ごと」渡す。文面は URL に乗せるので 12 件まで
   function taskLines(ts, n = 12) {
@@ -829,49 +928,49 @@
     let label = "", sub = "", q = "";
     if ((v === "today" || v === "can") && currentSit().quiet && ts.some((t) => t.env.includes("早朝"))) {
       const mr = ts.filter((t) => t.env.includes("早朝") && !t.blocked);
-      label = "Claude と早朝の 1 本を決める"; sub = "時間をかける 1 件に絞って段取り";
+      label = aiName() + " と早朝の 1 本を決める"; sub = "時間をかける 1 件に絞って段取り";
       q = `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めたいです。候補: ${taskLines(mr)}。1 件に絞り、家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にして、段取りを 3 ステップで組んでください。選んだものは ⭐ 今日の3つ に入れ、残りは触らないでください。${META_TAIL}`;
-      return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${ICONS.claude} ${label}</a><small>${sub}</small></div>`;
+      return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
     }
     if (v === "today") {
       if (!ts.length) return "";
-      label = "Claude と今日の段取りを決める"; sub = "やる順・明日へ・見送り を 1 件ずつ";
+      label = aiName() + " と今日の段取りを決める"; sub = "やる順・明日へ・見送り を 1 件ずつ";
       q = `今日やるタスク ${ts.length} 件の段取りを決めたいです: ${taskLines(ts)}。各件について「今日やる（順番）／明日へ／週末に／見送りで完了／家族に委任」を決め、やるものは ⭐ 今日の3つ を 3 件まで選んでください。${META_TAIL}`;
     } else if (v === "can") {
       if (!ts.length) return "";
-      label = "Claude と前倒しを選ぶ"; sub = "今日に引き上げるものを決める";
+      label = aiName() + " と前倒しを選ぶ"; sub = "今日に引き上げるものを決める";
       q = `今日できる（前倒し候補）${ts.length} 件から、今日に引き上げるものを決めたいです: ${taskLines(ts)}。空き時間と重要度を聞いて 1〜3 件に絞り、選んだものは 開始日 を今日にし、残りはそのままで構いません。${META_TAIL}`;
     } else if (v === "phone") {
       if (!ts.length) return "";
-      label = "Claude とまとめて片付ける"; sub = "電話・スマホ作業を順に";
+      label = aiName() + " とまとめて片付ける"; sub = "電話・スマホ作業を順に";
       q = `スマホ・電話でできるタスク ${ts.length} 件をまとめて片付けたいです: ${taskLines(ts)}。かける順番と、電話なら要件を 2 行ずつ用意し、1 件ずつ「済んだ／相手待ち（待ち）／後で」を聞いて進めてください。${META_TAIL}`;
     } else if (v === "doing") {
       if (!ts.length) return "";
-      label = "Claude と WIP を整理する"; sub = "本当に進行中か、戻すか、任せるか";
+      label = aiName() + " と WIP を整理する"; sub = "本当に進行中か、戻すか、任せるか";
       q = `着手中（進行中・人対応）${ts.length} 件を整理したいです: ${taskLines(ts)}。各件について「続ける／未着手に戻す／待ちにする（相手）／🤖 で進める／完了」を決めてください。同時に進めるのは 10 件までが目安です。${META_TAIL}`;
     } else if (v === "project") {
       const ps = (projInfo || []).filter((p) => !p.closable);
       if (!ps.length) return "";
-      label = "Claude と PJ を棚卸しする"; sub = "ゴール・次の一手・順番";
+      label = aiName() + " と PJ を棚卸しする"; sub = "ゴール・次の一手・順番";
       const lines = ps.slice(0, 12).map((p, i) => `${i + 1}. ${p.label}（${p.url}${p.goal ? "" : "、ゴール未記入"}${p.unordered ? "、順番未整理" : ""}${p.stalled ? "、次のアクションなし" : ""}）`).join("、") + (ps.length > 12 ? `、…ほか ${ps.length - 12} 件` : "");
       q = `進行中のプロジェクト ${ps.length} 件を棚卸ししたいです: ${lines}。PJ ごとに「対応ゴールは妥当か／次のアクションは 1 件決まっているか／タスクの順番（先行タスク）は整理されているか／保留やクローズにしないか」を確認してください。Projects に書くのは ステータス、Tasks には 先行タスク・開始日・期日 だけ。${META_TAIL}`;
     } else if (v === "delegated") {
       if (!ts.length) return "";
-      label = "Claude と委任を確認する"; sub = "進み具合と声のかけ方";
+      label = aiName() + " と委任を確認する"; sub = "進み具合と声のかけ方";
       q = `家族に委任中のタスク ${ts.length} 件を確認したいです: ${taskLines(ts)}。担当ごとに「終わっていそうか／声をかける文面（1〜2 行）／自分に戻すか」を決め、終わったものは完了処理、戻すものは 担当 を外してください。${META_TAIL}`;
     } else if (v === "roles") {
-      label = "Claude と週次役割レビュー"; sub = "今週の石の達成と来週の石";
+      label = aiName() + " と週次役割レビュー"; sub = "今週の石の達成と来週の石";
       q = `週次の役割レビューをお願いします。Notion 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。終わったら 📻 Sessions に足跡を 1 行。`;
     } else if (v === "review") {
       const qs = reviewList();
-      label = qs.length ? "Claude と残りの問いを話しながら決める" : "Claude と Decisions を見直す";
+      label = qs.length ? aiName() + " と残りの問いを話しながら決める" : aiName() + " と Decisions を見直す";
       sub = qs.length ? `残り ${qs.length} 問を理由つきで` : "提案中・提示済みの未決を一問一答で";
       const lines = qs.slice(0, 10).map((x, i) => `${i + 1}. [${x.db}] ${x.name || x.q}（${x.url}）`).join("、") + (qs.length > 10 ? `、…ほか ${qs.length - 10} 件` : "");
       q = qs.length
         ? `見直しの残り ${qs.length} 問を、理由を話しながら決めたいです: ${lines}。1 問ずつ判断に要る事実を聞いて、決着したら Notion（Decisions の 決定・決定日・結論、Tasks、Projects）を操作規約どおり更新してください。終わったら 📻 Sessions に足跡を 1 行。`
         : `Notion 🧠 Decisions の 提案中・提示済み で未決のものを一問一答で見直したいです。古いものから順に「着手する／棚上げ／やめる／今は決めない」を聞いて、決着したら 決定・決定日・結論 を書き、着手するものは ✅ Tasks に起票してください。終わったら 📻 Sessions に足跡を 1 行。`;
     } else return "";
-    return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${ICONS.claude} ${label}</a><small>${sub}</small></div>`;
+    return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
   }
   // 📁 PJ の見出し (Phase B-7/8, 2026-10-06)。情報がまだ無ければ従来の名前＋件数だけ
   function pjHeadHtml(label, p, ts) {
@@ -904,7 +1003,7 @@
       const lab = { done: "達成", doing: "進行中", todo: "未着手", text: "", unknown: "不明" }[st.state] || "";
       const ring = st.state === "done" ? `<span class="ring done-ring">${ICONS.check}</span>` : st.state === "doing" ? `<span class="ring" style="border-color:var(--acc);display:flex;align-items:center;justify-content:center"><span style="width:10px;height:10px;border-radius:50%;background:var(--acc)"></span></span>` : `<span class="ring"></span>`;
       // 達成済みなら、その下に「次の石」への導線 (2026-10-10 利用者の提案): 候補から選ぶ／Claude と決める
-      const next = st.state === "done" ? `<div class="snext"><button data-rolepick="${r.id}">${ICONS.check} 達成 — 次の石を置く<small>${(r.candidates || []).length ? `この役割の未完了 ${(r.candidates || []).length} 件から` : "候補なし"}</small></button><a href="${nextStoneHref(r)}" data-ext>${ICONS.claude} Claude と決める</a></div>` : "";
+      const next = st.state === "done" ? `<div class="snext"><button data-rolepick="${r.id}">${ICONS.check} 達成 — 次の石を置く<small>${(r.candidates || []).length ? `この役割の未完了 ${(r.candidates || []).length} 件から` : "候補なし"}</small></button><a href="${nextStoneHref(r)}" data-ext>${aiIcon()} ${aiName()} と決める</a></div>` : "";
       return `<button class="stone ${st.state}" data-rolestone="${r.id}">${ring}<span class="sb"><span class="sl">今週の石${st.until ? ` 〜${esc(st.until)}` : ""}</span><span class="sn">${st.icon ? st.icon + " " : ""}${esc(st.name)}</span></span><span class="ss ${st.state}">${lab}</span></button>${next}`;
     };
     list.innerHTML = `<div class="rsum"><span>今週の石 ${s.total} 本 — 達成 ${s.done} ・ 進行中 ${s.doing} ・ 未着手 ${s.todo}</span><b>週の実行 ${pct}%</b><a href="#" data-quad>象限 ›</a></div>` +
@@ -912,10 +1011,10 @@
         <div class="rt"><div class="rn">${r.icon ? r.icon + " " : ""}${esc(r.name)}</div><div class="rk" data-rolepj title="PJ の一覧を開く">PJ ${r.pj} · 今日 ${r.today} ▾</div></div>
         <div class="rpj${rolePjOpen.has(r.id) ? " open" : ""}">${(r.projects || []).map((p) => `<button data-rpj="${p.id}"><span class="t">${esc(p.label)}</span><small>${p.closable ? "クローズ候補" : p.stalled ? "停止" : `未完了 ${p.open}`}</small>${p.open > 1 ? "<span style=\"color:var(--acc)\">🔗</span>" : ""}</button>`).join("") || '<button disabled><span class="t" style="color:var(--mute)">進行中の PJ なし</span></button>'}</div>
         ${r.mission ? `<div class="rm">${esc(r.mission)}${r.q2 ? `　<span class="q2">／ Q2: ${esc(r.q2)}</span>` : ""}</div>`
-          : `<div class="rm warn"><a href="${missionHref(r)}" data-ext>ミッション未記入 — タップして Claude と一問一答で決める</a></div>`}
+          : `<div class="rm warn"><a href="${missionHref(r)}" data-ext>ミッション未記入 — タップして ${aiName()} と一問一答で決める</a></div>`}
         ${stoneHtml(r)}
       </div>`).join("") +
-      '<div class="hint">編集は Claude で。ここで動かせるのは「今週の石」の置き換えだけ</div>' + metaHtml("roles");
+      '<div class="hint">編集は選んだAIで。ここで動かせるのは「今週の石」の置き換えだけ</div>' + metaHtml("roles");
   }
   // 🗂 見直し (Phase C-9): 1 問ずつ。答えは Worker が Notion に書く。「今は決めない」は端末内で飛ばす (Decisions は 提示済み にする)
   // 決めるタブ (2026-10-15 改修 A〜F): 種類の帯＋なぜ今か＋定型の問い＋種類チップ＋依存・日程は図
@@ -1004,10 +1103,10 @@
         ${fig}${ctx ? `<div class="ctx">${ctx}</div>` : ""}
         ${needNote ? `<input class="rnote" id="rvNote" placeholder="理由・学びを1行（任意）" autocomplete="off">` : ""}
         <div class="opts">${reviewOptions(q)}</div>
-        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${ICONS.claude} 理由を話しながら決める</a>${counts[q.kind] > 1 ? `<a class="rcl" href="#" data-later="${q.kind}" style="color:var(--mute)">${K.ic} この種類は後で（${counts[q.kind]}）</a>` : ""}</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${aiIcon()} 理由を話しながら決める</a>${counts[q.kind] > 1 ? `<a class="rcl" href="#" data-later="${q.kind}" style="color:var(--mute)">${K.ic} この種類は後で（${counts[q.kind]}）</a>` : ""}</div>
       </div>
       ${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${(KIND[n.kind] || {}).ic || ""} ${(KIND[n.kind] || {}).t || n.db}</span><span>${esc(n.name || n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}
-      <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは Claude に逃がす</div>` + metaHtml("review");
+      <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは選んだAIに相談する</div>` + metaHtml("review");
   }
   function reviewClaudeHref(q) {
     const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : "🧠 Decisions の決定";
@@ -1059,7 +1158,7 @@
     const byId = new Map(D.tasks.map((t) => [t.id, t]));
     const edges = (D.edges || []).filter((e) => vis.has(e.from) && vis.has(e.to));
     const confl = D.conflicts || [];
-    const warn = confl.length ? `<div class="dwarn">⚠ 日付の矛盾 ${confl.length} 件 — 後続「${esc(confl[0].succ.name).slice(0, 24)}」の期日 ${fmtDate(confl[0].succ.due)} が先行「${esc(confl[0].pred.name).slice(0, 24)}」の期日 ${fmtDate(confl[0].pred.due)} より前${D.cycle ? "／先行タスクに循環あり" : ""}</div>` : D.cycle ? `<div class="dwarn">⚠ 先行タスクが循環しています（Claude で外してください）</div>` : "";
+    const warn = confl.length ? `<div class="dwarn">⚠ 日付の矛盾 ${confl.length} 件 — 後続「${esc(confl[0].succ.name).slice(0, 24)}」の期日 ${fmtDate(confl[0].succ.due)} が先行「${esc(confl[0].pred.name).slice(0, 24)}」の期日 ${fmtDate(confl[0].pred.due)} より前${D.cycle ? "／先行タスクに循環あり" : ""}</div>` : D.cycle ? `<div class="dwarn">⚠ 先行タスクが循環しています（AIと相談して外してください）</div>` : "";
     // 時間軸: 今日の 2 日前 〜 (最長の期日 or 今日+3週) + 3 日。狭い画面は 1 日 10px、広い画面は 24px。名前の列はスクロールしない別枠
     const dates = ts.flatMap((t) => [t.due, t.start]).filter(Boolean);
     const d0 = addDays(today, -2);
@@ -1122,7 +1221,7 @@
     }
     g += `</div>`;
     const fixes = confl.map((c) => `<button data-fix="${c.succ.id}" data-date="${c.pred.due}"><span class="ic bad">⚠</span>矛盾を直す: 「${esc(c.succ.name).slice(0, 22)}」の期日を ${fmtDate(c.pred.due)} に揃える<span style="margin-left:auto;color:var(--mute);font-size:12px;flex:none">1 タップ</span></button>`).join("");
-    const claude = `<a href="${claudeLink(`PJ「${D.project.name}」（${D.project.url}）のタスクの依存関係（先行タスク）を見直したいです。各タスクの順序を確認して、先行→後続の関係を足す・外す、日付の矛盾（後続の期日が先行より前）を直す、を一緒にやってください。終わったら操作規約どおり更新。`)}" data-ext><span class="ic">${ICONS.claude}</span>依存を足す・外す（Claude へ）</a>`;
+    const claude = `<a href="${claudeLink(`PJ「${D.project.name}」（${D.project.url}）のタスクの依存関係（先行タスク）を見直したいです。各タスクの順序を確認して、先行→後続の関係を足す・外す、日付の矛盾（後続の期日が先行より前）を直す、を一緒にやってください。終わったら操作規約どおり更新。`)}" data-ext><span class="ic">${aiIcon()}</span>依存を足す・外す（${aiName()} へ）</a>`;
     list.innerHTML = head + (warn ? warn : "") + `<div class="dwrap">${n}<div class="dbox">${g}</div></div>` +
       `<div class="dleg"><span><i style="width:12px;height:8px;border-radius:2px;background:var(--accbg);border:1.5px solid var(--acc);box-sizing:border-box"></i>開始→期日</span><span><i style="width:12px;height:8px;border-radius:2px;background:var(--acc)"></i>完了</span><span><i style="width:8px;height:8px;transform:rotate(45deg);background:var(--card);border:1.5px solid var(--acc);box-sizing:border-box"></i>期日のみ</span><span><i style="width:12px;height:2px;background:#9a9aa0"></i>先行→後続</span><span><i style="width:12px;height:8px;border-radius:2px;background:#fde7e5;border:1.5px solid #d0342c;box-sizing:border-box"></i>矛盾</span>${wide ? "" : "<span>横にスワイプで先の週へ</span>"}</div>` +
       `<div class="dfix">${fixes}${claude}</div><div class="hint">行をタップ＝メニュー ／ ${ts.length} 件を先行が上になる順で${depsShowDone ? "" : `（完了 ${D.tasks.length - ts.length} 件は隠しています）`}</div>`;
@@ -1150,7 +1249,7 @@
       <div class="col"><div class="cap" style="text-align:center">本タスク</div>${gNode(G.task, true, today)}</div>
       <div class="col" data-col="succ"><div class="cap" style="text-align:right">後続 ${G.succs.length}</div>${G.succs.map((t) => gNode(t, false, today)).join("") || '<div class="emp">後続なし</div>'}</div></div>`;
     list.innerHTML = head + cols +
-      `<div class="dfix">${G.project ? `<button data-gdeps="${G.project.id}"><span class="ic">🔗</span>この PJ の全タスクを依存順に見る</button>` : ""}<a href="${claudeLink(`「${G.task.name}」（${G.task.url}）の先行タスク・後続タスクを足す・外すを手伝ってください。依存（先行タスク リレーション）を見直して、終わったら操作規約どおり更新。`)}" data-ext><span class="ic">${ICONS.claude}</span>依存を足す・外す（Claude へ）</a></div>
+      `<div class="dfix">${G.project ? `<button data-gdeps="${G.project.id}"><span class="ic">🔗</span>この PJ の全タスクを依存順に見る</button>` : ""}<a href="${claudeLink(`「${G.task.name}」（${G.task.url}）の先行タスク・後続タスクを足す・外すを手伝ってください。依存（先行タスク リレーション）を見直して、終わったら操作規約どおり更新。`)}" data-ext><span class="ic">${aiIcon()}</span>依存を足す・外す（${aiName()} へ）</a></div>
       <div class="hint">左右のタスクをタップ＝そのタスクを中心に ／ 中央をタップ＝メニュー</div>`;
     // 直交線: 先行の右端 → 中央の左端、中央の右端 → 後続の左端
     requestAnimationFrame(() => {
@@ -1191,7 +1290,7 @@
       <input class="rnote" id="pjq" placeholder="PJ 名で絞り込み" autocomplete="off" style="font-size:15px">
       <div class="list pick" id="pjlist">${rowsHtml("")}</div>
       ${cur ? `<div class="list pick"><button data-pick=""><span class="nm" style="color:var(--mute)">PJ から外す</span></button></div>` : ""}
-      <a class="notion" href="${claudeLink(`「${t.name}」（${t.url}）を新しいプロジェクトに入れたい、または複数の PJ に結びたいです。PJ を作る／結ぶを一緒に決めて更新してください。`)}" data-ext>${ICONS.claude} 新しい PJ を作る・複数に結ぶ（Claude へ）</a>`;
+      <a class="notion" href="${claudeLink(`「${t.name}」（${t.url}）を新しいプロジェクトに入れたい、または複数の PJ に結びたいです。PJ を作る／結ぶを一緒に決めて更新してください。`)}" data-ext>${aiIcon()} 新しい PJ を作る・複数に結ぶ（${aiName()} へ）</a>`;
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheet").querySelector(".close").onclick = closeSheet;
     $("#pjq").addEventListener("input", () => { $("#pjlist").innerHTML = rowsHtml($("#pjq").value.trim().toLowerCase()); bind(); });
@@ -1216,7 +1315,7 @@
       <div class="sub">このタスクの <b>前に</b> 終わっているべきもの（同じ PJ の未完了）。複数可</div>
       <div class="list pick pp" id="pplist">${cands.map(row).join("") || '<button disabled><span class="nm" style="color:var(--mute)">候補なし（この PJ に他の未完了タスクがありません）</span></button>'}</div>
       <div class="grid"><button class="pri" id="ppOk">決定（${sel.size} 件）</button><button class="skip" id="ppNone">先行なしにする</button></div>
-      <a class="notion" href="${claudeLink(`「${t.name}」（${t.url}）の先行タスクを決めたいです。PJ 外のタスクや新しいタスクも含めて、何が先に終わっているべきか一緒に整理して 先行タスク リレーションを更新してください。`)}" data-ext>${ICONS.claude} PJ 外・新規も含めて整理する（Claude へ）</a>`;
+      <a class="notion" href="${claudeLink(`「${t.name}」（${t.url}）の先行タスクを決めたいです。PJ 外のタスクや新しいタスクも含めて、何が先に終わっているべきか一緒に整理して 先行タスク リレーションを更新してください。`)}" data-ext>${aiIcon()} PJ 外・新規も含めて整理する（${aiName()} へ）</a>`;
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheet").querySelector(".close").onclick = closeSheet;
     $("#sheet").querySelectorAll("[data-pp]").forEach((b) => b.onclick = () => { const k = b.dataset.pp.replace(/-/g, ""); if (sel.has(k)) sel.delete(k); else sel.add(k); b.classList.toggle("on"); b.querySelector(".ck").textContent = sel.has(k) ? "✓" : ""; $("#ppOk").textContent = `決定（${sel.size} 件）`; });
@@ -1478,7 +1577,7 @@
       ${pager}
       <div class="sect">📝 概要</div>
       <div class="desc" id="descBox">${t.rawDesc ? `<div class="dtext">${descHtml(t.rawDesc)}</div>` : `<div class="dtext" style="color:var(--mute)">読み込み中…</div>`}</div>
-      ${t.aiActive ? `<div class="sub" style="color:var(--acc)">🤖 Claude が ${fmtTime(t.aiSince)} から${t.aiMode === "更新" ? "更新中" : "実行中"}（2時間で自動解除）　<a href="#" id="aiClear" style="color:var(--mute)">解除</a></div>` : ""}
+      ${t.aiActive ? `<div class="sub" style="color:var(--acc)">🤖 AI が ${fmtTime(t.aiSince)} から${t.aiMode === "更新" ? "更新中" : "実行中"}（2時間で自動解除）　<a href="#" id="aiClear" style="color:var(--mute)">解除</a></div>` : ""}
       ${t.blocked || t.predIds.length ? `<div class="sect">⏭ 先行タスク</div><div class="chain" id="chainBox"><div class="ch"><span class="nm" style="color:var(--mute)">確認中…</span></div></div>` : ""}
       ${t.done ? "" : `<div class="list"><a href="#" data-predpick="${t.id}"><span class="ic">⏭</span>${t.predIds.length ? "先行タスクを変える" : "先行タスクを選ぶ"}<span style="margin-left:auto;color:var(--mute);font-size:13px">${t.predIds.length ? `先行 ${t.predIds.length}` : t.projectIds && t.projectIds.length ? "同じ PJ から" : "PJ なし"}</span></a></div>`}
       ${t.blocked ? `<div class="sub" style="color:var(--mute)">先行タスクが終わるまで、このタスク自体の操作はできません（上のチェーンから順に完了するか、🤖 に任せる）</div>` : ""}
@@ -1491,11 +1590,11 @@
       <div class="grid sit" style="grid-template-columns:repeat(4,1fr);margin-top:6px">${SIT_AXES.tool.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
       ${COMPANIONS.length ? `<div class="grid sit" style="grid-template-columns:repeat(${Math.min(COMPANIONS.length, 3)},1fr);margin-top:6px">${COMPANIONS.map((x) => `<button data-env="${esc(x)}" class="${t.env.includes(x) ? "on" : ""}">👥 ${esc(x)}</button>`).join("")}</div>` : ""}
       <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="早朝" class="${t.env.includes("早朝") ? "on" : ""}">🌅 早朝向き<small style="font-weight:400;color:${t.env.includes("早朝") ? "rgba(255,255,255,.8)" : "var(--mute)"}">　家で静かに・時間をかけて</small></button></div>`}
-      <div class="sect">🤖 Claude に任せる</div>
+      <div class="sect">🤖 ${aiName()} に任せる</div>
       <div class="list">
-        ${t.aiSession ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `Claude のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の Claude セッションを開く（続きを任せる）"}</a>` : ""}
-        <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${ICONS.claude}</span><span id="claudeRunLabel">進めてもらう${t.aiSession ? "（前回のセッションで）" : ""}</span></a>
-        <a href="${aiHref(t, "update")}" data-ai data-mode="update"><span class="ic">${ICONS.pen}</span>タスク内容を更新してもらう${t.aiSession ? "（前回のセッションで）" : ""}</a>
+        ${sessionProvider(t.aiSession) ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `AI のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の AI セッションを開く（続きを任せる）"}</a>` : ""}
+        <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${aiIcon()}</span><span id="claudeRunLabel">進めてもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : ""}</span></a>
+        <a href="${aiHref(t, "update")}" data-ai data-mode="update"><span class="ic">${ICONS.pen}</span>タスク内容を更新してもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : ""}</a>
         ${t.aiSession ? `<a href="${claudeHref(t, "run")}" data-ai data-mode="run" data-fresh="1" style="color:var(--mute)"><span class="ic">✨</span>新しいチャットで始める（文面付き）</a>` : ""}
       </div>
       <div class="sect">📅 日程を動かす</div>
@@ -1585,12 +1684,12 @@
     }).catch(() => { const box = $("#descBox"); if (box && !t.rawDesc) box.innerHTML = `<div class="dtext" style="color:var(--mute)">概要を取得できませんでした</div>`; });
     // 2026-10-04: preventDefault せず、アンカーの既定動作で intent:// へ飛ばす (クリックの文脈をそのまま使うのが一番確実)。印は投げっぱなし、シートは少し遅れて閉じる
     // data-fresh (2026-10-08): 新しいチャットで始める。AIセッション は Worker が空にして、新しい Claude が書き直す。それ以外で AIセッション があれば前回の続き (resume)
-    $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => a.onclick = () => { const resume = !!t.aiSession && !a.dataset.fresh; markAi(t, a.dataset.mode || "run", resume); if (resume) copyPrompt(t, a.dataset.mode || "run"); setTimeout(() => { closeSheet(); render(todayStr); }, 400); });
+    $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => a.onclick = () => { const resume = sessionProvider(t.aiSession) === "claude" && !a.dataset.fresh; markAi(t, a.dataset.mode || "run", resume); if (resume) copyPrompt(t, a.dataset.mode || "run"); setTimeout(() => { closeSheet(); render(todayStr); }, 400); });
     // 前回のセッションを開き直す＝続きを Claude に任せるので、これも 🤖 処理中 にする (2026-10-06)。処理中にセッションを開くだけのときは触らない
     const rs = $("#sheet").querySelector("a[data-resume]"); if (rs) rs.onclick = () => { markAi(t, "run", true); setTimeout(() => { closeSheet(); render(todayStr); }, 400); };
     const clr = $("#aiClear"); if (clr) clr.onclick = async () => { closeSheet(); try { await api(`/api/tasks/${t.id}/ai-clear`, { method: "POST" }); toast("処理中を解除: " + t.name); } catch (e) { toast("失敗: " + e.message); } load(view, { silent: true }); };
     $("#sheet").querySelectorAll("button[data-a]").forEach((b) => b.onclick = () => {
-      if (t.aiActive && ["done", "skip", "dup"].includes(b.dataset.a) && !confirm("Claude が処理中です。それでも完了にしますか？")) return;
+      if (t.aiActive && ["done", "skip", "dup"].includes(b.dataset.a) && !confirm("AI が処理中です。それでも完了にしますか？")) return;
       // 理由・メモ 1行 (2026-10-06): 完了・見送り・重複に添える。空なら従来どおり
       const noteEl = $("#doneNote"), memo = noteEl ? noteEl.value.trim() : "";
       const nq = memo ? "note=" + encodeURIComponent(memo) : "";
@@ -1634,7 +1733,7 @@
           (j.cycle ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が循環しています。Notion で直してください</span></div>` : "") +
           (j.truncated ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が深すぎます（10段まで）</span></div>` : "");
         $("#claudeRun").href = aiHref(t, "run", j.chain);
-        $("#claudeRunLabel").textContent = `Claude に先行から順に進めてもらう（${j.chain.length} 件先）`;
+        $("#claudeRunLabel").textContent = `${aiName()} に先行から順に進めてもらう（${j.chain.length} 件先）`;
         // 先行を Kairos のシートで開く (Notion には飛ばない)。戻る導線はシート上部の「後続に戻る」
         box.querySelectorAll("[data-copen]").forEach((a) => a.onclick = (ev) => { ev.preventDefault(); const c = j.chain.find((x) => x.id === a.dataset.copen); if (c) { sheetFrom = t; openSheet(c, today); } });
         box.querySelectorAll("[data-cdone]").forEach((b) => b.onclick = async () => {
@@ -1709,11 +1808,12 @@
   }
   // Mac では ←→ で前後のタスクへ、Esc で閉じる (2026-10-04)
   document.addEventListener("keydown", (e) => {
-    if ($("#sheetWrap").hidden || e.target.matches("input,textarea")) return;
+    if ($("#aiHandoff").open || $("#sheetWrap").hidden || e.target.matches("input,textarea")) return;
     if (e.key === "Escape") closeSheet();
     else if (sheetStep && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); sheetStep(e.key === "ArrowLeft" ? -1 : 1); }
   });
   window.addEventListener("popstate", () => {
+    if ($("#aiHandoff").open) { $("#aiHandoff").close(); return; }
     const r = $("#reader");
     if (r && !r.hidden) { r.hidden = true; delete r.dataset.id; rdStack.length = 0; return; } // 端末の戻る＝リーダーを閉じる (シートは残る)
     if (!$("#sheetWrap").hidden) $("#sheetWrap").hidden = true;
@@ -1734,7 +1834,7 @@
   function pageSwipeStart(e) {
     pgSwipe = false;
     if (!TAB_ORDER.includes(view)) return;
-    if (e.target.closest("header, .add, #sheetWrap, #toast, .dbox, input, textarea, [data-nopg]")) return;
+    if (e.target.closest("header, .add, #sheetWrap, #aiHandoff, #toast, .dbox, input, textarea, [data-nopg]")) return;
     if (e.target.closest(".card") && !e.target.closest(".blocked, .dn")) return; // タスク行は行のスワイプ (🤖／明日へ) が担当
     pgSwipe = true; pgX = e.touches[0].clientX; pgY = e.touches[0].clientY;
   }
@@ -1759,7 +1859,7 @@
   $("#list").addEventListener("touchend", () => {
     if (!card) return; const c = card; card = null;
     const t = tasks.find((x) => x.id === c.parentElement.dataset.id);
-    // 右スワイプ＝🤖 Claude に進めてもらう (2026-10-01。完了は丸タップで足りるので、右は実行に割り当て直した)。左＝明日へ
+    // 右スワイプ＝🤖 ${aiName()} に進めてもらう (2026-10-01。完了は丸タップで足りるので、右は実行に割り当て直した)。左＝明日へ
     if (swiping && dx > 90 && t) { c.style.transform = ""; goClaude(t, aiHref(t, "run")); }
     else if (swiping && dx < -90 && t) { c.style.transform = `translateX(-500px)`; setTimeout(() => act(t, "defer?days=1", "明日へ"), 120); }
     else c.style.transform = "";
@@ -1787,7 +1887,7 @@
     $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>${r.icon ? r.icon + " " : ""}${esc(r.name)} — 今週の石を置く</h3><button class="close" aria-label="閉じる">✕</button></div>
       <div class="sub">予定に入れないと起きないもの。この役割の PJ の未完了から 1 つ</div>
       <div class="list pick">${items || '<button disabled><span class="nm" style="color:var(--mute)">候補なし（この役割の PJ に未完了タスクがありません）</span></button>'}</div>
-      <a class="notion" href="${claudeLink(`役割「${r.name}」の今週の石（今週の目標）を一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください。`)}" data-ext>${ICONS.claude} Claude と相談して決める</a>`;
+      <a class="notion" href="${claudeLink(`役割「${r.name}」の今週の石（今週の目標）を一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください。`)}" data-ext>${aiIcon()} ${aiName()} と相談して決める</a>`;
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheet").querySelector(".close").onclick = closeSheet;
     $("#sheet").querySelectorAll("[data-pick]").forEach((b) => b.onclick = async () => {
@@ -1800,7 +1900,7 @@
     const st = r.stone; const t = st.taskId ? { id: st.taskId, name: st.name, url: st.url || ("https://www.notion.so/" + st.taskId.replace(/-/g, "")) } : null;
     $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>${st.icon ? st.icon + " " : ""}${esc(st.name)}</h3><button class="close" aria-label="閉じる">✕</button></div>
       <div class="sub">${esc(r.name)} の今週の石${st.until ? `（〜${esc(st.until)}）` : ""}${st.due ? ` · 期日 ${fmtDate(st.due)}` : ""}</div>
-      <div class="list">${t ? `<a href="${aiHref(t, "run")}" data-stoneai><span class="ic">${ICONS.claude}</span>🤖 Claude に進めてもらう</a><a href="${t.url}" target="_blank" rel="noopener"><span class="ic">📄</span>Notion で開く</a>` : ""}
+      <div class="list">${t ? `<a href="${aiHref(t, "run")}" data-stoneai><span class="ic">${aiIcon()}</span>🤖 ${aiName()} に進めてもらう</a><a href="${t.url}" target="_blank" rel="noopener"><span class="ic">📄</span>Notion で開く</a>` : ""}
         <a href="#" data-repick><span class="ic">${ICONS.pen}</span>別のタスクに置き換える</a><a href="#" data-unstone style="color:var(--mute)"><span class="ic">${ICONS.skip}</span>石を外す</a></div>`;
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheet").querySelector(".close").onclick = closeSheet;
@@ -1861,7 +1961,7 @@
     if (e.target.closest("[data-claude]")) { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでメニューへ
     const ring = e.target.closest("[data-done]");
     if (ring) { // 丸をタップ＝完了 (青く塗ってから消す)
-      if (t.aiActive && !confirm("Claude が処理中です。それでも完了にしますか？")) return;
+      if (t.aiActive && !confirm("AI が処理中です。それでも完了にしますか？")) return;
       ring.classList.add("on"); ring.innerHTML = ICONS.check;
       setTimeout(() => act(t, "done", "完了"), 180);
       return;
