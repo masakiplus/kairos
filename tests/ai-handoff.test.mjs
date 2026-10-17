@@ -71,6 +71,7 @@ test('他社のセッションをClaudeへ変換せず、選択したAIと一致
   h.context.task.aiSession = 'https://chatgpt.com/c/example';
   assert.equal(decode(h.run('aiHref(task)')).session, h.context.task.aiSession);
   assert.equal(h.run('sessionHref(task.aiSession)'), h.context.task.aiSession);
+  assert.equal(decode(h.run('claudeHref(task,"run")')).session, null, '新しいチャットには既存セッションを引き継がない');
   h.run('aiProvider="claude"');
   assert.ok(h.run('aiHref(task)').startsWith('claude://claude.ai/new?'));
   for (const url of ['javascript:alert(1)','https://claude.ai.evil.test/chat/1','http://chatgpt.com/c/1','https://user:password@chatgpt.com/c/1']) {

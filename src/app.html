@@ -564,7 +564,7 @@
   }
   function claudeHref(t, mode, chain) {
     const q = taskPrompt(t, mode, chain);
-    if (aiProvider !== "claude") return handoffHref(q, sessionProvider(t.aiSession) === aiProvider ? t.aiSession : null);
+    if (aiProvider !== "claude") return handoffHref(q);
     return claudeLink(q);
   }
   // 役割・見直し・依存など、任意の依頼文も同じアプリ選択を使う。
@@ -614,7 +614,7 @@
   }
   // 過去に Claude で扱ったタスク (AIセッション あり) は、進める／更新する も **そのセッションの続き** で始める (2026-10-08 利用者の指示)。
   // 既存チャットには文面を URL で渡せないので、文面はクリップボードに入れて「貼って送る」運用にする。新しいチャットで始めたいときはシートの別リンク
-  function aiHref(t, mode = "run", chain) { return aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
+  function aiHref(t, mode = "run", chain) { return aiProvider !== "claude" ? handoffHref(taskPrompt(t, mode, chain), sessionProvider(t.aiSession) === aiProvider ? t.aiSession : null) : sessionProvider(t.aiSession) === "claude" ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
   function aiPrompt(t, mode = "run") {
     const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
     return mode === "update"
