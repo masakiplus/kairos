@@ -54,6 +54,8 @@ docs/                 規約・スキーマ・設計の経緯
 - `gitleaks detect` を通す
 - `src/sw.txt` の `kairos-vNN` を +1（忘れると端末のキャッシュが入れ替わらない）
 
+D1 移行実験の手順と合格条件は [`docs/d1-migration-checks.md`](docs/d1-migration-checks.md)。`npm run check` と `npm test` で構文と往復検査の回帰テストを実行する。
+
 ## 周辺
 
 - 夜間の棚卸し（期限切れの置き直し・依存と日程の提案・メモ取り込み）は別リポジトリの headless ジョブが行い、提案は Notion の Decisions に置かれて Kairos の見直しタブで確定する。Kairos 単体でも動く。

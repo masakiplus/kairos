@@ -23,13 +23,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: 構文検査（ESM は .mjs に写して）
+      - name: 構文・D1 移行検査
         run: |
-          cp src/index.js /tmp/chk.mjs && node --check /tmp/chk.mjs
-          python3 - <<'PY'
-          import re; h=open('src/app.html').read(); open('/tmp/app_chk.js','w').write('\n'.join(re.findall(r'<script>(.*?)</script>', h, re.S)))
-          PY
-          node --check /tmp/app_chk.js
+          npm run check
+          npm test
       - name: トークンの有無
         id: gate
         run: |
