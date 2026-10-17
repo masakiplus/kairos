@@ -6,6 +6,7 @@ export const cleanId = x => String(x || '').replace(/-/g,'').toLowerCase();
 const schema = [
  `CREATE TABLE IF NOT EXISTS entities(id TEXT PRIMARY KEY, ds TEXT, collection TEXT NOT NULL, payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1)`,
  `CREATE INDEX IF NOT EXISTS entities_ds ON entities(ds)`,
+ `CREATE INDEX IF NOT EXISTS entities_revision ON entities(revision)`,
  `CREATE TABLE IF NOT EXISTS entity_schemas(id TEXT PRIMARY KEY, collection TEXT NOT NULL, payload TEXT NOT NULL)`,
  `CREATE TABLE IF NOT EXISTS entity_links(from_id TEXT NOT NULL, prop TEXT NOT NULL, to_id TEXT NOT NULL, PRIMARY KEY(from_id,prop,to_id))`,
  `CREATE INDEX IF NOT EXISTS entity_links_to ON entity_links(to_id)`,
@@ -93,10 +94,25 @@ export async function loadState(env) {
 // The screen starts several requests together. Share one short-lived snapshot to
 // avoid parsing the entire archive once per tab-count request in the same isolate.
 const snapshots = new WeakMap();
+// After the 1s window, reuse the parsed snapshot while a cheap fingerprint of the
+// stored rows is unchanged (2026-10-18: a full reload per request made D1 lists ~1s).
+// Every write path bumps entities.revision or replaces rows (new rowid), so any write
+// from another isolate changes the fingerprint. The JST date is included because
+// derived values (期限区分・着手可否・前倒し候補) depend on it. The fingerprint is taken
+// before loading, so a write racing the load forces one extra reload, never a stale hit.
+const FINGERPRINT = `SELECT (SELECT COUNT(*) FROM entities) n,(SELECT TOTAL(revision) FROM entities) r,(SELECT TOTAL(rowid) FROM entities) e,(SELECT COUNT(*) FROM entity_links) l,(SELECT TOTAL(rowid) FROM entity_links) lr,(SELECT TOTAL(rowid) FROM entity_schemas) s`;
+async function fingerprint(env){const r=await env.DB.prepare(FINGERPRINT).first();return JSON.stringify(r)+'|'+new Date(Date.now()+9*3600000).toISOString().slice(0,10);}
 function requestState(env) {
  const current=snapshots.get(env.DB),now=Date.now();
  if(current&&(current.pending||now-current.at<1000))return current.promise;
- const entry={at:now,pending:true,promise:loadState(env)};snapshots.set(env.DB,entry);
+ const entry={at:now,pending:true};
+ entry.promise=(async()=>{
+  const fp=await fingerprint(env).catch(()=>null);
+  entry.fp=fp;
+  if(fp&&current&&current.fp===fp){entry.reused=true;return current.promise;}
+  return loadState(env);
+ })();
+ snapshots.set(env.DB,entry);
  entry.promise.then(()=>{entry.pending=false;entry.at=Date.now();},()=>snapshots.delete(env.DB));return entry.promise;
 }
 function invalidate(env){env.__d1State=null;snapshots.delete(env.DB);}

@@ -69,3 +69,20 @@ test('同時の一覧リクエストで読取スナップショットを共有�
  await Promise.all(Array.from({length:7},()=>d1Notion({...env},'/data_sources/'+ds+'/query',{method:'POST',body:'{}'})));
  assert.equal(calls,1);
 });
+
+test('別の口からの更新は指紋で検知し、変化がなければ解析済みの写しを使い回す',async t=>{
+ const {sql,env,ids,ds,seed}=setup(t);await seed();
+ t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-10-18T03:00:00Z')});
+ let calls=0;const original=env.DB.batch;env.DB.batch=async stmts=>{calls++;return original(stmts);};
+ const names=async()=>(await d1Notion({...env},'/data_sources/'+ds+'/query',{method:'POST',body:'{}'})).results.map(r=>r.properties.名前.title.map(x=>x.plain_text).join('')).sort();
+ const before=await names();assert.equal(calls,1);
+ t.mock.timers.tick(2000);
+ assert.deepEqual(await names(),before);assert.equal(calls,1,'変化がなければ再読込しない');
+ const row=JSON.parse(sql.prepare('SELECT payload FROM entities WHERE id=?').get(ids[0]).payload);
+ row.properties.名前={id:'title',type:'title',title:[{type:'text',text:{content:'別端末で変更'},plain_text:'別端末で変更'}]};
+ sql.prepare('UPDATE entities SET payload=?,revision=revision+1 WHERE id=?').run(JSON.stringify(row),ids[0]);
+ t.mock.timers.tick(2000);
+ assert.ok((await names()).includes('別端末で変更'),'他の isolate の更新を拾う');assert.equal(calls,2);
+ t.mock.timers.tick(24*3600*1000);
+ await names();assert.equal(calls,3,'日付が変われば派生値のために再読込する');
+});
