@@ -396,7 +396,8 @@
   #aiHandoff p{font-size:14px;color:var(--mute)}#aiHandoff label{font-size:13px}
   #aiHandoff textarea{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid var(--sep);border-radius:10px;background:var(--card);color:var(--fg);font-family:inherit;font-size:14px;line-height:1.6;resize:vertical}
   #aiHandoff button,#aiOpen{min-height:44px;padding:10px 14px;border:0;border-radius:10px;background:var(--acc);color:white;font-size:15px;text-align:center;text-decoration:none}
-  #aiCopy,#aiOpen{display:block;width:100%;margin-top:10px}#aiHandoffClose{background:var(--seg)!important;color:var(--fg)!important}
+  #aiShare[hidden]{display:none}
+  #aiCopy,#aiShare,#aiOpen{display:block;width:100%;margin-top:10px}#aiHandoffClose{background:var(--seg)!important;color:var(--fg)!important}
 </style>
 </head>
 <body>
@@ -441,6 +442,7 @@
   <p id="aiHandoffHelp"></p>
   <label for="aiHandoffText">渡す依頼文</label><textarea id="aiHandoffText" readonly rows="7"></textarea>
   <p id="aiCopyStatus" role="status" aria-live="polite"></p>
+  <button type="button" id="aiShare" hidden>共有メニューからChatGPTに渡す</button>
   <button type="button" id="aiCopy">依頼文をコピー</button>
   <a id="aiOpen" target="_blank" rel="noopener noreferrer"></a>
 </dialog>
@@ -653,12 +655,19 @@
     $("#aiHandoffTitle").textContent = name + " に渡す";
     $("#aiHandoffText").value = data.prompt;
     $("#aiCopyStatus").textContent = "まだコピーしていません";
-    $("#aiHandoffHelp").textContent = data.provider === "chatgpt"
-      ? "依頼文をコピーし、ChatGPTアプリのチャットに貼って送ってください。開くリンクは、端末の設定によってブラウザで開きます。"
-      : "依頼文をコピーし、MacのAntigravityのチャットに貼って送ってください。スマホでは文面をコピーして引き継げます。";
     const open = $("#aiOpen"), resume = sessionProvider(data.session) === data.provider;
-    open.href = resume ? data.session : data.provider === "chatgpt" ? "https://chatgpt.com/" : "https://antigravity.google/";
-    open.textContent = resume ? "前回のチャットを開く" : data.provider === "chatgpt" ? "ChatGPTを開く" : "Antigravityの案内を開く";
+    const direct = data.provider === "chatgpt" && isMac && !resume;
+    $("#aiShare").hidden = !(data.provider === "chatgpt" && isAndroid && typeof navigator.share === "function");
+    $("#aiHandoffHelp").textContent = data.provider === "chatgpt"
+      ? direct
+        ? "依頼文を入力した状態でデスクトップアプリを開きます。Workになっているか確認して送信してください。開けない場合は依頼文をコピーして貼り付けてください。"
+        : resume
+          ? "前回のチャットを開きます。今回の依頼文はコピーして貼り付けてください。"
+          : "共有メニューにChatGPTがあれば選んで渡せます。受け取れない場合はコピーして貼り付けてください。Workへの切り替えはChatGPT側で確認してください。"
+      : "依頼文をコピーし、MacのAntigravityのチャットに貼って送ってください。スマホでは文面をコピーして引き継げます。";
+    open.href = resume ? data.session : direct ? "codex://new?prompt=" + encodeURIComponent(data.prompt) : data.provider === "chatgpt" ? "https://chatgpt.com/" : "https://antigravity.google/";
+    open.textContent = resume ? "前回のチャットを開く" : direct ? "依頼文付きでアプリを開く" : data.provider === "chatgpt" ? "ChatGPTを開く" : "Antigravityの案内を開く";
+    open.target = direct ? "_self" : "_blank";
     if (!dialog.open) {
       history.pushState({ ...(history.state || {}), aiHandoff: true }, "");
       dialog.showModal();
@@ -689,6 +698,16 @@
   }
   $("#aiHandoffClose").onclick = closeAiHandoff;
   $("#aiHandoff").oncancel = (e) => { e.preventDefault(); closeAiHandoff(); };
+  $("#aiShare").onclick = async () => {
+    try {
+      await navigator.share({ text: $("#aiHandoffText").value });
+      $("#aiCopyStatus").textContent = "共有メニューを閉じました。ChatGPT側で依頼文とWorkの選択を確認してください";
+    } catch (e) {
+      $("#aiCopyStatus").textContent = e.name === "AbortError"
+        ? "共有をキャンセルしました"
+        : "共有できませんでした。依頼文をコピーして貼り付けてください";
+    }
+  };
   $("#aiCopy").onclick = async () => {
     try {
       await navigator.clipboard.writeText($("#aiHandoffText").value);

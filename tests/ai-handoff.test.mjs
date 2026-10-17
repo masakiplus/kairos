@@ -149,3 +149,38 @@ test('D1モードの依頼文はD1の正本と認証付きAPIを示し、Notion�
  assert.doesNotMatch(d.prompt,/Notionを更新できる場合/);
  assert.equal((d.prompt.match(/【保存先: Kairos D1】/g)||[]).length,1);
 });
+
+test('Macは日本語・改行を保持する依頼文付きリンク、既存チャットは継続',()=>{
+ const h=harness({saved:'chatgpt',mac:true});
+ h.run('openAiHandoff(aiHref(task))');
+ assert.equal(decodeURIComponent(h.node('#aiOpen').href.split('?prompt=')[1]),h.node('#aiHandoffText').value);
+ assert.ok(h.node('#aiOpen').href.startsWith('codex://new?prompt='));
+ assert.equal(h.node('#aiOpen').target,'_self');
+ assert.equal(h.node('#aiShare').hidden,true);
+ h.context.task={...task,aiSession:'https://chatgpt.com/c/example'};
+ h.run('openAiHandoff(aiHref(task))');
+ assert.equal(h.node('#aiOpen').href,'https://chatgpt.com/c/example');
+ assert.equal(h.node('#aiOpen').target,'_blank');
+ assert.equal(h.calls.length,0);
+});
+
+test('Androidは共有対応時だけ表示し、取消・失敗を成功としない',async()=>{
+ const h=harness({saved:'chatgpt',android:true});
+ h.run('openAiHandoff(aiHref(task))');
+ assert.equal(h.node('#aiShare').hidden,true);
+ let received;
+ h.context.navigator.share=async data=>{received=data.text;};
+ h.run('openAiHandoff(aiHref(task))');
+ assert.equal(h.node('#aiShare').hidden,false);
+ await h.node('#aiShare').onclick();
+ assert.equal(received,h.node('#aiHandoffText').value);
+ assert.equal(h.node('#aiOpen').href,'https://chatgpt.com/');
+ for(const name of ['AbortError','NotAllowedError']){
+  h.context.navigator.share=async()=>{const e=new Error();e.name=name;throw e;};
+  await h.node('#aiShare').onclick();
+  assert.match(h.node('#aiCopyStatus').textContent,name==='AbortError'?/キャンセル/:/共有できませんでした/);
+ }
+ assert.equal(h.calls.length,0);
+ h.run('aiProvider="antigravity";openAiHandoff(aiHref(task))');
+ assert.equal(h.node('#aiShare').hidden,true);
+});
