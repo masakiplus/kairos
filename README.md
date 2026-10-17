@@ -54,9 +54,11 @@ docs/                 規約・スキーマ・設計の経緯
 - `gitleaks detect` を通す
 - `src/sw.txt` の `kairos-vNN` を +1（忘れると端末のキャッシュが入れ替わらない）
 
+D1 移行実験の手順と合格条件は [`docs/d1-migration-checks.md`](docs/d1-migration-checks.md)。`npm run check` と `npm test` で構文・D1往復・AI引き渡しの回帰テストをまとめて実行する。
+
 ## AIを切り替える
 
-画面上部の「任せるAI」で Claude（既定）／ChatGPT／Antigravity を選べる。ChatGPTとAntigravityは、表示した依頼文をコピーして各アプリへ貼り付ける。[渡し方・セッション・検査](docs/ai-handoff.md)を参照。
+画面上部の「任せるAI」で Claude（既定）／ChatGPT／Antigravity を選べる。ChatGPTとAntigravityは、表示した依頼文をコピーして各アプリへ貼り付ける。[渡し方・セッション・Macでの確認](docs/ai-handoff.md)を参照。
 
 ## 周辺
 
