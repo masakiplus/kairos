@@ -32,6 +32,32 @@ const SCHEMA = [
 const nid = (s) => String(s || "").replace(/-/g, "").toLowerCase();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A page response contains only the first relation references. Read every property page
+// before replacing any D1 rows, so a network failure cannot publish a partial relation.
+async function completeRelations(env, ctx, page) {
+  for (const prop of Object.values(page.properties || {})) {
+    if (prop.type !== "relation" || !prop.has_more) continue;
+    const relations = [], cursors = new Set();
+    let cursor;
+    do {
+      const propertyId = encodeURIComponent(decodeURIComponent(prop.id));
+      const query = new URLSearchParams({ page_size: "100", ...(cursor ? { start_cursor: cursor } : {}) });
+      const part = await nget(env, ctx, `/pages/${page.id}/properties/${propertyId}?${query}`);
+      if (!Array.isArray(part.results)) throw new Error("Invalid relation response");
+      for (const item of part.results) {
+        if (item.type !== "relation" || !item.relation?.id) throw new Error("Invalid relation item");
+        relations.push(item.relation);
+      }
+      cursor = part.has_more ? part.next_cursor : null;
+      if (part.has_more && (!cursor || cursors.has(cursor))) throw new Error("Invalid relation cursor");
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    prop.relation = [...new Map(relations.map(r => [nid(r.id), r])).values()];
+    prop.has_more = false;
+  }
+  return page;
+}
+
 /** Notion 呼び出し (429/5xx は待って再試行)。ctx.calls で 1 回の呼び出しあたりの数を数える */
 async function nget(env, ctx, path, init = {}) {
   for (let k = 0; k < 5; k++) {
@@ -268,7 +294,7 @@ export async function labRoute(req, env, url, json) {
   const q = (k) => url.searchParams.get(k);
   const DS = {
     tasks: env.TASKS_DATA_SOURCE_ID, projects: env.PROJECTS_DATA_SOURCE_ID, decisions: env.DECISIONS_DATA_SOURCE_ID,
-    roles: env.ROLES_DATA_SOURCE_ID, habits: env.HABITS_DATA_SOURCE_ID,
+    roles: env.ROLES_DATA_SOURCE_ID, habits: env.HABITS_DATA_SOURCE_ID, habit_log: env.HABIT_LOG_DATA_SOURCE_ID,
   };
 
   if (path === "/api/lab/init" && req.method === "POST") {
@@ -284,6 +310,7 @@ export async function labRoute(req, env, url, json) {
     const r = await nget(env, ctx, `/data_sources/${ds}/query`, { method: "POST", body: JSON.stringify({ page_size: 100, ...(q("cursor") ? { start_cursor: q("cursor") } : {}) }) });
     const stmts = [];
     for (const page of r.results || []) {
+      await completeRelations(env, ctx, page);
       const { title, props, rels } = propsOf(page);
       const id = nid(page.id);
       const parent = page.parent?.type === "page_id" ? nid(page.parent.page_id) : null;
@@ -448,3 +475,6 @@ export async function labRoute(req, env, url, json) {
 
   return json({ error: "not found" }, 404);
 }
+
+// Shared with the explicit raw migration path. Normal D1 reads never call these.
+export { nget, completeRelations };

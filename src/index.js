@@ -34,6 +34,7 @@
  * 認証: Cookie `tp` か `Authorization: Bearer <APP_TOKEN>`。トークン1本の個人用なので凝らない。
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
+import { d1Notion, storageRoute, d1Environment } from "./d1.js";
 import APP_HTML from "./app.html";
 import SW_JS from "./sw.txt";
 import MANIFEST from "./manifest.webmanifest";
@@ -46,6 +47,8 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1年
 // ---------- Notion ----------
 
 async function notion(env, path, init = {}) {
+  if (env.READ_ONLY_VALIDATION && ((init.method === "PATCH") || (init.method === "POST" && path === "/pages"))) throw new Error("Validation is read only");
+  if (env.DATA_BACKEND === "d1") return d1Notion(env, path, init);
   const res = await fetch(`https://api.notion.com/v1${path}`, {
     ...init,
     headers: {
@@ -397,7 +400,7 @@ async function rolesInfo(env) {
   }));
   const stones = out.filter((r) => r.stone && r.stone.taskId);
   const summary = { total: stones.length, done: stones.filter((r) => r.stone.state === "done").length, doing: stones.filter((r) => r.stone.state === "doing").length, todo: stones.filter((r) => r.stone.state === "todo").length };
-  return { today, weekEnd: weekEndJst(), roles: out, summary, dsUrl: `collection://${env.ROLES_DATA_SOURCE_ID}` };
+  return { today, weekEnd: weekEndJst(), roles: out, summary, dsUrl: env.DATA_BACKEND === "d1" ? env.KAIROS_ORIGIN + "/?view=roles" : `collection://${env.ROLES_DATA_SOURCE_ID}` };
 }
 // 今週の石を置く／外す。Kairos が Roles に書く唯一の列 (設計 §3)
 async function setRoleGoal(env, roleId, taskId) {
@@ -1024,7 +1027,7 @@ const RT_HTML = (v) => (v?.rich_text ?? []).map((x) => {
   if (x.annotations?.bold) t = `<b>${t}</b>`;
   if (x.annotations?.strikethrough) t = `<s>${t}</s>`;
   const href = x.href || (x.type === "mention" && x.mention?.page?.id ? `https://www.notion.so/${x.mention.page.id.replace(/-/g, "")}` : null);
-  if (href) t = `<a href="${href.replace(/"/g, "")}">${t}</a>`;
+  if (href && (/^https?:\/\//i.test(href) || href.startsWith("/"))) t = `<a href="${href.replace(/"/g, "")}">${t}</a>`;
   return t;
 }).join("");
 async function readerBlocks(env, id, depth) {
@@ -1037,10 +1040,25 @@ async function readerBlocks(env, id, depth) {
     if (t === "callout") row.icon = v.icon?.emoji ?? "";
     if (t === "code") row.html = (v.rich_text ?? []).map((x) => x.plain_text).join("").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     if (t === "child_page") { row.html = v.title ?? ""; row.pageId = b.id; }
-    if (t === "child_database") { row.html = v.title ?? ""; }
+    if (t === "child_database") {
+      row.html = v.title ?? "";
+      if (env.DATA_BACKEND === "d1") {
+        const saved = await env.DB.prepare("SELECT payload FROM entity_databases WHERE id=?").bind(b.id.replace(/-/g, "")).first();
+        row.pages = [];
+        for (const ds of saved ? JSON.parse(saved.payload).data_sources || [] : []) {
+          let cursor;
+          do { const pages = await notion(env, `/data_sources/${ds.id}/query`, { method: "POST", body: JSON.stringify({ page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }) }); row.pages.push(...pages.results.map((p) => ({ id: p.id, name: (Object.values(p.properties || {}).find((v) => v.type === "title")?.title || []).map((v) => v.plain_text).join("") }))); cursor = pages.has_more ? pages.next_cursor : null; } while (cursor);
+        }
+      }
+    }
     if (t === "bookmark" || t === "embed" || t === "link_preview") { row.href = v.url ?? ""; row.html = v.url ?? ""; }
     if (t === "image") { row.href = v.file?.url || v.external?.url || ""; }
-    if (t === "table") { row.html = "（表は Notion で）"; }
+    if (t === "table") {
+      const rows = []; let cursor;
+      do { const cells = await notion(env, `/blocks/${b.id}/children?page_size=100${cursor ? "&start_cursor=" + encodeURIComponent(cursor) : ""}`); rows.push(...(cells.results || [])); cursor = cells.has_more ? cells.next_cursor : null; } while (cursor);
+      row.html = '<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%">' + rows.map((r, i) => '<tr>' + (r.table_row?.cells || []).map((cell) => `<${i === 0 && v.has_column_header ? "th" : "td"} style="border:1px solid var(--sep);padding:6px">${RT_HTML({rich_text:cell})}</${i === 0 && v.has_column_header ? "th" : "td"}>`).join("") + '</tr>').join("") + '</table></div>';
+    }
+    if (["file", "pdf", "audio", "video"].includes(t)) { row.href = v.file?.url || v.external?.url || ""; row.html = v.name || t; }
     if (b.has_children && depth < 2 && t !== "child_page" && t !== "child_database" && t !== "table") row.children = await readerBlocks(env, b.id, depth + 1);
     out.push(row);
   }
@@ -1129,13 +1147,14 @@ function authed(req, env) {
   return safeEq(bearer, env.APP_TOKEN) || safeEq(getCookie(req, COOKIE) ?? "", env.APP_TOKEN);
 }
 
-export default {
+const kairosWorker = {
   async fetch(req, env) {
     const url = new URL(req.url);
+    env = { ...env, KAIROS_ORIGIN: url.origin };
     const path = url.pathname;
 
     if (path === "/health") return json({ ok: true, ts: new Date().toISOString() });
-    if (!env.NOTION_TOKEN || !env.APP_TOKEN) return json({ error: "secrets not configured" }, 503);
+    if ((!env.NOTION_TOKEN && env.DATA_BACKEND !== "d1") || !env.APP_TOKEN) return json({ error: "secrets not configured" }, 503);
 
     // ?t=<APP_TOKEN> で来たら Cookie を焼いて / に戻す (PWA インストール前の初回だけ使う)
     const t = url.searchParams.get("t");
@@ -1170,11 +1189,23 @@ export default {
       );
     }
 
-    if (path === "/" || path === "/index.html")
-      return new Response(APP_HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
+    if (path === "/" || path === "/index.html") {
+      const preview = url.searchParams.get("preview") === "d1", backend = preview ? "d1" : env.DATA_BACKEND || "notion";
+      let html = APP_HTML.replace('<script>', '<script>window.KAIROS_STORAGE=' + JSON.stringify(backend) + ';window.KAIROS_PREVIEW=' + JSON.stringify(preview) + ';');
+      if (backend === "d1") html = html.replaceAll("Notion で開く", "Kairos で開く").replaceAll("🔗 Notion</div>", "🔗 Kairos</div>");
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
+    }
 
     try {
-      if (path.startsWith("/api/lab/")) return await labRoute(req, env, url, json);
+      if (req.headers.get("X-Kairos-Validation") === "readonly" && req.method === "GET") env = { ...env, READ_ONLY_VALIDATION: true };
+      if (req.headers.get("X-Kairos-Preview") === "d1") env = { ...env, DATA_BACKEND: "d1", D1_READ_ONLY: true };
+      if (env.DATA_BACKEND === "d1") env = await d1Environment(env);
+      if (path.startsWith("/api/storage/")) return await storageRoute(req, env, url, json);
+      if (path.startsWith("/api/data/") && env.DATA_BACKEND === "d1") {
+        if (!["GET", "POST", "PATCH"].includes(req.method)) return json({ error: "method not allowed" }, 405);
+        return json(await d1Notion(env, path.slice('/api/data'.length) + url.search, { method: req.method, ...(req.method === "GET" ? {} : { body: await req.text() }) }));
+      }
+      if (path.startsWith("/api/lab/")) return env.DATA_BACKEND === "d1" ? json({ error: "Legacy migration API is disabled after D1 cutover" }, 410) : await labRoute(req, env, url, json);
       if (path === "/api/tasks" && req.method === "GET") {
         const view = url.searchParams.get("view") ?? "today";
         const [tasks, wip, dl, cp] = await Promise.all([listTasks(env, view), wipCount(env).catch(() => null), delegates(env), companions(env)]);
@@ -1408,5 +1439,14 @@ export default {
     } catch (e) {
       return json({ error: String(e?.message ?? e) }, 502);
     }
+  },
+};
+
+export default {
+  async fetch(req, env) {
+    const response = await kairosWorker.fetch(req, env);
+    const headers = new Headers(response.headers);
+    headers.set("X-Kairos-Storage", req.headers.get("X-Kairos-Preview") === "d1" ? "d1" : env.DATA_BACKEND || "notion");
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },
 };

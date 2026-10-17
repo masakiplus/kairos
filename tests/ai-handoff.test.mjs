@@ -122,3 +122,30 @@ test('選択だけを保存し依頼文を保存しない。リンクを再描�
   assert.equal(h.run('aiProvider'),'chatgpt'); assert.equal(h.store.get('kairos_ai_app'),'chatgpt');
   assert.equal(h.store.size,1); assert.equal(h.context.lastSig,''); assert.deepEqual(h.calls,[['render']]);
 });
+
+test('保存済みの別AIチャットを開くだけでは処理中にしない', () => {
+  const handler = html.match(/    const rs = .*\n/)[0];
+  for (const provider of ['claude', 'chatgpt', 'antigravity']) {
+    const calls = [], link = {};
+    const context = {
+      $: () => ({querySelector: () => link}), t: {aiSession: provider},
+      sessionProvider: value => value,
+      markAi: () => calls.push('mark'), setTimeout: () => {},
+    };
+    runInNewContext(handler, context);
+    link.onclick?.();
+    assert.equal(calls.length, provider === 'claude' ? 1 : 0);
+  }
+});
+
+test('D1モードの依頼文はD1の正本と認証付きAPIを示し、Notionの更新を求めない',()=>{
+ const h=harness({saved:'chatgpt'});
+ h.context.window={KAIROS_STORAGE:'d1'};h.context.location.origin='https://kairos.test';
+ h.context.task={...task,url:'https://kairos.test/?page='+task.id};
+ const d=decode(h.run('aiHref(task)'));
+ assert.match(d.prompt,/【保存先: Kairos D1】/);
+ assert.match(d.prompt,/Notionのコピーを更新しない/);
+ assert.match(d.prompt,/https:\/\/kairos.test\/api\/storage\/agent/);
+ assert.doesNotMatch(d.prompt,/Notionを更新できる場合/);
+ assert.equal((d.prompt.match(/【保存先: Kairos D1】/g)||[]).length,1);
+});

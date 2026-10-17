@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 // Worker の .js を ESM として読む。package 全体のモジュール形式は変えない。
 const { labRoute } = await import(`data:text/javascript;base64,${Buffer.from(readFileSync(new URL('../src/lab.js', import.meta.url))).toString('base64')}`);
 const id = 'a'.repeat(32), other = 'b'.repeat(32);
-function fixture(t) {
+function fixture(t, env = {}) {
   const sql = new DatabaseSync(':memory:');
   t.after(() => sql.close());
   const DB = {
@@ -29,7 +29,7 @@ function fixture(t) {
   const route = async (path, body) => {
     const url = new URL(`https://kairos.test/api/lab/${path}`);
     const req = new Request(url, { method: body === undefined ? 'GET' : 'POST', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    return labRoute(req, { DB }, url, (body, status = 200) => ({ status, body }));
+    return labRoute(req, { DB, ...env }, url, (body, status = 200) => ({ status, body }));
   };
   const seed = (rowId = id) => sql.prepare(`INSERT INTO docs (id, collection, title, props, body_md, created, updated, body_status, conv)
     VALUES (?, 'tasks', ?, ?, ?, '2026-10-17T00:00:00Z', '2026-10-17T00:00:00Z', 'done', ?)`)
@@ -132,4 +132,34 @@ test('未知の Notion ブロックは変換欠落として報告する', async 
   await roundtrip(route);
   assert.equal((await route('compare')).body.conversion_issues, 1);
   assert.equal((await route('compare')).body.ok, false);
+});
+
+test('長いrelationを全ページ取得して属性とリンクの双方に保存する', async t => {
+  const {route,sql} = fixture(t, {TASKS_DATA_SOURCE_ID:'source'});
+  await route('init',{});
+  const targetIds=Array.from({length:125},(_,i)=>(i+1).toString(16).padStart(32,'0'));
+  let calls=0;
+  t.mock.method(globalThis,'fetch',async url=>{
+    calls++;
+    if(String(url).includes('/query')) return Response.json({results:[{id,properties:{名前:{type:'title',title:[]},関連:{type:'relation',id:'rel%3Aid',has_more:true,relation:[{id:other}]}},created_time:'2026-10-17',last_edited_time:'2026-10-17'}],has_more:false});
+    assert.match(String(url),/properties\/rel%3Aid/);
+    const second=String(url).includes('start_cursor=next');
+    return Response.json({results:targetIds.slice(second?100:0,second?125:100).map(id=>({type:'relation',relation:{id}})),has_more:!second,next_cursor:second?null:'next'});
+  });
+  await route('props?coll=tasks',{});
+  assert.equal(calls,3);
+  const props=JSON.parse(sql.prepare('select props from docs').get().props);
+  assert.equal(props.関連.length,125); assert.equal(props['関連__more'],undefined);
+  assert.equal(sql.prepare('select count(*) n from links').get().n,125);
+});
+
+test('relationの途中取得失敗では既存の属性・リンクを置き換えない', async t=>{
+  const {route,sql,seed}=fixture(t,{TASKS_DATA_SOURCE_ID:'source'});
+  await route('init',{});seed();
+  const before=sql.prepare('select * from docs').get();
+  t.mock.method(globalThis,'fetch',async url=>String(url).includes('/query')
+    ?Response.json({results:[{id,properties:{関連:{type:'relation',id:'rel',has_more:true,relation:[]}}}]})
+    :Response.json({error:'not found'},{status:404}));
+  await assert.rejects(route('props?coll=tasks',{}),/404/);
+  assert.deepEqual(sql.prepare('select * from docs').get(),before);
 });

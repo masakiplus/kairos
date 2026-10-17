@@ -27,6 +27,7 @@ globs = ["**/*.html", "**/*.txt", "**/*.webmanifest"]
 fallthrough = true
 
 [vars]
+DATA_BACKEND = "d1"
 # 追加欄から起票したタスクの既定 (アイコンは必須、迷ったらエリアの既定絵文字)
 QUICK_ADD_AREA = "Inbox"
 QUICK_ADD_ICON = "📥"

@@ -1,8 +1,45 @@
 # D1 移行実験の検査
 
-Notion が正本の間、`/api/lab/*` で D1 の写しを検査する。本番の一覧は引き続き Notion を使う。各 API は Kairos と同じ認証が必要。
+以下はNotionが正本の間の旧移行実験の手順・記録。D1を正本にする保存形式・切り替え・監査は [`d1-cutover.md`](d1-cutover.md) を参照する。D1切り替え後は `/api/lab/*` を無効にし、古いNotionの写しで正本を上書きしない。各APIはKairosと同じ認証が必要。
+
+## 実データのコピー
+
+`scripts/copy-notion-to-d1.mjs` は Tasks / Projects / Roles / Decisions / Habits / Habit Log の6つを順番にコピーする。既存WorkerのNotion接続を使うため、新しいNotionインテグレーションは不要。必要なのはKairosの既存APP_TOKEN（初回URLの `?t=` またはログイン済みブラウザのCookie `tp`）。`.dev.vars` に設定し、チャットやGitへ貼らない。
+
+コピー前に `wrangler d1 export kairos --remote --output <非公開バックアップ先>` でD1を保存する。2026-10-17のコピー前バックアップは `.wrangler/migration-backups/2026-10-17/before.sql` に取得済み（Git対象外）。
+
+```sh
+gh variable list --repo masakiplus/kairos --json name,value > /tmp/kairos-migration-vars.json
+node --env-file=.dev.vars scripts/copy-notion-to-d1.mjs /tmp/kairos-migration-vars.json .wrangler/migration-backups/2026-10-17/copy
+```
+
+実行スクリプトは各データソースIDを明示するため、Habit Logの既定設定を持たない旧Workerでも実行できる。Notionへの書き込み・docsの削除・往復検査表のリセット・デプロイ・画面の参照先切り替えはしない。既存の同じIDのD1行は最新のNotion属性へ更新し、本文はpendingのものを取得する。既存のerror/truncatedは自動再試行せず、最終検査を不合格にする。
+
+出力先は所有者のみアクセスできるディレクトリとし、DB別のMarkdown exportのJSON、件数、本文変換の問題、実行途中のreport.jsonを保存する。実データなのでGit対象外の場所を指定する。中断時は最後の記録を確認し、同じコマンドで再取得できる。異常終了で `.copy.lock` が残った場合は、実行プロセスが終了していることを確かめてからそのロックだけを削除する。複数の出力先や別端末から同時には実行しない。
+
+`copy_ok` は取得件数とD1件数、本文の完了・変換欠落の検査であり、完全移植の宣言ではない。コピー中のNotion更新、同数のID入れ替わり、子ページの別途取得、部分relation、添付ファイルの永続保存、元のNotionブロックJSON・属性型の保存は保証しない。照合前にはNotion編集を止め、コピー結果に加えて以下の往復検査とID・relation・添付の確認を行う。コピー完了後もNotionを正本として保持する。
 
 ## 実行順
+
+### 2026-10-17 実コピー結果
+
+既存の認証済みWorkerからNotionを読み、D1 `kairos` にコピーした。Workerのデプロイ、画面の参照先切り替え、Notionへの書き込みは行っていない。
+
+| collection | Notionクエリ件数 | D1書き出し件数 | 本文done |
+|---|---:|---:|---:|
+| tasks | 1,434 | 1,434 | 1,434 |
+| projects | 182 | 182 | 182 |
+| roles | 6 | 6 | 6 |
+| decisions | 627 | 627 | 627 |
+| habits | 12 | 12 | 12 |
+| habit_log | 81 | 81 | 81 |
+| 合計 | 2,342 | 2,342 | 2,342 |
+
+以前から失敗していた対象内の本文10件は再取得に成功。対象外のsessionsは変更せず、2件のエラーが残る。Habit LogとHabitsの本文は取得した結果が空であり、属性は保存されている。
+
+**完全移植の判定は未合格。** 部分relationが11ページ（tasks 1、projects 7、roles 3）に残る。既存の変換検査には文字欠落候補1件、pdf 3、file 2、child_database 5の非可逆変換がある。これらの解消と、編集中データの再照合が参照先切り替え前に必要。旧Workerのrelation取得は最初の応答だけなので、継続取得の修正・検証・反映が必要。
+
+非公開の保存先は `.wrangler/migration-backups/2026-10-17/`（Git対象外）。`before.sql` / `after.sql` が前後のD1バックアップ、`verified/` が再取得後のMarkdown export、`verification.json` が最終件数・部分relation一覧。`copy/report.json` は本文10件の再試行前の途中結果なので、最終判定には使わない。SQLバックアップのSQLite整合性はok、対象2,342件のexportとSQLのタイトル・属性・本文・メタデータは全件一致。`snapshot-verification.json` に照合結果とバックアップのSHA256を保存した。
 
 1. `POST /api/lab/init` で実験用の表を作る。
 2. `POST /api/lab/props?coll=tasks`（他の collection も同様）を、返された `next` を `cursor` に渡して最後まで実行する。

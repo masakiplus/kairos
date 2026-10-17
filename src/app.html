@@ -503,6 +503,7 @@
   applyTheme();
 
   let view = localStorage.getItem("view") || "today";
+  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "doing", "project", "roles", "review", "delegated"].includes(requested)) view = requested; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
   let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
@@ -510,7 +511,7 @@
   const isAndroid = /Android/i.test(navigator.userAgent);
   // Mac の Chrome アプリから開くときはデスクトップ版 Claude (claude:// スキーム) へ。iPhone/iPad は除外
   const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent) && !/iPhone|iPad/i.test(navigator.userAgent);
-  const K = (v) => "tasks:" + v;
+  const K = (v) => (window.KAIROS_STORAGE === "d1" ? "d1:" : "") + "tasks:" + v;
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   // IME (日本語入力) の変換確定 Enter を「送信」と取り違えない (2026-10-06)。isComposing か keyCode 229 なら真。
   // compositionend 直後の keyup まで IME が握っている端末があるので、確定から 50ms は Enter を無視する
@@ -520,8 +521,11 @@
   // form の暗黙送信 (Enter) も変換中は止める
   document.addEventListener("keydown", (e) => { if (imeEnter(e) && e.target.matches("input")) e.preventDefault(); }, true);
 
+  const apiFetch = (path, opt = {}) => fetch(path, { ...opt, headers: { ...(opt.headers || {}), ...(window.KAIROS_PREVIEW ? { "X-Kairos-Preview": "d1" } : {}) } });
   const api = async (path, opt = {}) => {
-    const r = await fetch(path, { ...opt, headers: { "Content-Type": "application/json", ...(opt.headers || {}) } });
+    const r = await apiFetch(path, { ...opt, headers: { "Content-Type": "application/json", ...(opt.headers || {}) } });
+    const backend = r.headers.get("X-Kairos-Storage");
+    if (backend && window.KAIROS_STORAGE && backend !== window.KAIROS_STORAGE && !window.KAIROS_PREVIEW) { location.reload(); throw new Error("保存先の切り替えに合わせて再読み込みします"); }
     if (r.status === 401) { location.reload(); throw new Error("unauthorized"); }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || r.statusText);
@@ -534,6 +538,10 @@
   try { const saved = localStorage.getItem("kairos_ai_app"); if (Object.hasOwn(AI_APPS, saved)) aiProvider = saved; } catch (e) {}
   const aiName = () => AI_APPS[aiProvider];
   const aiIcon = () => aiProvider === "claude" ? ICONS.claude : "🤖";
+  function storagePrompt(q) {
+    if (typeof window === "undefined" || window.KAIROS_STORAGE !== "d1" || q.includes("【保存先: Kairos D1】")) return q;
+    return q.replace(/Notion/g, "Kairos D1").replace(/(?:終わったら )?📻 Sessions に足跡を\s*1\s*行。/g, "作業記録はKairosタスクの本文に追記してください。") + "\n【保存先: Kairos D1】正本はKairosのD1です。Notionのコピーを更新しないでください。操作規約とAPIは " + location.origin + "/api/storage/agent を確認してください。APIの認証が使えない場合はユーザーに接続を依頼し、更新済みと報告しないでください。";
+  }
   function sessionProvider(url) {
     try {
       const u = new URL(url);
@@ -545,6 +553,7 @@
     return null;
   }
   function handoffHref(prompt, session = null) {
+    prompt = storagePrompt(prompt);
     return "#ai-handoff=" + encodeURIComponent(JSON.stringify({ provider: aiProvider, prompt, session }));
   }
   function taskPrompt(t, mode, chain, provider = aiProvider) {
@@ -569,6 +578,7 @@
   }
   // 役割・見直し・依存など、任意の依頼文も同じアプリ選択を使う。
   function claudeLink(q) {
+    q = storagePrompt(q);
     if (aiProvider !== "claude") return handoffHref(q);
     const web = "https://claude.ai/new?q=" + encodeURIComponent(q);
     if (isAndroid) return "intent://claude.ai/new?q=" + encodeURIComponent(q) +
@@ -609,7 +619,7 @@
   // resume=true (2026-10-06): 前回のセッションを開き直すとき。AIセッション は残し、種別は前回のまま、印だけ立て直す
   function markAi(t, mode = "run", resume = false) {
     t.aiActive = true; t.aiSince = new Date().toISOString(); t.aiMode = mode === "update" ? "更新" : "実行";
-    fetch(`/api/tasks/${t.id}/ai?mode=${mode}${resume ? "&resume=1" : ""}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" } })
+    apiFetch(`/api/tasks/${t.id}/ai?mode=${mode}${resume ? "&resume=1" : ""}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" } })
       .then(() => setTimeout(() => load(view, { silent: true }), 1500)).catch(() => {});
   }
   // 過去に Claude で扱ったタスク (AIセッション あり) は、進める／更新する も **そのセッションの続き** で始める (2026-10-08 利用者の指示)。
@@ -617,9 +627,9 @@
   function aiHref(t, mode = "run", chain) { return aiProvider !== "claude" ? handoffHref(taskPrompt(t, mode, chain), sessionProvider(t.aiSession) === aiProvider ? t.aiSession : null) : sessionProvider(t.aiSession) === "claude" ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
   function aiPrompt(t, mode = "run") {
     const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
-    return mode === "update"
+    return storagePrompt(mode === "update"
       ? `「${t.name}」の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。前回の続きです。終わるときに AI処理開始 を空にしてください。（${page}）`
-      : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`;
+      : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`);
   }
   function copyPrompt(t, mode) {
     const s = aiPrompt(t, mode);
@@ -734,7 +744,7 @@
   }
   function rowHtml(t, today) {
     return `<div class="row${t.blocked ? " blocked" : ""}${t.done ? " dn" : ""}${t.mit && !t.done ? " mit" : ""}${t.aiActive ? (t.aiMode === "更新" ? " ai upd" : " ai run") : t.status === "人対応" ? " hu" : ""}" data-id="${t.id}">
-      <div class="under"><span>🤖 Claude へ</span><span>明日へ →</span></div>
+      <div class="under"><span>🤖 ${aiName()} へ</span><span>明日へ →</span></div>
       <div class="card">
         <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
         <div class="body">
@@ -843,7 +853,7 @@
       }
       return `<section class="sec"><h2 class="${cls}">${cls === "prjh" ? esc(h) + `<span class="n">${ts.length}</span>` : h}</h2><div class="group">${ts.map((t) => rowHtml(t, today)).join("")}</div></section>`;
     }).join("") +
-      '<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>' + metaHtml(view);
+      `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>` + metaHtml(view);
   }
   // 各タブの一番下: そのタブ全体を Claude と見返すメタ操作 (2026-10-10)。1 件ずつの 🤖 とは別に「一覧ごと」渡す。文面は URL に乗せるので 12 件まで
   function taskLines(ts, n = 12) {
@@ -1337,7 +1347,7 @@
 
   // ---- 📄 リーダー (2026-10-13): Notion ページを Kairos の中で読む。Notion のリンク (notion.so / app.notion.com の 32 桁 id) はここで開く
   const rdStack = [];
-  const notionIdOf = (href) => { const m = String(href || "").match(/(?:notion\.so|notion\.site|app\.notion\.com)\/(?:[^\s/?#]*-)?([0-9a-f]{32})(?:[?#]|$)/i) || String(href || "").match(/\/p\/(?:[^\s/?#]*-)?([0-9a-f]{32})/i); return m ? m[1] : null; };
+  const notionIdOf = (href) => { try { const u = new URL(href, location.href); if (u.origin === location.origin && /^[a-f0-9]{32}$/.test(u.searchParams.get("page") || "")) return u.searchParams.get("page"); } catch (e) {} const m = String(href || "").match(/(?:notion\.so|notion\.site|app\.notion\.com)\/(?:[^\s/?#]*-)?([0-9a-f]{32})(?:[?#]|$)/i) || String(href || "").match(/\/p\/(?:[^\s/?#]*-)?([0-9a-f]{32})/i); return m ? m[1] : null; };
   function rdBlocks(bs, depth = 0) {
     let out = "", list = null;
     const close = () => { if (list) { out += `</${list}>`; list = null; } };
@@ -1356,9 +1366,10 @@
       else if (b.t === "code") out += `<pre>${b.html}</pre>`;
       else if (b.t === "divider") out += "<hr>";
       else if (b.t === "child_page") out += `<a href="#" class="sub" data-reader="${b.pageId}">📄 ${esc(b.html)}</a>`;
-      else if (b.t === "child_database") out += `<div class="quote">🗂 ${esc(b.html)}（DB は Notion で）</div>`;
+      else if (b.t === "child_database") out += Array.isArray(b.pages) ? `<details><summary>🗂 ${esc(b.html)}（${b.pages.length}件）</summary>${b.pages.map((p) => `<p><a href="#" data-reader="${esc(p.id)}">📄 ${esc(p.name || "無題")}</a></p>`).join("")}</details>` : `<div class="quote">🗂 ${esc(b.html)}（DB は Notion で）</div>`;
       else if (b.t === "bookmark" || b.t === "embed" || b.t === "link_preview") out += `<p><a href="${esc(b.href)}" target="_blank" rel="noopener">${esc(b.html).slice(0, 80)}</a></p>`;
       else if (b.t === "image") out += b.href ? `<p><img src="${esc(b.href)}" alt="" loading="lazy"></p>` : "";
+      else if (["file", "pdf", "audio", "video"].includes(b.t)) out += b.href ? `<p><a href="${esc(b.href)}" target="_blank" rel="noopener">📎 ${esc(b.html || b.t)}</a></p>` : "";
       else if (b.t === "table") out += `<div class="quote">${b.html}</div>`;
       else if (b.html) out += `<p>${b.html}</p>${kids}`;
     }
@@ -1686,7 +1697,7 @@
     // data-fresh (2026-10-08): 新しいチャットで始める。AIセッション は Worker が空にして、新しい Claude が書き直す。それ以外で AIセッション があれば前回の続き (resume)
     $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => a.onclick = () => { const resume = sessionProvider(t.aiSession) === "claude" && !a.dataset.fresh; markAi(t, a.dataset.mode || "run", resume); if (resume) copyPrompt(t, a.dataset.mode || "run"); setTimeout(() => { closeSheet(); render(todayStr); }, 400); });
     // 前回のセッションを開き直す＝続きを Claude に任せるので、これも 🤖 処理中 にする (2026-10-06)。処理中にセッションを開くだけのときは触らない
-    const rs = $("#sheet").querySelector("a[data-resume]"); if (rs) rs.onclick = () => { markAi(t, "run", true); setTimeout(() => { closeSheet(); render(todayStr); }, 400); };
+    const rs = $("#sheet").querySelector("a[data-resume]"); if (rs && sessionProvider(t.aiSession) === "claude") rs.onclick = () => { markAi(t, "run", true); setTimeout(() => { closeSheet(); render(todayStr); }, 400); };
     const clr = $("#aiClear"); if (clr) clr.onclick = async () => { closeSheet(); try { await api(`/api/tasks/${t.id}/ai-clear`, { method: "POST" }); toast("処理中を解除: " + t.name); } catch (e) { toast("失敗: " + e.message); } load(view, { silent: true }); };
     $("#sheet").querySelectorAll("button[data-a]").forEach((b) => b.onclick = () => {
       if (t.aiActive && ["done", "skip", "dup"].includes(b.dataset.a) && !confirm("AI が処理中です。それでも完了にしますか？")) return;
@@ -1906,7 +1917,7 @@
     $("#sheet").querySelector(".close").onclick = closeSheet;
     $("#sheet").querySelector("[data-repick]").onclick = (e) => { e.preventDefault(); closeSheet(); setTimeout(() => openPickSheet(r), 200); };
     $("#sheet").querySelector("[data-unstone]").onclick = async (e) => { e.preventDefault(); closeSheet(); try { await api(`/api/roles/${r.id}/goal`, { method: "POST", body: JSON.stringify({}) }); toast("石を外した: " + r.name); load("roles", { silent: true }); } catch (err) { toast("失敗: " + err.message); } };
-    const ai = $("#sheet").querySelector("[data-stoneai]"); if (ai) ai.onclick = () => { closeSheet(); fetch(`/api/tasks/${t.id}/ai?mode=run`, { method: "POST", keepalive: true }).catch(() => {}); };
+    const ai = $("#sheet").querySelector("[data-stoneai]"); if (ai) ai.onclick = () => { closeSheet(); apiFetch(`/api/tasks/${t.id}/ai?mode=run`, { method: "POST", keepalive: true }).catch(() => {}); };
   }
   $("#list").addEventListener("click", (e) => {
     if (swiping) return;
@@ -2005,7 +2016,8 @@
   };
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-  load(view).then(counts);
+  if (window.KAIROS_PREVIEW) { const banner = document.createElement("div"); banner.textContent = "D1プレビュー（読み取り専用）"; banner.style.cssText = "padding:8px;text-align:center;background:#fff3cd;color:#664d03"; document.body.prepend(banner); }
+  load(view).then(() => { counts(); const id = new URL(location.href).searchParams.get("page"); if (/^[a-f0-9]{32}$/.test(id || "")) openReader(id); });
 })();
 </script>
 </body>

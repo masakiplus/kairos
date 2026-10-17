@@ -1,6 +1,8 @@
 # Kairos
 
-Notion のタスク DB を **スマホのホーム画面から 1 タップで回す** ための薄い PWA。Cloudflare Worker 1 本で、画面（`src/app.html`）と Notion を叩く API（`src/index.js`）を両方配る。
+**スマホのホーム画面からタスクを1タップで回す**ための薄いPWA。Cloudflare Workerが画面とAPIを配り、D1を正本として読み書きする。Notionから取り込んだページ・全relation・本文の元JSON・添付を保持する。
+
+移行手順、互換API、外部ジョブの接続変更と復旧手順は [`docs/d1-cutover.md`](docs/d1-cutover.md)。`DATA_BACKEND=d1` ではNotion APIへフォールバックせず、`NOTION_TOKEN`なしで動く。旧Notionは自動同期されない。以下のNotion設定手順は、旧環境と初回移行用。
 
 > καιρός ＝ 機が熟した時。「いま手を付けるものを決める場」。考える仕事は AI チャットに投げ、Kairos は判断を押すだけの層にとどめる。
 
@@ -27,7 +29,8 @@ Notion のタスク DB を **スマホのホーム画面から 1 タップで回
 
 ```
 src/
-  index.js            Worker（ルーティング・Notion アクセス・規約ロジック）
+  index.js            Worker（ルーティング・規約ロジック）
+  d1.js               D1の読み書き・依存/日付判定・元JSON/添付の移行
   app.html            画面（HTML/CSS/JS を 1 ファイルに）
   sw.txt              Service Worker。先頭の kairos-vNN がキャッシュ版数
   manifest.webmanifest, icons.js
