@@ -17,6 +17,7 @@ const schema = [
  `CREATE TABLE IF NOT EXISTS entity_assets(id TEXT PRIMARY KEY, mime TEXT, size INTEGER, name TEXT, complete INTEGER NOT NULL DEFAULT 0)`,
  `CREATE TABLE IF NOT EXISTS entity_asset_chunks(id TEXT NOT NULL, part INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(id,part))`,
  `CREATE TABLE IF NOT EXISTS storage_control(key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+ `INSERT OR IGNORE INTO storage_control VALUES('rev','0')`,
 ];
 export async function initD1(env) {for(const sql of schema) await env.DB.prepare(sql).run();}
 const rt = a => (a || []).map(x=>x.plain_text ?? x.text?.content ?? '').join('');
@@ -100,8 +101,33 @@ const snapshots = new WeakMap();
 // from another isolate changes the fingerprint. The JST date is included because
 // derived values (期限区分・着手可否・前倒し候補) depend on it. The fingerprint is taken
 // before loading, so a write racing the load forces one extra reload, never a stale hit.
-const FINGERPRINT = `SELECT (SELECT COUNT(*) FROM entities) n,(SELECT TOTAL(revision) FROM entities) r,(SELECT TOTAL(rowid) FROM entities) e,(SELECT COUNT(*) FROM entity_links) l,(SELECT TOTAL(rowid) FROM entity_links) lr,(SELECT TOTAL(rowid) FROM entity_schemas) s`;
-async function fingerprint(env){const r=await env.DB.prepare(FINGERPRINT).first();return JSON.stringify(r)+'|'+new Date(Date.now()+9*3600000).toISOString().slice(0,10);}
+// One counter row that every write bumps (see revDB). Reading it costs 1 row, unlike the
+// earlier aggregate fingerprint (~15k rows per request), which exhausted the free daily
+// read quota on 2026-10-18.
+const FINGERPRINT = "SELECT value FROM storage_control WHERE key='rev'";
+async function fingerprint(env){const r=await env.DB.prepare(FINGERPRINT).first();if(!r)return null;return String(r.value)+'|'+new Date(Date.now()+9*3600000).toISOString().slice(0,10);}
+const WRITE_SQL=/^\s*(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER)\b/i;
+const BUMP="INSERT INTO storage_control(key,value) VALUES('rev','1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1";
+const revProxies=new WeakMap();
+/** Wrap a D1 binding so every write (run() of a write statement, or a batch containing one)
+ *  also bumps storage_control.rev in the same batch. Other isolates compare that one row to
+ *  decide whether their parsed snapshot is still current. */
+export function revDB(db){
+ if(!db||db.__rev)return db;
+ if(revProxies.has(db))return revProxies.get(db);
+ const tag=(st,write)=>new Proxy(st,{get(t,k){
+  if(k==='__write')return write;
+  if(k==='__raw')return t;
+  if(k==='bind')return (...v)=>tag(t.bind(...v),write);
+  if(k==='run'&&write)return async()=>{const out=await db.batch([t,db.prepare(BUMP)]);return out[0];};
+  const v=t[k];return typeof v==='function'?v.bind(t):v;}});
+ const proxy=new Proxy(db,{get(t,k){
+  if(k==='__rev')return true;
+  if(k==='prepare')return sql=>tag(t.prepare(sql),WRITE_SQL.test(sql)&&!/storage_control/i.test(sql.slice(0,60)));
+  if(k==='batch')return async stmts=>{const raw=stmts.map(s=>s?.__raw||s);if(!stmts.some(s=>s?.__write))return t.batch(raw);const out=await t.batch([...raw,t.prepare(BUMP)]);return out.slice(0,raw.length);};
+  const v=t[k];return typeof v==='function'?v.bind(t):v;}});
+ revProxies.set(db,proxy);return proxy;
+}
 function requestState(env) {
  const current=snapshots.get(env.DB),now=Date.now();
  if(current&&(current.pending||now-current.at<1000))return current.promise;
