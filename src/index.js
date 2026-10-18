@@ -34,7 +34,7 @@
  * 認証: Cookie `tp` か `Authorization: Bearer <APP_TOKEN>`。トークン1本の個人用なので凝らない。
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
-import { d1Notion, storageRoute, d1Environment } from "./d1.js";
+import { d1Notion, storageRoute, d1Environment, revDB } from "./d1.js";
 import APP_HTML from "./app.html";
 import SW_JS from "./sw.txt";
 import MANIFEST from "./manifest.webmanifest";
@@ -1150,7 +1150,7 @@ function authed(req, env) {
 const kairosWorker = {
   async fetch(req, env) {
     const url = new URL(req.url);
-    env = { ...env, KAIROS_ORIGIN: url.origin };
+    env = { ...env, KAIROS_ORIGIN: url.origin, ...(env.DB ? { DB: revDB(env.DB) } : {}) }; // 書き込みごとに storage_control.rev を進める (2026-10-18)
     const path = url.pathname;
 
     if (path === "/health") return json({ ok: true, ts: new Date().toISOString() });

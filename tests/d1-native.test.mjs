@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {initD1,d1Notion,matches,loadState} from '../src/d1.js';
+import {initD1,d1Notion,matches,loadState,revDB} from '../src/d1.js';
 function setup(t){
  const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
  const DB={prepare(query){let args=[];return {bind(...v){args=v;return this;},async run(){return sql.prepare(query).run(...args);},async all(){return {results:sql.prepare(query).all(...args)};},async first(){return sql.prepare(query).get(...args)||null;}};},async batch(stmts){sql.exec('BEGIN');try{const out=[];for(const s of stmts)out.push(await s.all());sql.exec('COMMIT');return out;}catch(e){sql.exec('ROLLBACK');throw e;}}};
@@ -80,9 +80,23 @@ test('別の口からの更新は指紋で検知し、変化がなければ解�
  assert.deepEqual(await names(),before);assert.equal(calls,1,'変化がなければ再読込しない');
  const row=JSON.parse(sql.prepare('SELECT payload FROM entities WHERE id=?').get(ids[0]).payload);
  row.properties.名前={id:'title',type:'title',title:[{type:'text',text:{content:'別端末で変更'},plain_text:'別端末で変更'}]};
- sql.prepare('UPDATE entities SET payload=?,revision=revision+1 WHERE id=?').run(JSON.stringify(row),ids[0]);
+ await revDB(env.DB).prepare('UPDATE entities SET payload=?,revision=revision+1 WHERE id=?').bind(JSON.stringify(row),ids[0]).run();
  t.mock.timers.tick(2000);
- assert.ok((await names()).includes('別端末で変更'),'他の isolate の更新を拾う');assert.equal(calls,2);
+ assert.ok((await names()).includes('別端末で変更'),'他の isolate の更新を拾う');assert.equal(calls,3,'書き込み1回＋再読込1回');
  t.mock.timers.tick(24*3600*1000);
- await names();assert.equal(calls,3,'日付が変われば派生値のために再読込する');
+ await names();assert.equal(calls,4,'日付が変われば派生値のために再読込する');
+});
+
+test('書き込みは1行の rev を進め、読み取りだけでは進めない（読み取り枠の節約）',async t=>{
+ const {sql,env,ids,seed}=setup(t);await seed();
+ const db=revDB(env.DB),rev=()=>Number(sql.prepare("SELECT value FROM storage_control WHERE key='rev'").get().value);
+ const r0=rev();
+ await db.prepare('SELECT id FROM entities').all();
+ await db.batch([db.prepare('SELECT COUNT(*) n FROM entities')]);
+ assert.equal(rev(),r0,'読み取りでは進めない');
+ await db.prepare('UPDATE entities SET revision=revision+1 WHERE id=?').bind(ids[0]).run();
+ assert.equal(rev(),r0+1);
+ await db.batch([db.prepare('UPDATE entities SET revision=revision+1 WHERE id=?').bind(ids[1]),db.prepare('SELECT 1')]);
+ assert.equal(rev(),r0+2,'書き込みを含むバッチは1回進める');
+ assert.equal(revDB(db),db,'二重に包まない');
 });
