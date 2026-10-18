@@ -56,12 +56,18 @@ AI向けの文面はD1正本と上記のAPIを指示する。**既存のNotion�
 
 ## 2026-10-18 の移行チェックポイント
 
-本番はまだ `DATA_BACKEND=notion`。D1の日次書き込み無料枠上限に達したため、切り替えを保留している。枠のリセットは毎日00:00 UTC（日本時間09:00）。課金プランへの変更は行っていない。
+### 早朝（枠上限で停止）
+D1の日次書き込み無料枠の上限に達し、切り替えを保留した。枠のリセットは毎日00:00 UTC（日本時間09:00）。課金プランへの変更は行っていない。停止時点で基本6DB 2,342件・子DB 177件・子ページ等 453件、本文 5,083か所、未完了の本文 128か所と添付 6件。日付をまたいだため期限の派生値に差（formulaDiffs 76件、期限区分・前倒し候補だけ）が出ていた。
 
-- 基本6DBは2,342件、子DB177件、子ページ等453件を保存済み。
-- 本文取得は5,083か所完了、128か所と添付6件が残る。全relationの部分取得、基本ページ本文の未完了、本文バージョン不一致はいずれも0。
-- `body-state.json` は未完了128件だけを再試行する状態に整理済み。元の失敗記録は `body-state-before-quota-retry.json` に保持した。
-- ローカルテスト32件、PR #7のCI成功。Mac実データ画面とコピー・貼り付け検証済み。
-- 日付をまたいだため期限の派生値に差が生じている。最終比較前に `props` を再取得し、その後 `bodies` を再開して監査する。Notionを正本に戻す目的の同期ではなく、切り替え直前の最終コピーである。
+### 09:08〜（再開・監査 ready）
+- `props` を再取得（tasks 1,447・projects 182・roles 6・decisions 636・habits 12・habit_log 86。停止後の Notion 側の追加分を含む）。再取得後は **formulaDiffs 0**。差は日付境界で Notion の保存値と D1 の当日計算がずれたもので、計算の誤りではない。
+- `bodies` を再開し、残り 128か所を取得。添付 6件は Worker の `fetch(..., {redirect:'error'})` が Workers で使えず全件失敗していたため、手動で最大3回までリダイレクトを追い、各段で許可ホストを確かめる形に直した（636714d）。修正版を backend=notion のまま反映し、添付 6件（PDF 4・CSV 2、計 1,548,318 バイト）を保存。
+- `props` 再取得で更新日時が進んだ 36件の本文は古い扱いになったため、その 36件だけ `done` から外して再取得した。
+- 監査: pendingRoots 0・pendingChildren 0・partialRelations 0・pendingAssets 0・outdatedBodies 0・formulaDiffs 0、**ready=true**。
+- 最終 SQL バックアップ `.wrangler/migration-backups/2026-10-18/native-ready.sql`（130,279,875 バイト）。ローカル SQLite に復元して `PRAGMA integrity_check=ok`。件数は監査と一致、本文 5,238 か所すべて complete、子ブロック 70,939、relation 4,708、添付 6件は各チャンク合計がサイズと一致。`native-ready.verification.json` に記録（Git 対象外）。
+- 読み取り比較（通常版と `X-Kairos-Preview: d1`、`X-Kairos-Validation: readonly`）: today・can・phone・doing・project・delegated の6一覧で件数・欠け・余分・項目差（名前・期日・開始日・状態・完了・先行待ち・状況・PJ・優先度・今日の3つ・担当・今夜）がすべて 0。役割・PJ・習慣・見直し・検索・象限も件数一致。応答は D1 が 0.15〜0.34 秒（初回 1.3 秒）、Notion が 0.7〜2.5 秒。
+- D1 モードの一覧が毎回全件を読み直して約1秒かかっていたため、行数・revision・rowid の合計と JST 日付の指紋が変わらない間は解析済みの写しを使い回すようにした（9017fcb）。
 
-残作業は、無料枠リセット後のコピー再開、監査ready確認、最終SQLバックアップと整合検査、PRのマージ・本番デプロイ、D1正本の動作確認。コピー未完了のままデプロイしない。再開コマンドは上記の移行手順を使い、資格情報や実データをGitに追加しない。
+### 未検証として残すもの
+- Mac の `codex://new?prompt=…` 遷移と Android の共有シートは実機未確認。Android 対応済みと扱わない。
+- 外部の Notion 連携（夜間棚卸し・Telegram ボット・リマインダー取り込み・メール/iMessage トリアージ・health-sync・location-sync など）は D1 へ向け直していない。切り替え後はそれらの Notion への書き込みが Kairos に反映されず、Kairos の更新も Notion には届かない。Kairos 本体の移行完了と外部連携の完了を混同しない。
