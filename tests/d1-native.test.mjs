@@ -100,3 +100,10 @@ test('書き込みは1行の rev を進め、読み取りだけでは進めな�
  assert.equal(rev(),r0+2,'書き込みを含むバッチは1回進める');
  assert.equal(revDB(db),db,'二重に包まない');
 });
+
+test('PATCH はアイコンを保存し、未対応の項目は黙って捨てずに拒否する',async t=>{
+ const {env,ids,seed}=setup(t);await seed();
+ const p=await d1Notion(env,'/pages/'+ids[0],{method:'PATCH',body:JSON.stringify({icon:{type:'emoji',emoji:'🧪'}})});
+ assert.equal(p.icon.emoji,'🧪');
+ await assert.rejects(d1Notion(env,'/pages/'+ids[0],{method:'PATCH',body:JSON.stringify({archived:true})}),/Unsupported D1 page field: archived/);
+});

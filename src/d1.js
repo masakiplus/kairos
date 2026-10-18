@@ -86,8 +86,17 @@ export async function loadState(env) {
   const start=p['開始日']?.date?.start?.slice(0,10),due=p['期日']?.date?.start?.slice(0,10);
   const ready=blocked?'先行待ち':!start||start<=today?'着手可':'待機';
   const excluded=(p['親アイテム']?.relation || []).length>0&&p['種類']?.select?.name==='購入';
-  for(const [name,value] of Object.entries({'着手可否':ready,'期限区分':!due?'⑤日付なし':due<today?'①期限切れ':due===today?'②今日':due<=inWeek?'③今週':'④先','前倒し候補':ready==='着手可'&&!excluded&&(!due||(due>today&&due<=inWeek))?'候補':''})) p[name]={...(p[name] || {}),type:'formula',formula:{type:'string',string:value}};
+  const dueClass=!due?'⑤日付なし':due<today?'①期限切れ':due===today?'②今日':due<=inWeek?'③今週':'④先';
+  // （画面）の2列は Notion では UTC 基準だった。D1 では JST の値に揃える (2026-10-18)
+  for(const [name,value] of Object.entries({'着手可否':ready,'着手可否（画面）':ready,'期限区分':dueClass,'期限区分（画面）':dueClass,'前倒し候補':ready==='着手可'&&!excluded&&(!due||(due>today&&due<=inWeek))?'候補':''})) if(name in p || !name.includes('（画面）')) p[name]={...(p[name] || {}),type:'formula',formula:{type:'string',string:value}};
   r.page.url=(env.KAIROS_ORIGIN || '')+'/?page='+r.id;
+ }
+ // Decisions の式 (検証待ち・判断可否) は取り込み時の値のまま止まるので、ここで JST の今日から計算する (2026-10-18)
+ for(const r of rows.values()) if(r.collection==='decisions') {
+  const p=r.page.properties || {};
+  const state=p['状態']?.select?.name,verify=p['検証日']?.date?.start?.slice(0,10),result=p['検証結果']?.select?.name,start=p['開始日']?.date?.start;
+  if('検証待ち' in p) p['検証待ち']={...p['検証待ち'],type:'formula',formula:{type:'string',string:state==='決着'&&verify&&!result&&verify<=today?'検証待ち':''}};
+  if('判断可否' in p) p['判断可否']={...p['判断可否'],type:'formula',formula:{type:'string',string:!start||Date.now()>=Date.parse(start.length<=10?start+'T00:00:00+09:00':start)?'判断可':'判断待ち'}};
  }
  for(const r of rows.values()) r.page.url=(env.KAIROS_ORIGIN || '')+'/?page='+cleanId(r.page.id);
  return {rows,schemas:new Map((schemas.results || []).map(r=>[r.id,JSON.parse(r.payload)]))};
@@ -229,6 +238,8 @@ export async function d1Notion(env,path,init={}) {
   if(row.collection==='roles'&&Object.keys(args.properties || {}).some(k=>k!=='今週の目標'))throw new Error('Roles only allow 今週の目標');
   if(row.collection==='projects'&&Object.keys(args.properties || {}).some(k=>k!=='ステータス'))throw new Error('Projects only allow ステータス');
   const definition=state.schemas.get(row.ds)?.properties || {},stmts=[],paths=[],values=[];
+  for(const key of Object.keys(args))if(!['properties','icon'].includes(key))throw new Error('Unsupported D1 page field: '+key);
+  if('icon' in args){paths.push('?,json(?)');values.push('$.icon',JSON.stringify(args.icon ?? null));}
   for(const [name,input] of Object.entries(args.properties || {})) {
    const p=normalizeProperty(input,definition[name] || row.page.properties?.[name]);
    if(['formula','rollup'].includes(p.type))throw new Error('Computed properties are read only');
