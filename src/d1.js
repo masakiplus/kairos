@@ -338,9 +338,20 @@ export async function storageRoute(req,env,url,json) {
   let block=JSON.parse(row.payload);
   if(block[block.type]?.file) {block=await nget(env,ctx,'/blocks/'+id);await env.DB.prepare('UPDATE entity_children SET payload=? WHERE id=?').bind(JSON.stringify(block),id).run();}
   const value=block[block.type],source=value?.file?.url || value?.external?.url;
-  const target=new URL(source);
-  if(target.protocol!=='https:'||!['amazonaws.com','notion.so','notion-static.com','notionusercontent.com'].some(h=>target.hostname===h||target.hostname.endsWith('.'+h)))return json({error:'External attachment needs separate review'},409);
-  const response=await fetch(target,{redirect:'error'});if(!response.ok)throw new Error('Attachment download failed: '+response.status);
+  const allowed=u=>u.protocol==='https:'&&['amazonaws.com','notion.so','notion-static.com','notionusercontent.com'].some(h=>u.hostname===h||u.hostname.endsWith('.'+h));
+  let target=new URL(source);
+  if(!allowed(target))return json({error:'External attachment needs separate review'},409);
+  // Workers reject redirect:'error'. Follow at most 3 redirects by hand and keep every hop on the allowed hosts (2026-10-18).
+  let response;
+  for(let hop=0;;hop++){
+   response=await fetch(target,{redirect:'manual'});
+   if(response.status<300||response.status>=400)break;
+   const next=response.headers.get('location');
+   if(!next||hop>=3)throw new Error('Attachment redirect not followed: '+response.status);
+   target=new URL(next,target);
+   if(!allowed(target))return json({error:'Attachment redirected to an unreviewed host'},409);
+  }
+  if(!response.ok)throw new Error('Attachment download failed: '+response.status);
   const reader=response.body.getReader();let size=0,part=0;
   await env.DB.batch([env.DB.prepare('INSERT OR REPLACE INTO entity_assets VALUES(?,?,?,?,0)').bind(id,response.headers.get('content-type'),0,value.name || block.type),env.DB.prepare('DELETE FROM entity_asset_chunks WHERE id=?').bind(id)]);
   while(true){const {value:chunk,done}=await reader.read();if(done)break;size+=chunk.byteLength;if(size>32*1024*1024){await reader.cancel();throw new Error('Attachment exceeds 32 MiB');}for(let offset=0;offset<chunk.byteLength;offset+=128*1024){const bytes=chunk.slice(offset,offset+128*1024);await env.DB.prepare('INSERT INTO entity_asset_chunks VALUES(?,?,?)').bind(id,part++,bytes.buffer).run();}}
