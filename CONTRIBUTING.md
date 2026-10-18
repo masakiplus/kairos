@@ -50,7 +50,7 @@
 
 - `render()` が一覧。中身の署名が前回と同じなら DOM を触らない（スクロール位置を保つ）
 - `openSheet()` がタスクのシート、`openPredPick()` 先行ピッカー、`openPjPick()` PJ 付け替え、`openDeps()` つながり（`matchMedia("(min-width:700px)")` でガント／依存順）、`openGraph()` 3 列、`openQuad()` 象限、`renderRoles()` `renderReview()`
-- 状態は変数。`localStorage` は一覧のキャッシュと取り消しの控えだけ
+- 状態は変数。`localStorage` は一覧のキャッシュ、取り消しの控え、AIアプリの選択だけ。受け渡しの依頼文は保存しない
 - 🤖 への遷移（`intent://`）の前に `await` を挟まない（Android Chrome が Web 版に落ちる）
 
 ## 用語

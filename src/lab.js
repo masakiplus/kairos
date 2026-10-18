@@ -32,6 +32,32 @@ const SCHEMA = [
 const nid = (s) => String(s || "").replace(/-/g, "").toLowerCase();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A page response contains only the first relation references. Read every property page
+// before replacing any D1 rows, so a network failure cannot publish a partial relation.
+async function completeRelations(env, ctx, page) {
+  for (const prop of Object.values(page.properties || {})) {
+    if (prop.type !== "relation" || !prop.has_more) continue;
+    const relations = [], cursors = new Set();
+    let cursor;
+    do {
+      const propertyId = encodeURIComponent(decodeURIComponent(prop.id));
+      const query = new URLSearchParams({ page_size: "100", ...(cursor ? { start_cursor: cursor } : {}) });
+      const part = await nget(env, ctx, `/pages/${page.id}/properties/${propertyId}?${query}`);
+      if (!Array.isArray(part.results)) throw new Error("Invalid relation response");
+      for (const item of part.results) {
+        if (item.type !== "relation" || !item.relation?.id) throw new Error("Invalid relation item");
+        relations.push(item.relation);
+      }
+      cursor = part.has_more ? part.next_cursor : null;
+      if (part.has_more && (!cursor || cursors.has(cursor))) throw new Error("Invalid relation cursor");
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    prop.relation = [...new Map(relations.map(r => [nid(r.id), r])).values()];
+    prop.has_more = false;
+  }
+  return page;
+}
+
 /** Notion 呼び出し (429/5xx は待って再試行)。ctx.calls で 1 回の呼び出しあたりの数を数える */
 async function nget(env, ctx, path, init = {}) {
   for (let k = 0; k < 5; k++) {
@@ -141,7 +167,7 @@ async function blocksMd(env, ctx, id, indent) {
         }
         case "synced_block": case "column_list": case "column": line = null; childIndent = indent; break;
         case "table_of_contents": case "breadcrumb": line = `<!-- ${t} -->`; break;
-        default: line = `<!-- ${t} -->`;
+        default: ctx.lossy[t] = (ctx.lossy[t] || 0) + 1; line = `<!-- ${t} -->`;
       }
       if (line !== null) lines.push(pad + line.replace(/\n/g, "\n" + pad));
       if (b.has_children && t !== "child_page" && t !== "child_database" && t !== "table") {
@@ -205,6 +231,7 @@ function toMdFile(row) {
   return fm + row.body_md;
 }
 function parseMdFile(text) {
+  if (typeof text !== "string") throw new Error("text must be a string");
   if (!text.startsWith("---\n")) throw new Error("no frontmatter");
   const end = text.indexOf("\n---\n", 4);
   if (end < 0) throw new Error("frontmatter not closed");
@@ -214,8 +241,17 @@ function parseMdFile(text) {
     const i = line.indexOf(": ");
     const k = i < 0 ? line.replace(/:$/, "") : line.slice(0, i), v = i < 0 ? "" : line.slice(i + 2);
     if (!FM_KEYS.includes(k)) continue;
+    if (Object.hasOwn(o, k)) throw new Error(`duplicate frontmatter: ${k}`);
     o[k] = v;
   }
+  for (const k of FM_KEYS) if (!Object.hasOwn(o, k)) throw new Error(`missing frontmatter: ${k}`);
+  if (!/^[a-f0-9]{32}$/.test(o.id)) throw new Error("invalid id");
+  if (!/^[a-zA-Z0-9_-]+$/.test(o.collection)) throw new Error("invalid collection");
+  if (o.parent_id && !/^[a-f0-9]{32}$/.test(o.parent_id)) throw new Error("invalid parent_id");
+  if (!/^[1-9][0-9]*$/.test(o.version) || !Number.isSafeInteger(Number(o.version))) throw new Error("invalid version");
+  if (typeof JSON.parse(o.title) !== "string") throw new Error("title must be a string");
+  const props = JSON.parse(o.props);
+  if (!props || typeof props !== "object" || Array.isArray(props)) throw new Error("props must be an object");
   return {
     id: o.id, collection: o.collection, title: JSON.parse(o.title || '""'), parent_id: o.parent_id || null,
     created: o.created || null, updated: o.updated || null, version: parseInt(o.version || "1", 10),
@@ -258,7 +294,7 @@ export async function labRoute(req, env, url, json) {
   const q = (k) => url.searchParams.get(k);
   const DS = {
     tasks: env.TASKS_DATA_SOURCE_ID, projects: env.PROJECTS_DATA_SOURCE_ID, decisions: env.DECISIONS_DATA_SOURCE_ID,
-    roles: env.ROLES_DATA_SOURCE_ID, habits: env.HABITS_DATA_SOURCE_ID,
+    roles: env.ROLES_DATA_SOURCE_ID, habits: env.HABITS_DATA_SOURCE_ID, habit_log: env.HABIT_LOG_DATA_SOURCE_ID,
   };
 
   if (path === "/api/lab/init" && req.method === "POST") {
@@ -274,6 +310,7 @@ export async function labRoute(req, env, url, json) {
     const r = await nget(env, ctx, `/data_sources/${ds}/query`, { method: "POST", body: JSON.stringify({ page_size: 100, ...(q("cursor") ? { start_cursor: q("cursor") } : {}) }) });
     const stmts = [];
     for (const page of r.results || []) {
+      await completeRelations(env, ctx, page);
       const { title, props, rels } = propsOf(page);
       const id = nid(page.id);
       const parent = page.parent?.type === "page_id" ? nid(page.parent.page_id) : null;
@@ -369,33 +406,65 @@ export async function labRoute(req, env, url, json) {
   }
 
   if (path === "/api/lab/import-md" && req.method === "POST") {
-    const body = await req.json();
-    const stmts = [], errors = [];
-    for (const f of body.files || []) {
+    let body;
+    try { body = await req.json(); } catch { return json({ n: 0, errors: ["invalid JSON"] }, 400); }
+    if (!Array.isArray(body?.files) || !body.files.length || body.files.length > 500) {
+      return json({ n: 0, errors: ["files must contain 1..500 entries"] }, 400);
+    }
+    const stmts = [], errors = [], ids = new Set();
+    for (const [i, f] of body.files.entries()) {
       try {
-        const d = parseMdFile(f.text ?? f);
+        const d = parseMdFile(typeof f === "string" ? f : f?.text);
+        if (ids.has(d.id)) throw new Error(`duplicate id: ${d.id}`);
+        ids.add(d.id);
         stmts.push(env.DB.prepare(
           `INSERT OR REPLACE INTO docs_rt (id, collection, title, parent_id, props, body_md, created, updated, version, body_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'rt')`
         ).bind(d.id, d.collection, d.title, d.parent_id, d.props, d.body_md, d.created, d.updated, d.version));
-      } catch (e) { errors.push(String(e.message || e)); }
+      } catch (e) { errors.push(`files[${i}]: ${e.message || e}`); }
     }
-    if (stmts.length) await env.DB.batch(stmts);
+    // 1 件でも壊れていればバッチ全体を拒否し、部分的な復元を成功と見せない。
+    if (errors.length) return json({ n: 0, errors }, 400);
+    await env.DB.batch(stmts);
     return json({ n: stmts.length, errors });
   }
 
   if (path === "/api/lab/compare" && req.method === "GET") {
-    const one = async (sql) => (await env.DB.prepare(sql).first()).n;
-    const res = {
-      docs: await one(`SELECT COUNT(*) n FROM docs`),
-      rt: await one(`SELECT COUNT(*) n FROM docs_rt`),
-      missing_in_rt: await one(`SELECT COUNT(*) n FROM docs d LEFT JOIN docs_rt r ON r.id = d.id WHERE r.id IS NULL`),
-      title_diff: await one(`SELECT COUNT(*) n FROM docs d JOIN docs_rt r ON r.id = d.id WHERE d.title IS NOT r.title`),
-      props_diff: await one(`SELECT COUNT(*) n FROM docs d JOIN docs_rt r ON r.id = d.id WHERE d.props IS NOT r.props`),
-      body_diff: await one(`SELECT COUNT(*) n FROM docs d JOIN docs_rt r ON r.id = d.id WHERE d.body_md IS NOT r.body_md`),
-      meta_diff: await one(`SELECT COUNT(*) n FROM docs d JOIN docs_rt r ON r.id = d.id WHERE d.collection IS NOT r.collection OR IFNULL(d.parent_id,'') IS NOT IFNULL(r.parent_id,'') OR IFNULL(d.created,'') IS NOT IFNULL(r.created,'') OR IFNULL(d.updated,'') IS NOT IFNULL(r.updated,'') OR d.version IS NOT r.version`),
-    };
-    const ex = await env.DB.prepare(`SELECT d.id FROM docs d JOIN docs_rt r ON r.id = d.id WHERE d.body_md IS NOT r.body_md OR d.props IS NOT r.props OR d.title IS NOT r.title LIMIT 5`).all();
-    res.examples = (ex.results || []).map((x) => x.id);
+    const meta = `d.collection IS NOT r.collection OR d.parent_id IS NOT r.parent_id OR d.created IS NOT r.created OR d.updated IS NOT r.updated OR d.version IS NOT r.version`;
+    // 主 DB の同じバッチで集計と例を取得。古いレプリカを合格判定に使わない。
+    const [counts, examples] = await env.DB.batch([
+      env.DB.prepare(`WITH paired AS (SELECT
+        d.title IS NOT r.title AS title_diff, d.props IS NOT r.props AS props_diff,
+        d.body_md IS NOT r.body_md AS body_diff, (${meta}) AS meta_diff
+        FROM docs d JOIN docs_rt r ON r.id = d.id)
+        SELECT (SELECT COUNT(*) FROM docs) AS docs,
+          (SELECT COUNT(*) FROM docs_rt) AS rt,
+          (SELECT COUNT(*) FROM docs d WHERE NOT EXISTS (SELECT 1 FROM docs_rt r WHERE r.id = d.id)) AS missing_in_rt,
+          (SELECT COUNT(*) FROM docs_rt r WHERE NOT EXISTS (SELECT 1 FROM docs d WHERE d.id = r.id)) AS extra_in_rt,
+          COALESCE(SUM(title_diff), 0) AS title_diff, COALESCE(SUM(props_diff), 0) AS props_diff,
+          COALESCE(SUM(body_diff), 0) AS body_diff, COALESCE(SUM(meta_diff), 0) AS meta_diff,
+          (SELECT COUNT(*) FROM docs WHERE body_status != 'done') AS incomplete_bodies,
+          (SELECT COUNT(*) FROM docs WHERE CASE WHEN json_valid(conv) THEN
+            json_type(conv, '$.missing') IS NOT 'integer' OR json_extract(conv, '$.missing') < 0 OR
+            json_type(conv, '$.lossy') IS NOT 'object' OR json_type(conv, '$.truncated') NOT IN ('true', 'false') OR
+            json_type(conv, '$.truncated') IS NULL
+            ELSE 1 END) AS invalid_conv,
+          (SELECT COUNT(*) FROM docs WHERE CASE WHEN json_valid(props) THEN json_type(props) IS NOT 'object' ELSE 1 END) AS invalid_props,
+          (SELECT COUNT(*) FROM docs WHERE json_valid(conv) AND (
+            json_extract(conv, '$.error') IS NOT NULL OR json_extract(conv, '$.truncated') = 1 OR
+            json_extract(conv, '$.missing') > 0 OR EXISTS (SELECT 1 FROM json_each(conv, '$.lossy') WHERE value > 0))) AS conversion_issues,
+          (SELECT COUNT(*) FROM docs WHERE json_valid(props) AND EXISTS (
+            SELECT 1 FROM json_each(props) WHERE substr(key, -6) = '__more' AND value = 1)) AS partial_props
+        FROM paired`),
+      env.DB.prepare(`SELECT id FROM (
+        SELECT d.id FROM docs d LEFT JOIN docs_rt r ON r.id = d.id
+        WHERE r.id IS NULL OR d.title IS NOT r.title OR d.props IS NOT r.props OR d.body_md IS NOT r.body_md OR ${meta}
+        UNION SELECT r.id FROM docs_rt r LEFT JOIN docs d ON d.id = r.id WHERE d.id IS NULL
+      ) ORDER BY id LIMIT 5`),
+    ]);
+    const res = counts.results[0];
+    res.examples = examples.results.map((x) => x.id);
+    res.roundtrip_ok = res.docs > 0 && ["missing_in_rt", "extra_in_rt", "title_diff", "props_diff", "body_diff", "meta_diff"].every((k) => res[k] === 0);
+    res.ok = res.roundtrip_ok && ["incomplete_bodies", "invalid_conv", "invalid_props", "conversion_issues", "partial_props"].every((k) => res[k] === 0);
     return json(res);
   }
 
@@ -406,3 +475,6 @@ export async function labRoute(req, env, url, json) {
 
   return json({ error: "not found" }, 404);
 }
+
+// Shared with the explicit raw migration path. Normal D1 reads never call these.
+export { nget, completeRelations };
