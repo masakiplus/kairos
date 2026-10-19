@@ -428,7 +428,7 @@ const INSTRUCTIONS =
   "規約:\n- " + RULES.join("\n- ");
 
 const ID_PROP = { type: "string", description: "ページ ID（32 桁の 16 進、ハイフン可）" };
-const DB_PROP = { type: "string", enum: ["tasks", "projects", "roles", "decisions", "habits", "habitlog"], description: "対象の DB" };
+const DB_PROP = { type: "string", description: "中核は tasks / projects / roles / decisions / habits / habitlog。追加の DB（sessions, daily, dreamtime, proposals, blog_neta など）は DB 名で指定。対象の DB" };
 const READ = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
@@ -511,12 +511,13 @@ const TOOLS = [
     description: "tasks / decisions / habitlog に 1 件作る。fields は {プロパティ名: 値}（日付は YYYY-MM-DD か ISO 日時、複数選択・リレーションは配列）。icon（絵文字）は tasks で必須。body は Markdown 風の本文。",
     inputSchema: {
       type: "object",
-      properties: { database: { type: "string", enum: ["tasks", "decisions", "habitlog"] }, fields: { type: "object" }, icon: { type: "string" }, body: { type: "string" } },
+      properties: { database: DB_PROP, fields: { type: "object" }, icon: { type: "string" }, body: { type: "string" } },
       required: ["database", "fields"],
       additionalProperties: false,
     },
     annotations: WRITE,
     run: async (a, ctx) => {
+      if (["roles", "projects", "habits"].includes(normName(a.database))) throw new Error("この DB には作れません（Roles / Projects / Habits は更新だけ）");
       const ds = await dsOf(ctx, a.database), schema = await schemaOf(ctx, ds);
       const props = Object.fromEntries(Object.entries(a.fields).map(([k, v]) => [k, toProp(schema, k, v)]));
       const payload = { parent: { data_source_id: ds }, properties: props };
