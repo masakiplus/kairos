@@ -7,6 +7,10 @@ export const cleanId = x => String(x || '').replace(/-/g,'').toLowerCase();
 export const reservedCollections = new Set(['pages','nested',...Object.keys(collectionVars)]);
 export const isExtraName = n => /^[a-z][a-z0-9_]{1,31}$/.test(n || '') && !reservedCollections.has(n);
 // データソース ID から collection 名を引く。中核は環境変数、それ以外は entity_schemas に登録された名前。
+export async function isExtraEntity(env,id) {
+ const row=await env.DB.prepare('SELECT collection FROM entities WHERE id=?').bind(id).first();
+ return !!row && !(row.collection in collectionVars) && !['pages','nested'].includes(row.collection);
+}
 export async function collectionOfSource(env,source) {
  const s=cleanId(source);
  const core=Object.entries(collectionVars).find(([,key])=>cleanId(env[key])===s)?.[0];
@@ -338,7 +342,12 @@ export async function storageRoute(req,env,url,json) {
   const pending=(await env.DB.prepare('SELECT e.id FROM entities e LEFT JOIN entity_bodies b ON b.id=e.id WHERE COALESCE(b.complete,0)=0').all()).results.length;
   return json({backend:env.DATA_BACKEND || 'notion',entities:counts.results,bodies:bodies.results,pending,ids});
  }
- if(env.DATA_BACKEND==='d1')return json({error:'Migration is disabled after D1 cutover'},409);
+ if(env.DATA_BACKEND==='d1') {
+  // 切替後も中核6つは取り込み禁止(D1 側の更新を Notion で上書きしないため)。追加コレクションの取り込みだけ許す。
+  const qc=url.searchParams.get('coll'),qid=cleanId(url.searchParams.get('id'));
+  const extraOk=req.method==='POST' && (((path==='/api/storage/capture' || path==='/api/storage/capture-source') && isExtraName(qc)) || (path==='/api/storage/capture-body' && await isExtraEntity(env,qid)));
+  if(!extraOk)return json({error:'Migration is disabled after D1 cutover'},409);
+ }
  if(req.method!=='POST')return json({error:'POST required'},405);
  if(path==='/api/storage/init'){await initD1(env);return json({ok:true});}
  if(path==='/api/storage/complete-empty') {

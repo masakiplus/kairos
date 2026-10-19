@@ -82,3 +82,12 @@ test('capture: 名前が不正・予約語・ds 欠落は 400、別名で登録�
   assert.equal((await call('coll=sessions')).status, 400);
   assert.equal((await call('coll=daily&ds=' + sessDs)).status, 409);
 });
+
+test('D1 切替後: 中核の capture は 409、追加コレクションの capture は入口を通る', async t => {
+  const {env} = setup(t);
+  env.DATA_BACKEND = 'd1';
+  const json = (body, status = 200) => ({body, status});
+  const call = (q) => storageRoute({method: 'POST', headers: new Headers()}, env, new URL('https://kairos.test/api/storage/capture?' + q), json);
+  assert.equal((await call('coll=tasks')).status, 409);
+  assert.equal((await call('coll=sessions')).status, 400); // ds 欠落で弾かれる=切替ガードは通った
+});
