@@ -313,13 +313,14 @@ export async function d1Notion(env,path,init={}) {
   const rows=await env.DB.prepare('SELECT payload FROM entity_children WHERE parent_id=? ORDER BY position,id').bind(parent).all();
   if(method==='GET'){const assets=await env.DB.prepare('SELECT id FROM entity_assets WHERE complete=1').all();const saved=new Set((assets.results || []).map(a=>a.id));return paged((rows.results || []).map(r=>{const b=JSON.parse(r.payload);if(saved.has(cleanId(b.id))) {const v=b[b.type],href=(env.KAIROS_ORIGIN || '')+'/api/storage/files/'+cleanId(b.id);if(v.file)v.file.url=href;else v.external={url:href};}return b;}),args);}
   if(method==='PATCH') {
-   const offset=(rows.results || []).length,{blocks,stmts}=blockStatements(env,parent,args.children || [],offset);
+   let offset=(rows.results || []).length;const pre=[];const afterId=args.after?cleanId(args.after):null;if(afterId){const ar=await env.DB.prepare('SELECT position FROM entity_children WHERE parent_id=? AND id=?').bind(parent,afterId).first();if(!ar)throw new Error('after block not found');offset=ar.position+1;pre.push(env.DB.prepare('UPDATE entity_children SET position=position+? WHERE parent_id=? AND position>?').bind((args.children||[]).length,parent,ar.position));}const {blocks,stmts}=blockStatements(env,parent,args.children || [],offset);stmts.unshift(...pre);
    stmts.push(env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(new Date().toISOString(),parent));
    await env.DB.batch(stmts);
    invalidate(env);
    return {results:blocks};
   }
  }
+ if(method==='DELETE'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');await env.DB.batch([env.DB.prepare('WITH RECURSIVE d(id) AS (SELECT ?1 UNION SELECT c.id FROM entity_children c JOIN d ON c.parent_id=d.id) DELETE FROM entity_children WHERE id IN (SELECT id FROM d)').bind(id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(new Date().toISOString(),row.parent_id)]);invalidate(env);return {...JSON.parse(row.payload),archived:true};}
  throw new Error('Unsupported D1 operation: '+method+' '+url.pathname);
 }
 
