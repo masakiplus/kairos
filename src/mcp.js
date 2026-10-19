@@ -400,10 +400,10 @@ const isOpen = (row) => {
   return !["決着", "完了", "見送り", "アーカイブ", "終了"].includes(st);
 };
 
-// 規約 (/api/storage/agent の rules)。Roles は 今週の目標、Projects は ステータス／対応ゴール／完了条件／役割 だけ。タスクの完了は done 経由
+// 規約 (/api/storage/agent の rules)。Roles は 今週の目標、Projects は ステータス／名前／対応ゴール／完了条件／役割 だけ。タスクの完了は done 経由
 async function guardUpdate(ctx, ds, fields) {
   const coll = await collectionOf(ctx, ds), keys = Object.keys(fields);
-  const only = { roles: ["今週の目標"], projects: ["ステータス", "対応ゴール", "完了条件", "役割"] }[coll];
+  const only = { roles: ["今週の目標"], projects: ["ステータス", "名前", "対応ゴール", "完了条件", "役割"] }[coll];
   if (only) {
     const bad = keys.filter((k) => !only.includes(k));
     if (bad.length) throw new Error(`${coll} で変えてよいのは ${only.join("、")} だけです（${bad.join("、")} は不可）`);
@@ -418,7 +418,7 @@ const RULES = [
   "タスクの完了は kairos_task_action の done で行う（完了日とステータスが一緒に入り、AI処理開始も空になる）。",
   "既存の本文・理由行は残す。本文への追記は kairos_append_body を使う。",
   "操作が成功したか、ツールの結果で確かめてから報告する。失敗したら失敗と伝える。",
-  "Roles で変えてよいのは 今週の目標 だけ。Projects で変えてよいのは ステータス・対応ゴール・完了条件・役割 だけ。",
+  "Roles で変えてよいのは 今週の目標 だけ。Projects で変えてよいのは ステータス・名前・対応ゴール・完了条件・役割 だけ（名前と完了条件は、人が決めた内容を書き写すときだけ変える）。",
   "AIに渡されたタスクは、終わるとき AI処理開始 を空にする（done なら自動。止まるなら kairos_task_action の human か ai_clear）。人の手が要って止まるなら human（ステータス=人対応）。",
 ];
 
@@ -530,7 +530,7 @@ const TOOLS = [
   {
     name: "kairos_update",
     title: "プロパティを更新",
-    description: "1 件の一部のプロパティを更新する。fields は {プロパティ名: 値}。null で空にする。選択肢にない値は作らずエラーにする。タスクの完了は不可（kairos_task_action の done）。Roles は 今週の目標、Projects は ステータス だけ。",
+    description: "1 件の一部のプロパティを更新する。fields は {プロパティ名: 値}。null で空にする。選択肢にない値は作らずエラーにする。タスクの完了は不可（kairos_task_action の done）。Roles は 今週の目標、Projects は ステータス・名前・対応ゴール・完了条件・役割 だけ。",
     inputSchema: { type: "object", properties: { id: ID_PROP, fields: { type: "object" }, icon: { type: "string" } }, required: ["id", "fields"], additionalProperties: false },
     annotations: { ...WRITE, idempotentHint: true },
     run: async (a, ctx) => {

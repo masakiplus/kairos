@@ -44,7 +44,7 @@ node --env-file=.dev.vars scripts/migrate-native.mjs /tmp/kairos-migration-vars.
 - 完了: `POST /api/tasks/:id/done`。完了・完了日・ステータスの3点と処理中の解除をまとめて行う。
 - 取り消し: `POST /api/tasks/:id/restore`。
 
-この互換APIはKairosが使う操作の範囲であり、Notion API全体の実装ではない。未対応操作はエラーにし、Notionへ転送しない。役割は今週の目標、PJはステータスだけを変更する。依存の循環は拒否する。
+この互換APIはKairosが使う操作の範囲であり、Notion API全体の実装ではない。未対応操作はエラーにし、Notionへ転送しない。役割は今週の目標、PJはステータス・名前・対応ゴール・完了条件・役割だけを変更する。依存の循環は拒否する。
 
 AI向けの文面はD1正本と上記のAPIを指示する。**既存のNotion用AI接続や夜間ジョブが自動的にD1へ接続し直されるわけではない。** 呼び出し先・認証・対応操作をそれぞれ変更する必要がある。Notionへの更新は切り替え後のKairosには反映されない。位置受信も従来Notionに書く外部ジョブなので、新しい正本に継続反映するには同様の対応が必要。
 
