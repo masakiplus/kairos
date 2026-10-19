@@ -1223,7 +1223,7 @@ const kairosWorker = {
       if (env.DATA_BACKEND === "d1") env = await d1Environment(env);
       if (path.startsWith("/api/storage/")) return await storageRoute(req, env, url, json);
       if (path.startsWith("/api/data/") && env.DATA_BACKEND === "d1") {
-        if (!["GET", "POST", "PATCH"].includes(req.method)) return json({ error: "method not allowed" }, 405);
+        if (!(["GET", "POST", "PATCH"].includes(req.method) || (req.method === "DELETE" && path.startsWith("/api/data/blocks/")))) return json({ error: "method not allowed" }, 405);
         return json(await d1Notion(env, path.slice('/api/data'.length) + url.search, { method: req.method, ...(req.method === "GET" ? {} : { body: await req.text() }) }));
       }
       if (path.startsWith("/api/lab/")) return env.DATA_BACKEND === "d1" ? json({ error: "Legacy migration API is disabled after D1 cutover" }, 410) : await labRoute(req, env, url, json);
