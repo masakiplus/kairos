@@ -30,11 +30,13 @@
  *   POST /api/tasks/:id/evening  今夜に送る (開始日=今日 18:00 の日時。一覧の「今夜」節に移る)
  *   POST /api/tasks/:id/daytime  今夜を解除して今日に戻す (開始日=今日、日付のみ)
  *   GET  /health                 認証なし。Worker が生きているかだけ返す
+ *   /mcp /authorize /oauth/* /.well-known/oauth-*  MCP コネクタ (OAuth)。claude.ai などから使う。自前の署名トークンで守る。docs/mcp.md
  *
  * 認証: Cookie `tp` か `Authorization: Bearer <APP_TOKEN>`。トークン1本の個人用なので凝らない。
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
 import { d1Notion, storageRoute, d1Environment, revDB } from "./d1.js";
+import { isMcpPath, mcpRoute } from "./mcp.js";
 import APP_HTML from "./app.html";
 import SW_JS from "./sw.txt";
 import MANIFEST from "./manifest.webmanifest";
@@ -1150,11 +1152,30 @@ function authed(req, env) {
 const kairosWorker = {
   async fetch(req, env) {
     const url = new URL(req.url);
+    const rawEnv = env; // MCP の内部呼び出し用 (revDB で包む前の env)
     env = { ...env, KAIROS_ORIGIN: url.origin, ...(env.DB ? { DB: revDB(env.DB) } : {}) }; // 書き込みごとに storage_control.rev を進める (2026-10-18)
     const path = url.pathname;
 
     if (path === "/health") return json({ ok: true, ts: new Date().toISOString() });
     if ((!env.NOTION_TOKEN && env.DATA_BACKEND !== "d1") || !env.APP_TOKEN) return json({ error: "secrets not configured" }, 503);
+
+    // MCP コネクタ (2026-10-19, docs/mcp.md): /mcp・OAuth・.well-known。Cookie/APP_TOKEN の認証より前に置く (自前のトークンで守る)。
+    // tools は Worker 自身の API を内部で呼ぶ。APP_TOKEN は Worker の外へ出ない
+    if (isMcpPath(path)) {
+      return await mcpRoute(req, rawEnv, url, {
+        authed: (r) => authed(r, rawEnv),
+        safeEq,
+        call: (method, p, body) =>
+          kairosWorker.fetch(
+            new Request(url.origin + p, {
+              method,
+              headers: { Authorization: `Bearer ${rawEnv.APP_TOKEN}`, "Content-Type": "application/json" },
+              ...(body === undefined || method === "GET" ? {} : { body: JSON.stringify(body) }),
+            }),
+            rawEnv
+          ),
+      });
+    }
 
     // ?t=<APP_TOKEN> で来たら Cookie を焼いて / に戻す (PWA インストール前の初回だけ使う)
     const t = url.searchParams.get("t");

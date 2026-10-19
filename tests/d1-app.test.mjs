@@ -6,7 +6,7 @@ import {initD1} from '../src/d1.js';
 const src=name=>readFileSync(new URL('../src/'+name,import.meta.url),'utf8');
 test('本体APIがNOTION_TOKENなしで一覧・完了・復元し、プレビューでは更新しない',async()=>{
  const ds='d'.repeat(32),id='a'.repeat(32);let outbound=0;
- const source=src('lab.js')+'\n'+src('d1.js').replace(/^import .*;$/m,'')+'\n'+src('icons.js').replaceAll('export const ', 'const ')+'\n'+['APP_HTML','SW_JS','MANIFEST'].map((name,i)=>'const '+name+'='+JSON.stringify(src(['app.html','sw.txt','manifest.webmanifest'][i]))+';').join('\n')+'\n'+src('index.js').replace(/^import .*\n/gm,'');
+ const source=src('lab.js')+'\n'+src('d1.js').replace(/^import .*;$/m,'')+'\n'+src('icons.js').replaceAll('export const ', 'const ')+'\n'+['APP_HTML','SW_JS','MANIFEST'].map((name,i)=>'const '+name+'='+JSON.stringify(src(['app.html','sw.txt','manifest.webmanifest'][i]))+';').join('\n')+'\nconst {isMcpPath,mcpRoute}=(()=>{'+src('mcp.js').replace(/^export /gm,'')+'\nreturn {isMcpPath,mcpRoute};})();\n'+src('index.js').replace(/^import .*\n/gm,'');
  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-09-01',d1Databases:['DB'],bindings:{APP_TOKEN:'test-only-token',DATA_BACKEND:'d1'},outboundService:()=>{outbound++;return new Response('blocked',{status:500});},script:source}));
  try{
   const db=await mf.getD1Database('DB');await initD1({DB:db});

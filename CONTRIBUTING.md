@@ -44,6 +44,8 @@
 | `POST /api/tasks/:id/restore {...}` | 取り消し（渡された列だけ戻す） |
 | `POST /api/tasks/:id/(done\|reopen\|defer\|wait\|human\|start\|skip\|dup\|evening\|daytime\|ai\|ai-clear\|delegate\|mit\|mit-clear\|due\|project\|doing\|todo)` | 1 タップ操作。`?note=` `?with=` `?date=` `?to=` `?mode=update&resume=1` |
 
+MCP コネクタ（`src/mcp.js`、`/mcp` `/authorize` `/oauth/*` `/.well-known/oauth-*`）は Cookie／APP_TOKEN の認証より前でルーティングし、自前の署名トークンで守る。tools は `/api/*` を内部で呼ぶだけで、削除の道具は足さない。仕様と取り消しは `docs/mcp.md`。
+
 認証: 初回 `/?t=<APP_TOKEN>` で Cookie。`/api/*` は Cookie か `Authorization: Bearer`。`/health` `/sw.js` `/manifest.webmanifest` とアイコンは認証なし。
 
 ## 画面（`src/app.html`）の構成
