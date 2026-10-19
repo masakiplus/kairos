@@ -523,6 +523,37 @@
   // form の暗黙送信 (Enter) も変換中は止める
   document.addEventListener("keydown", (e) => { if (imeEnter(e) && e.target.matches("input")) e.preventDefault(); }, true);
 
+  // 📊 ボタンのタップ計測 (2026-10-20): シート・一覧のボタンを日×ボタン名で数え、まとめて /api/taps へ送る。配置の見直し (使用頻度順) の根拠にする。失敗しても操作には影響させない
+  const tapQ = new Map();
+  const tapKey = (b) => {
+    if (b.closest("#sheet")) {
+      const d = b.dataset;
+      if (d.a) return "sheet:" + d.a;
+      if (d.env) return "sheet:env:" + d.env;
+      if (d.dg !== undefined) return "sheet:delegate";
+      if (d.p) return "sheet:pred:" + d.p;
+      if (b.id) return "sheet:#" + b.id;
+      if (b.matches("a[data-ai]")) return "sheet:ai:" + (b.dataset.mode || "run");
+      return "";
+    }
+    if (b.matches("button.ring[data-done]")) return "row:done";
+    if (b.matches("button.go[data-claude]")) return "row:claude";
+    return "";
+  };
+  const tapFlush = () => {
+    if (!tapQ.size) return;
+    const items = [...tapQ].map(([k, n]) => ({ k, n })); tapQ.clear();
+    try { fetch("/api/taps", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {}); } catch (e) {}
+  };
+  document.addEventListener("click", (e) => {
+    const el = e.target && e.target.closest ? e.target.closest("button, a[data-ai]") : null;
+    if (!el || el.disabled) return;
+    const k = tapKey(el); if (!k) return;
+    tapQ.set(k, (tapQ.get(k) || 0) + 1);
+    if (tapQ.size >= 20) tapFlush();
+  }, true);
+  setInterval(tapFlush, 10000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") tapFlush(); });
   const apiFetch = (path, opt = {}) => fetch(path, { ...opt, headers: { ...(opt.headers || {}), ...(window.KAIROS_PREVIEW ? { "X-Kairos-Preview": "d1" } : {}) } });
   const api = async (path, opt = {}) => {
     const r = await apiFetch(path, { ...opt, headers: { "Content-Type": "application/json", ...(opt.headers || {}) } });

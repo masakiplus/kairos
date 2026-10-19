@@ -35,6 +35,7 @@
  * 認証: Cookie `tp` か `Authorization: Bearer <APP_TOKEN>`。トークン1本の個人用なので凝らない。
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
+import { tapsAdd, tapsReport } from "./taps.js";
 import { d1Notion, storageRoute, d1Environment, revDB } from "./d1.js";
 import { isMcpPath, mcpRoute } from "./mcp.js";
 import APP_HTML from "./app.html";
@@ -1271,6 +1272,9 @@ const kairosWorker = {
       // 🧭 役割タブ (Phase B-6): 読むだけ。書くのは 今週の目標 (今週の石) だけ
       if (path === "/api/roles" && req.method === "GET") return json(await rolesInfo(env));
       if (path === "/api/where" && req.method === "GET") return json(await whereNow(env));
+      // 📊 ボタンのタップ回数 (2026-10-20): シートのボタン配置を使用頻度で決めるための計測。日 × ボタン名 の回数だけを D1 に持つ (誰が・どのタスクかは持たない)
+      if (path === "/api/taps" && req.method === "POST") return json(await tapsAdd(env, await req.json().catch(() => ({}))));
+      if (path === "/api/taps" && req.method === "GET") return json(await tapsReport(env, Number(url.searchParams.get("days")) || 30));
       const mpg = path.match(/^\/api\/page\/([0-9a-f-]{32,36})$/);
       if (mpg && req.method === "GET") return json(await readerPage(env, mpg[1]));
       const mrg = path.match(/^\/api\/roles\/([0-9a-f-]{32,36})\/goal$/);
