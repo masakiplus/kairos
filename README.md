@@ -63,6 +63,10 @@ D1 移行実験の手順と合格条件は [`docs/d1-migration-checks.md`](docs/
 
 画面上部の「任せるAI」で Claude（既定）／ChatGPT／Antigravity を選べる。ChatGPTとAntigravityは、表示した依頼文をコピーして各アプリへ貼り付ける。[渡し方・セッション・Macでの確認](docs/ai-handoff.md)を参照。
 
+## MCP コネクタ
+
+claude.ai やクラウドのセッションから、トークンを渡さずに Kairos を読み書きできる。`https://<worker>/mcp` を OAuth でつなぐ。MCP のトークンでは `/api/*` を直接呼べず、使えるのは決まった tools だけ（削除はできない）。つなぎ方・取り消し・検査は [`docs/mcp.md`](docs/mcp.md)。
+
 ## 周辺
 
 - 夜間の棚卸し（期限切れの置き直し・依存と日程の提案・メモ取り込み）は別リポジトリの headless ジョブが行い、提案は Notion の Decisions に置かれて Kairos の見直しタブで確定する。Kairos 単体でも動く。
