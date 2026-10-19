@@ -10,7 +10,7 @@ const root=outputDir.replace(/\/$/,'')+'/';await mkdir(root,{recursive:true,mode
 async function api(path){const r=await fetch(origin+'/api/storage/'+path,{method:'POST',headers:{Authorization:'Bearer '+process.env.APP_TOKEN},redirect:'error',signal:AbortSignal.timeout(180000)});if(!r.ok){await writeFile(root+'last-error.json',await r.text(),{mode:0o600});throw new Error(path.split('?')[0]+' HTTP '+r.status);}return r.json();}
 if(phase==='props'||phase==='all'){
  await api('init');let counts={};
- for(const coll of ['tasks','projects','roles','decisions','habits','habit_log']){let cursor,n=0;do{const r=await api('capture?'+new URLSearchParams({coll,...(cursor?{cursor}:{})}));cursor=r.next;n+=r.n;console.log(coll,n);await pause(400);}while(cursor);counts[coll]=n;await writeFile(root+'counts.json',JSON.stringify(counts),{mode:0o600});}
+ for(const coll of ['tasks','projects','roles','decisions','habits','habit_log']){let cursor,n=0;do{const r=await api('capture?'+new URLSearchParams({coll,...(cursor?{cursor}:{})}));cursor=r.next;n+=r.n;console.log(coll,n);await pause(400);}while(cursor);counts[coll]=n;await writeFile(root+'counts.json',JSON.stringify(counts),{mode:0o600});} if(process.env.EXTRA_SOURCES_FILE){const extra=JSON.parse(await readFile(process.env.EXTRA_SOURCES_FILE,'utf8'));for(const {coll,ds} of extra){let cursor,n=0;do{const r=await api('capture?'+new URLSearchParams({coll,ds,...(cursor?{cursor}:{})}));cursor=r.next;n+=r.n;console.log(coll,n);await pause(400);}while(cursor);counts[coll]=n;await writeFile(root+'counts.json',JSON.stringify(counts),{mode:0o600});}}
  const presence=vars.find(v=>v.name==='PRESENCE_PAGE_ID')?.value;if(presence)await api('capture-page?id='+presence);
 }
 
