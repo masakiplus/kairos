@@ -3,6 +3,17 @@
 import { nget, completeRelations } from './lab.js';
 export const collectionVars = {tasks:'TASKS_DATA_SOURCE_ID',projects:'PROJECTS_DATA_SOURCE_ID',roles:'ROLES_DATA_SOURCE_ID',decisions:'DECISIONS_DATA_SOURCE_ID',habits:'HABITS_DATA_SOURCE_ID',habit_log:'HABIT_LOG_DATA_SOURCE_ID'};
 export const cleanId = x => String(x || '').replace(/-/g,'').toLowerCase();
+// 6つの中核コレクション以外(Sessions・Daily など)を登録できる。名前は小文字英数字と _ だけ(予約語は不可)。
+export const reservedCollections = new Set(['pages','nested',...Object.keys(collectionVars)]);
+export const isExtraName = n => /^[a-z][a-z0-9_]{1,31}$/.test(n || '') && !reservedCollections.has(n);
+// データソース ID から collection 名を引く。中核は環境変数、それ以外は entity_schemas に登録された名前。
+export async function collectionOfSource(env,source) {
+ const s=cleanId(source);
+ const core=Object.entries(collectionVars).find(([,key])=>cleanId(env[key])===s)?.[0];
+ if(core)return core;
+ const row=await env.DB.prepare('SELECT collection FROM entity_schemas WHERE id=?').bind(s).first();
+ return row?.collection || null;
+}
 const schema = [
  `CREATE TABLE IF NOT EXISTS entities(id TEXT PRIMARY KEY, ds TEXT, collection TEXT NOT NULL, payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1)`,
  `CREATE INDEX IF NOT EXISTS entities_ds ON entities(ds)`,
@@ -274,7 +285,7 @@ export async function d1Notion(env,path,init={}) {
   }
   const id=crypto.randomUUID(),now=new Date().toISOString();
   const page={object:'page',id,created_time:now,last_edited_time:now,archived:false,in_trash:false,icon:args.icon || null,parent:args.parent,properties:props,url:'/api/page/'+cleanId(id)};
-  const coll=Object.entries(collectionVars).find(([,key])=>cleanId(env[key])===ds)?.[0] || 'pages';
+  const coll=(await collectionOfSource(env,ds)) || 'pages';
   const extra=[env.DB.prepare('INSERT INTO entity_bodies VALUES(?,1)').bind(cleanId(id)),env.DB.prepare('INSERT INTO entity_body_versions VALUES(?,?)').bind(cleanId(id),now),...blockStatements(env,cleanId(id),args.children || []).stmts];
   for(const [name,p] of Object.entries(props))if(p.type==='relation')for(const rel of p.relation){const target=state.rows.get(cleanId(rel.id));if(!target)throw new Error('Relation target is not migrated');const reciprocal=definition.properties[name]?.relation?.dual_property?.synced_property_name;if(reciprocal)extra.push(env.DB.prepare('INSERT OR IGNORE INTO entity_links VALUES(?,?,?)').bind(cleanId(rel.id),reciprocal,cleanId(id)));}
   await storePage(env,page,coll,ds,undefined,extra);
@@ -300,7 +311,7 @@ export async function d1Notion(env,path,init={}) {
 export async function storageRoute(req,env,url,json) {
  const path=url.pathname,ctx={calls:0};
  if(path==='/api/storage/agent')return json({backend:env.DATA_BACKEND || 'notion',authentication:'Existing Kairos HttpOnly cookie or Authorization: Bearer APP_TOKEN. Never put credentials in URLs or prompts.',sources:'/api/storage/sources',read:'GET /api/data/pages/:id',query:'POST /api/data/data_sources/:id/query',update:'PATCH /api/data/pages/:id {properties:{...}}',create:'POST /api/data/pages {parent:{data_source_id},properties:{...}}',body:'GET or PATCH /api/data/blocks/:id/children; PATCH appends Notion-shaped blocks',rules:['Do not update Notion: D1 is the source of truth.','Complete tasks through POST /api/tasks/:id/done so completion date and status are set together.','Use POST /api/tasks/:id/restore for undo.','Preserve existing body and reasons. Never claim an operation succeeded unless the API succeeded.','Roles: change 今週の目標 only. Projects: change ステータス only.','AI handoff (§11): a task handed to AI has AI処理開始 set. Write this chat URL to AIセッション first. When finished, stopped or failed, clear AI処理開始 (POST /api/tasks/:id/done clears it automatically; otherwise POST /api/tasks/:id/ai-clear).','If a human is needed and work stops, POST /api/tasks/:id/human so ステータス becomes 人対応 and AI処理開始 is cleared.','To clear a property through PATCH /api/data/pages/:id use the typed shape, e.g. {date:null}, {select:null}, {multi_select:[]}; a bare null is rejected.'],mcp:'/mcp (OAuth connector for claude.ai; see docs/mcp.md)',note:'External Notion jobs must be migrated explicitly; they are not synchronized.'});
- if(path==='/api/storage/sources')return json({sources:Object.entries(collectionVars).map(([collection,key])=>({collection,id:env[key]}))});
+ if(path==='/api/storage/sources'){const core=Object.entries(collectionVars).map(([collection,key])=>({collection,id:env[key]}));const extra=(await env.DB.prepare("SELECT id,collection FROM entity_schemas WHERE collection NOT IN ('nested','pages') ORDER BY collection").all()).results.filter(r=>!collectionVars[r.collection]).map(r=>({collection:r.collection,id:r.id}));return json({sources:[...core,...extra]});}
  if(path==='/api/storage/audit') {
   const pending=(await env.DB.prepare('SELECT e.id FROM entities e LEFT JOIN entity_bodies b ON b.id=e.id WHERE COALESCE(b.complete,0)=0').all()).results;
   const children=(await env.DB.prepare(`SELECT c.id FROM entity_children c LEFT JOIN entity_bodies b ON b.id=c.id WHERE json_extract(c.payload,'$.has_children')=1 AND json_extract(c.payload,'$.type') NOT IN ('child_page','child_database') AND COALESCE(b.complete,0)=0`).all()).results;
@@ -335,9 +346,9 @@ export async function storageRoute(req,env,url,json) {
   await env.DB.batch([env.DB.prepare('INSERT OR IGNORE INTO entity_bodies SELECT e.id,1 '+condition),env.DB.prepare('INSERT OR IGNORE INTO entity_body_versions SELECT e.id,d.updated '+condition)]);
   return json({ids:(await env.DB.prepare('SELECT e.id '+condition).all()).results.map(r=>r.id)});
  }
- const coll=url.searchParams.get('coll'),ds=env[collectionVars[coll]],id=cleanId(url.searchParams.get('id'));
+ const coll=url.searchParams.get('coll'),extraDs=url.searchParams.get('ds'),id=cleanId(url.searchParams.get('id')),ds=collectionVars[coll]?env[collectionVars[coll]]:(isExtraName(coll)&&/^[a-f0-9-]{32,36}$/i.test(extraDs || '')?cleanId(extraDs):undefined);
  if(path==='/api/storage/capture') {
-  if(!ds)return json({error:'Invalid collection'},400);
+  if(!ds)return json({error:'Invalid collection'},400);  if(!collectionVars[coll]){const known=await collectionOfSource(env,ds);if(known&&known!==coll)return json({error:'Source already registered as '+known},409);}
   if(!url.searchParams.get('cursor')) {
    const definition=await nget(env,ctx,'/data_sources/'+ds);
    await env.DB.prepare('INSERT OR REPLACE INTO entity_schemas VALUES(?,?,?)').bind(cleanId(ds),coll,JSON.stringify(definition)).run();
@@ -350,7 +361,7 @@ export async function storageRoute(req,env,url,json) {
  }
  if(path==='/api/storage/capture-page') {
   const page=await completeRelations(env,ctx,await nget(env,ctx,'/pages/'+id));
-  const source=page.parent?.data_source_id || '',existing=await env.DB.prepare('SELECT collection FROM entities WHERE id=?').bind(id).first(),collection=Object.entries(collectionVars).find(([,key])=>cleanId(env[key])===cleanId(source))?.[0] || existing?.collection || 'pages';
+  const source=page.parent?.data_source_id || '',existing=await env.DB.prepare('SELECT collection FROM entities WHERE id=?').bind(id).first(),collection=(await collectionOfSource(env,source)) || existing?.collection || 'pages';
   await storePage(env,page,collection,source);
   if(id===cleanId(env.PRESENCE_PAGE_ID))await env.DB.prepare("INSERT OR REPLACE INTO storage_control VALUES('presence_page_id',?)").bind(id).run();
   return json({id:page.id});
@@ -363,7 +374,7 @@ export async function storageRoute(req,env,url,json) {
  if(path==='/api/storage/capture-source') {
   const source=url.searchParams.get('ds');
   if(!/^[a-f0-9-]{32,36}$/i.test(source || ''))return json({error:'Invalid source'},400);
-  const collection=Object.entries(collectionVars).find(([,key])=>cleanId(env[key])===cleanId(source))?.[0] || 'nested';
+  const wanted=url.searchParams.get('coll'),known=await collectionOfSource(env,source);if(wanted&&!isExtraName(wanted)&&wanted!==known)return json({error:'Invalid collection name'},400);if(wanted&&known&&wanted!==known)return json({error:'Source already registered as '+known},409);const collection=known||(wanted&&isExtraName(wanted)?wanted:'nested');
   if(!url.searchParams.get('cursor')){const definition=await nget(env,ctx,'/data_sources/'+source);await env.DB.prepare('INSERT OR REPLACE INTO entity_schemas VALUES(?,?,?)').bind(cleanId(source),collection,JSON.stringify(definition)).run();}
   const data=await nget(env,ctx,'/data_sources/'+source+'/query',{method:'POST',body:JSON.stringify({page_size:25,...(url.searchParams.get('cursor')?{start_cursor:url.searchParams.get('cursor')}:{})})});
   for(const page of data.results || []){await completeRelations(env,ctx,page);await storePage(env,page,collection,source);}
