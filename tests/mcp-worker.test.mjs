@@ -63,6 +63,10 @@ test('実 Worker: OAuth でつないで tools が D1 を読み書きでき、MCP
     assert.equal((await mcp('ping', undefined, TOKEN)).status, 401);
     assert.equal((await mcp('initialize', { protocolVersion: '2025-06-18' })).json.result.serverInfo.name, 'kairos');
 
+    // 規約 §11（AI処理開始/AIセッション/人対応）が /api/storage/agent に載っている
+    const agent = JSON.parse((await fetchJson('/api/storage/agent', { headers: { Authorization: 'Bearer ' + TOKEN } })).text);
+    assert.ok(agent.rules.some((r) => r.includes('AIセッション') && r.includes('AI処理開始')));
+    assert.ok(agent.rules.some((r) => r.includes('人対応')));
     // MCP のトークンでは /api/* を直接は呼べない
     assert.equal((await fetchJson('/api/tasks?view=today', { headers: { Authorization: 'Bearer ' + access } })).status, 401);
 
