@@ -76,10 +76,10 @@ async function storePage(env,page,coll,ds,existing,extra) {
  if(extra) await env.DB.batch([...stmts,...extra]);
  else for(let i=0;i<stmts.length;i+=50) await env.DB.batch(stmts.slice(i,i+50));
 }
-export async function loadState(env) {
- const [pages,links,schemas]=await env.DB.batch([
-  env.DB.prepare('SELECT id,ds,collection,payload FROM entities ORDER BY rowid'),
-  env.DB.prepare('SELECT from_id,prop,to_id FROM entity_links'),
+export async function loadState(env,only=null) {
+ const baseNames=[...Object.keys(collectionVars),'pages','nested'],scope=only?'e.ds=?':'e.collection IN ('+baseNames.map(()=>'?').join(',')+')',scopeArgs=only?[only]:baseNames; const [pages,links,schemas]=await env.DB.batch([
+  env.DB.prepare('SELECT e.id,e.ds,e.collection,e.payload FROM entities e WHERE '+scope+' ORDER BY e.rowid').bind(...scopeArgs),
+  env.DB.prepare('SELECT l.from_id,l.prop,l.to_id FROM entity_links l JOIN entities e ON e.id=l.from_id WHERE '+scope).bind(...scopeArgs),
   env.DB.prepare('SELECT id,payload FROM entity_schemas'),
  ]);
  const rows=new Map((pages.results || []).map(r=>[r.id,{...r,page:JSON.parse(r.payload)}]));
@@ -232,10 +232,21 @@ function paged(items,args) {
  const size=Math.min(100,Math.max(1,Number(args.page_size)||100)),end=offset+size;
  return {object:'list',results:items.slice(offset,end),has_more:end<items.length,next_cursor:end<items.length?'d1:'+end:null};
 }
+// 中核以外(sessions など)の行は共有スナップショットに載せず、対象のデータソースを触る要求のときだけ足す (2026-10-20)
+async function extraTargetDs(env,state,pathname,args,method) {
+ let ds=null,m;
+ if((m=pathname.match(/^\/data_sources\/([^/]+)/)))ds=cleanId(m[1]);
+ else if((m=pathname.match(/^\/pages\/([^/]+)$/))){const id=cleanId(m[1]);if(state.rows.has(id))return null;ds=(await env.DB.prepare('SELECT ds FROM entities WHERE id=?').bind(id).first())?.ds || null;}
+ else if(pathname==='/pages'&&method==='POST')ds=cleanId(args.parent?.data_source_id);
+ if(!ds)return null;
+ const core=Object.values(collectionVars).map(k=>cleanId(env[k]));
+ return core.includes(ds)?null:ds;
+}
 export async function d1Notion(env,path,init={}) {
  const url=new URL('https://d1.local'+path),method=init.method || 'GET';
  const args=init.body?JSON.parse(init.body):Object.fromEntries(url.searchParams);
- const state=/^\/blocks\//.test(url.pathname)?null:await (env.__d1State ||= requestState(env));
+ let state=/^\/blocks\//.test(url.pathname)?null:await (env.__d1State ||= requestState(env));
+ if(state){const xds=await extraTargetDs(env,state,url.pathname,args,method);if(xds){const ex=await loadState(env,xds);state={rows:new Map([...state.rows,...ex.rows]),schemas:state.schemas};}}
  if(env.D1_READ_ONLY&&((method==='PATCH')||(method==='POST'&&url.pathname==='/pages')))throw new Error('D1 preview is read only');
  let m;
  if((m=url.pathname.match(/^\/data_sources\/([^/]+)(\/query)?$/))) {
