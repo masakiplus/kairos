@@ -10,7 +10,7 @@ const hex = (c) => c.repeat(32);
 const DS = { tasks: hex('a'), projects: hex('b'), roles: hex('c'), decisions: hex('d') };
 const SCHEMA = {
   [DS.tasks]: { 名前: { type: 'title' }, 完了: { type: 'checkbox' }, 完了日: { type: 'date' }, ステータス: { type: 'status', status: { options: [{ name: '未着手' }, { name: '進行中' }, { name: '人対応' }, { name: '完了' }] } }, 期日: { type: 'date' }, AIセッション: { type: 'url' }, 説明: { type: 'rich_text' }, ラベル: { type: 'multi_select', multi_select: { options: [{ name: 'Home' }] } } },
-  [DS.projects]: { 名前: { type: 'title' }, 完了条件: { type: 'rich_text' }, ステータス: { type: 'status', status: { options: [{ name: '進行中' }, { name: '完了' }] } } },
+  [DS.projects]: { 名前: { type: 'title' }, 対応ゴール: { type: 'rich_text' }, 完了条件: { type: 'rich_text' }, ステータス: { type: 'status', status: { options: [{ name: '進行中' }, { name: '完了' }] } } },
   [DS.roles]: { 名前: { type: 'title' }, 今週の目標: { type: 'relation' } },
 };
 const PAGES = { [hex('1')]: DS.tasks, [hex('2')]: DS.projects, [hex('3')]: DS.roles };
@@ -254,9 +254,10 @@ test('tools: 完了は done 経由、Roles/Projects は決まった列だけ、i
   assert.match(direct.text, /kairos_task_action/);
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('1'), fields: { ステータス: '完了' } })).isError, true);
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('3'), fields: { 名前: '改名' } })).isError, true, 'Roles は 今週の目標 だけ');
-  assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 説明: '書き換え' } })).isError, true, 'Projects は ステータス・名前・完了条件 だけ');
+  assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 説明: '書き換え' } })).isError, true, 'Projects は ステータス・名前・対応ゴール・完了条件・役割 だけ');
   assert.equal(fw.calls.slice(before).some((c) => c.method === 'PATCH'), false, '拒否した更新は書き込まない');
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { ステータス: '完了' } })).isError, false);
+  assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 対応ゴール: 'テスト' } })).isError, false, 'Projects の 対応ゴール は書ける');
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 名前: '改名', 完了条件: '終わりのない器' } })).isError, false, 'Projects は 名前・完了条件 も書ける');
 });
 
