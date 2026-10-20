@@ -254,8 +254,9 @@ test('tools: 完了は done 経由、Roles/Projects は決まった列だけ、i
   assert.match(direct.text, /kairos_task_action/);
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('1'), fields: { ステータス: '完了' } })).isError, true);
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('3'), fields: { 名前: '改名' } })).isError, true, 'Roles は 今週の目標 だけ');
-  assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 名前: '改名' } })).isError, true, 'Projects は ステータス・対応ゴール・完了条件・役割 だけ');
+  assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 開始日: '2026-11-01' } })).isError, true, 'Projects は ステータス・対応ゴール・完了条件・役割・名前 だけ');
   assert.equal(fw.calls.slice(before).some((c) => c.method === 'PATCH'), false, '拒否した更新は書き込まない');
+  assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 名前: '改名' } })).isError, false, 'Projects の 名前 は書ける');
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { ステータス: '完了' } })).isError, false);
   assert.equal((await tool(send, t, 'kairos_update', { id: hex('2'), fields: { 対応ゴール: 'テスト' } })).isError, false, 'Projects の 対応ゴール は書ける');
 });
