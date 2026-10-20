@@ -116,6 +116,13 @@
   .sec h2.unav{color:var(--mute2)}
   .stale{font-size:12px;color:var(--p2);text-align:center}
   .stale.wip{color:var(--over)}
+  /* 2026-10-21 更新中のちらつき対策: 「更新中…」の行は高さを増減させて一覧を押し下げていた。ヘッダー下端の細い線に替え、0.5 秒以上かかったときだけ出す (レイアウトを動かさない) */
+  .busy{position:absolute;left:0;right:0;bottom:0;height:2px;overflow:hidden;opacity:0;pointer-events:none;transition:opacity .15s}
+  .busy.on{opacity:1}
+  .busy::before{content:"";position:absolute;top:0;bottom:0;left:0;width:35%;background:var(--p2);animation:busy 1s ease-in-out infinite}
+  @keyframes busy{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
+  /* 画面外の節は描画を後回しにする (lazy render)。長い一覧 (PJ 別など) の切り替えが軽くなる */
+  .sec{content-visibility:auto;contain-intrinsic-size:auto 280px}
   /* ⭐ 今日の3つ (MIT, 2026-10-06) */
   .sec h2.mith{color:var(--star)}
   .sec h2.mrh{color:#c47a1a}
@@ -427,6 +434,7 @@
   </form>
   <div class="stale" id="stale" hidden></div>
   <div class="stale wip" id="wip" hidden></div>
+  <div class="busy" id="busy"></div>
 </header>
 <main id="list"><div class="empty">読み込み中…</div></main>
 <form class="add" id="add">
@@ -1463,7 +1471,8 @@
 
   let searchSeq = 0;
   // 前面復帰・focus・30 秒タイマーは同時に load を呼ぶ。同じタブの自動更新は 4 秒に 1 回にまとめる (2026-10-21)。操作後の取り直し (auto なし) は常に通す
-  let lastAutoAt = 0, lastAutoView = "";
+  let lastAutoAt = 0, lastAutoView = "", busyTimer = 0;
+  function setBusy(on) { clearTimeout(busyTimer); const b = $("#busy"); if (!b) return; if (!on) { b.classList.remove("on"); return; } busyTimer = setTimeout(() => b.classList.add("on"), 500); }
   async function load(v = view, { silent, auto } = {}) {
     if (silent && auto) { const now = Date.now(); if (v === lastAutoView && now - lastAutoAt < 4000) return; lastAutoAt = now; lastAutoView = v; }
     if (v === "deps" || v === "graph") return; // つながりは openDeps/openGraph が引く。自動更新で一覧に戻さない
@@ -1484,9 +1493,9 @@
       const c = JSON.parse(localStorage.getItem("roles:data") || "null");
       if (c && !rolesData) rolesData = c;
       render(todayStr || (c && c.today) || "");
-      if (!silent || !rolesData) { $("#stale").hidden = false; $("#stale").textContent = "更新中…"; }
-      try { rolesData = await api("/api/roles"); localStorage.setItem("roles:data", JSON.stringify(rolesData)); render(rolesData.today); $("#stale").hidden = true; }
-      catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
+      if (!silent || !rolesData) setBusy(true);
+      try { rolesData = await api("/api/roles"); localStorage.setItem("roles:data", JSON.stringify(rolesData)); render(rolesData.today); $("#stale").hidden = true; setBusy(false); }
+      catch (e) { setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
       return;
     }
     if (v === "review") { // 見直し (Phase C-9): 問いは Worker が作る。キャッシュしない
@@ -1505,7 +1514,7 @@
     // 同じタブの静かな取り直しではキャッシュを読み直さない (JSON.parse も描き直しも省く。楽観更新済みの画面を保つ)
     const cached = (switching || !tasks.length) ? JSON.parse(localStorage.getItem(K(v)) || "null") : { tasks };
     if (cached && cached.tasks !== tasks) { tasks = cached.tasks; render(cached.today); }
-    if (cached) { if (!silent) { $("#stale").hidden = false; $("#stale").textContent = "更新中…"; } }
+    if (cached) { if (!silent) setBusy(true); }
     else if (!silent) $("#list").innerHTML = '<div class="empty">読み込み中…</div>';
     try {
       const j = await api("/api/tasks?view=" + v);
@@ -1513,13 +1522,13 @@
       if (Array.isArray(j.delegates) && j.delegates.length) { DELEGATES = j.delegates; localStorage.setItem("delegates", JSON.stringify(DELEGATES)); }
       if (Array.isArray(j.companions) && j.companionsOk) { COMPANIONS = j.companions; try { localStorage.setItem("companions", JSON.stringify(COMPANIONS)); } catch (e) {} }
       if (typeof j.phoneEnv === "string" && j.phoneEnv && j.phoneEnv !== PHONE_ENV) { PHONE_ENV = j.phoneEnv; SIT_AXES.tool[1] = PHONE_ENV; sitMemo = null; try { localStorage.setItem("phoneEnv", PHONE_ENV); } catch (e) {} } // スマホの選択肢名が変わったら手元の軸も揃える
-      render(j.today); $("#stale").hidden = true; $("#n-" + v).textContent = tasks.length;
+      render(j.today); $("#stale").hidden = true; setBusy(false); $("#n-" + v).textContent = tasks.length;
       // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
       const w = j.wip; const we = $("#wip");
       if (w && w.count > w.limit) { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
       else we.hidden = true;
     } catch (e) {
-      $("#stale").hidden = false; $("#stale").textContent = "オフライン／取得失敗（表示は前回のもの）";
+      setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "オフライン／取得失敗（表示は前回のもの）";
       if (!cached) $("#list").innerHTML = '<div class="empty">取得できませんでした</div>';
     }
   }
