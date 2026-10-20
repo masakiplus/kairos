@@ -488,10 +488,21 @@ const TOOLS = [
     annotations: READ,
     run: async (a, ctx) => {
       const ds = await dsOf(ctx, a.database), cols = a.columns?.length ? a.columns : undefined;
-      let rows = (await queryAll(ctx, ds)).map((p) => flat(p, { cols, truncate: cols ? 0 : 600 }));
+      // where と open_only は、列を絞る前の全プロパティに対して判定する（columns で絞った列だけを見ると、where が常に空・open_only が完了を含む不具合になる）
+      let rows = (await queryAll(ctx, ds)).map((p) => flat(p, { truncate: 0 }));
       for (const [k, v] of Object.entries(a.where ?? {})) rows = rows.filter((r) => (Array.isArray(r[k]) ? r[k].includes(v) : String(r[k]) === v));
       if (a.open_only) rows = rows.filter(isOpen);
-      return rows.slice(0, a.limit ?? 100);
+      const pick = (r) => {
+        const o = { id: r.id };
+        if (r.icon) o.icon = r.icon;
+        for (const [k, v] of Object.entries(r)) {
+          if (k === 'id' || k === 'icon') continue;
+          if (cols) { if (cols.includes(k)) o[k] = v; }
+          else o[k] = typeof v === 'string' && v.length > 600 ? v.slice(0, 600) + '…' : v;
+        }
+        return o;
+      };
+      return rows.slice(0, a.limit ?? 100).map(pick);
     },
   },
   {
