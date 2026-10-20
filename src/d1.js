@@ -245,11 +245,10 @@ async function extraTargetDs(env,state,pathname,args,method) {
 export async function d1Notion(env,path,init={}) {
  const url=new URL('https://d1.local'+path),method=init.method || 'GET';
  const args=init.body?JSON.parse(init.body):Object.fromEntries(url.searchParams);
- let state=/^\/blocks\//.test(url.pathname)?null:await (env.__d1State ||= requestState(env));
+ let state=/^\/(blocks\/|search$)/.test(url.pathname)?null:await (env.__d1State ||= requestState(env));
  if(state){const xds=await extraTargetDs(env,state,url.pathname,args,method);if(xds){const ex=await loadState(env,xds);state={rows:new Map([...state.rows,...ex.rows]),schemas:state.schemas};}}
  if(env.D1_READ_ONLY&&((method==='PATCH')||(method==='POST'&&url.pathname==='/pages')))throw new Error('D1 preview is read only');
- let m;
- if((m=url.pathname.match(/^\/data_sources\/([^/]+)(\/query)?$/))) {
+ let m; if(method==='POST'&&url.pathname==='/search'){const q=String(args.query || '').toLowerCase(),dir=args.sort?.direction==='ascending'?'ASC':'DESC';const rows=await env.DB.prepare("SELECT payload FROM entities WHERE COALESCE(json_extract(payload,'$.archived'),0)=0 AND COALESCE(json_extract(payload,'$.in_trash'),0)=0 ORDER BY json_extract(payload,'$.last_edited_time') "+dir+" LIMIT "+(q?5000:1500)).all();const titleOf=p=>Object.values(p.properties || {}).find(v=>v.type==='title')?.title?.map(x=>x.plain_text ?? x.text?.content ?? '').join('') || '';return paged((rows.results || []).map(r=>JSON.parse(r.payload)).filter(p=>!q||titleOf(p).toLowerCase().includes(q)),args);} if((m=url.pathname.match(/^\/data_sources\/([^/]+)(\/query)?$/))) {
   const ds=cleanId(m[1]);
   if(!state.schemas.has(ds))throw new Error('D1 data source is not migrated');
   if(!m[2])return state.schemas.get(ds);
@@ -264,7 +263,7 @@ export async function d1Notion(env,path,init={}) {
   if(row.collection==='roles'&&Object.keys(args.properties || {}).some(k=>k!=='今週の目標'))throw new Error('Roles only allow 今週の目標');
   if(row.collection==='projects'&&Object.keys(args.properties || {}).some(k=>!['ステータス','対応ゴール','完了条件','役割'].includes(k)))throw new Error('Projects only allow ステータス, 対応ゴール, 完了条件, 役割');
   const definition=state.schemas.get(row.ds)?.properties || {},stmts=[],paths=[],values=[];
-  for(const key of Object.keys(args))if(!['properties','icon'].includes(key))throw new Error('Unsupported D1 page field: '+key);
+  const okKeys=Object.keys(collectionVars).includes(row.collection)?['properties','icon']:['properties','icon','archived','in_trash'];  for(const key of Object.keys(args))if(!okKeys.includes(key))throw new Error('Unsupported D1 page field: '+key);  for(const k of ['archived','in_trash'])if(k in args){paths.push('?,json(?)');values.push('$.'+k,JSON.stringify(!!args[k]));}
   if('icon' in args){paths.push('?,json(?)');values.push('$.icon',JSON.stringify(args.icon ?? null));}
   for(const [name,input] of Object.entries(args.properties || {})) {
    const p=normalizeProperty(input,definition[name] || row.page.properties?.[name]);
@@ -320,7 +319,7 @@ export async function d1Notion(env,path,init={}) {
    return {results:blocks};
   }
  }
- if(method==='DELETE'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');await env.DB.batch([env.DB.prepare('WITH RECURSIVE d(id) AS (SELECT ?1 UNION SELECT c.id FROM entity_children c JOIN d ON c.parent_id=d.id) DELETE FROM entity_children WHERE id IN (SELECT id FROM d)').bind(id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(new Date().toISOString(),row.parent_id)]);invalidate(env);return {...JSON.parse(row.payload),archived:true};}
+ if(method==='PATCH'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');if(args.archived===true||args.in_trash===true)return d1Notion(env,url.pathname,{method:'DELETE'});const b=JSON.parse(row.payload);for(const key of Object.keys(args))if(key!==b.type&&key!=='archived'&&key!=='in_trash')throw new Error('Unsupported D1 block field: '+key);if(!args[b.type])throw new Error('Block type '+b.type+' content required');const now=new Date().toISOString();const next=normalizeBlock({...b,[b.type]:{...b[b.type],...args[b.type]}});next.last_edited_time=now;await env.DB.batch([env.DB.prepare('UPDATE entity_children SET payload=? WHERE id=?').bind(JSON.stringify(next),id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(now,row.parent_id)]);invalidate(env);return next;} if(method==='DELETE'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');await env.DB.batch([env.DB.prepare('WITH RECURSIVE d(id) AS (SELECT ?1 UNION SELECT c.id FROM entity_children c JOIN d ON c.parent_id=d.id) DELETE FROM entity_children WHERE id IN (SELECT id FROM d)').bind(id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(new Date().toISOString(),row.parent_id)]);invalidate(env);return {...JSON.parse(row.payload),archived:true};}
  throw new Error('Unsupported D1 operation: '+method+' '+url.pathname);
 }
 
