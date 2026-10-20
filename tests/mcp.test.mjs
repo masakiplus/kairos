@@ -13,6 +13,8 @@ const SCHEMA = {
   [DS.projects]: { 名前: { type: 'title' }, 対応ゴール: { type: 'rich_text' }, ステータス: { type: 'status', status: { options: [{ name: '進行中' }, { name: '完了' }] } } },
   [DS.roles]: { 名前: { type: 'title' }, 今週の目標: { type: 'relation' } },
 };
+const pg = (id, name, done, st, proj) => ({ id, properties: { 名前: { type: 'title', title: [{ plain_text: name }] }, 完了: { type: 'checkbox', checkbox: done }, ステータス: { type: 'status', status: { name: st } }, 関連プロジェクト: { type: 'relation', relation: proj.map((x) => ({ id: x })) } } });
+const QROWS = { [DS.tasks]: [pg(hex('4'), '終わった', true, '完了', [hex('9')]), pg(hex('5'), '開いている', false, '未着手', [hex('9')]), pg(hex('6'), '別PJ', false, '進行中', [hex('8')])] };
 const PAGES = { [hex('1')]: DS.tasks, [hex('2')]: DS.projects, [hex('3')]: DS.roles };
 
 // Worker 自身の API の代わり。呼ばれた内容を calls に残す
@@ -23,6 +25,7 @@ function fakeWorker() {
     calls.push({ method, path, body });
     const p = path.split('?')[0];
     if (p === '/api/storage/sources') return res({ sources: Object.entries(DS).map(([collection, id]) => ({ collection, id })) });
+    if (method === 'POST' && p.endsWith('/query')) return res({ results: QROWS[p.split('/')[4]] ?? [], has_more: false });
     let m = p.match(/^\/api\/data\/data_sources\/([0-9a-f]{32})$/);
     if (m) return res({ properties: SCHEMA[m[1]] ?? {} });
     m = p.match(/^\/api\/data\/pages\/([0-9a-f]{32})$/);
@@ -290,4 +293,19 @@ test('tools: 本文追記は見出し・箇条書き・長い行を落とさず�
   assert.equal(blocks[3].to_do.checked, true);
   assert.equal(blocks[4].paragraph.rich_text.map((x) => x.text.content).join('').length, 2500);
   assert.equal((await tool(send, tokens.access_token, 'kairos_append_body', { id: hex('1'), markdown: '   \n\n' })).isError, true);
+});
+
+test('tools: kairos_query は columns で絞っても where と open_only を全プロパティで判定する', async () => {
+  const { send } = setup();
+  const { tokens } = await connect(send);
+  const q = async (args) => JSON.parse((await tool(send, tokens.access_token, 'kairos_query', { database: 'tasks', ...args })).text);
+  const byProj = await q({ where: { 関連プロジェクト: hex('9') }, columns: ['名前'] });
+  assert.deepEqual(byProj.map((r) => r['名前']).sort(), ['終わった', '開いている']);
+  const open = await q({ open_only: true, columns: ['名前'] });
+  assert.deepEqual(open.map((r) => r['名前']).sort(), ['別PJ', '開いている']);
+  const both = await q({ open_only: true, where: { 関連プロジェクト: hex('9') }, columns: ['名前'] });
+  assert.deepEqual(both.map((r) => r['名前']), ['開いている']);
+  assert.deepEqual(Object.keys(both[0]).sort(), ['id', '名前'], 'columns に無い列は返さない');
+  const byStatus = await q({ where: { ステータス: '進行中' }, columns: ['名前'] });
+  assert.deepEqual(byStatus.map((r) => r['名前']), ['別PJ']);
 });
