@@ -1462,7 +1462,10 @@
   });
 
   let searchSeq = 0;
-  async function load(v = view, { silent } = {}) {
+  // 前面復帰・focus・30 秒タイマーは同時に load を呼ぶ。同じタブの自動更新は 4 秒に 1 回にまとめる (2026-10-21)。操作後の取り直し (auto なし) は常に通す
+  let lastAutoAt = 0, lastAutoView = "";
+  async function load(v = view, { silent, auto } = {}) {
+    if (silent && auto) { const now = Date.now(); if (v === lastAutoView && now - lastAutoAt < 4000) return; lastAutoAt = now; lastAutoView = v; }
     if (v === "deps" || v === "graph") return; // つながりは openDeps/openGraph が引く。自動更新で一覧に戻さない
     if (v === "quad") { openQuad({ silent }); return; }
     if (v === "search") { // 検索 (2026-10-04): キャッシュせず、古い応答は捨てる
@@ -1522,10 +1525,10 @@
   }
   // Mac と Android を同時に使うので、前面にある間は 30秒ごとに取り直す (2026-09-30。以前は 🤖 処理中のときだけ 60秒)。
   // 前面に戻ったとき・回線が戻ったときも取り直す。スワイプ中は描き直さない
-  setInterval(() => { if (!document.hidden && !swiping && view !== "review") load(view, { silent: true }); }, 30000); // 見直しは問いを作るのが重いので自動更新しない
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(view, { silent: true }); });
-  window.addEventListener("focus", () => load(view, { silent: true }));
-  window.addEventListener("online", () => load(view, { silent: true }));
+  setInterval(() => { if (!document.hidden && !swiping && view !== "review") load(view, { silent: true, auto: true }); }, 30000); // 見直しは問いを作るのが重いので自動更新しない
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(view, { silent: true, auto: true }); });
+  window.addEventListener("focus", () => load(view, { silent: true, auto: true }));
+  window.addEventListener("online", () => load(view, { silent: true, auto: true }));
   // タブの件数 (2026-10-07 キビキビ対応): 操作のたびに 6 本引いて 6 回 localStorage に大きな JSON を書いていたのを、
   // 8 秒に 1 回にまとめ、中身が変わったタブだけ書く (setItem は同期なので UI を止める)
   const cacheSig = new Map();
@@ -1537,7 +1540,7 @@
   }
   function counts() {
     clearTimeout(countsTimer);
-    const run = () => { countsAt = Date.now(); for (const v of views) if (v !== view) api("/api/tasks?view=" + v).then((j) => { $("#n-" + v).textContent = j.tasks.length; writeCache(v, j); }).catch(() => {}); };
+    const run = () => { countsAt = Date.now(); const vs = views.filter((v) => v !== view); if (!vs.length) return; api("/api/tasks?views=" + vs.join(",")).then((r) => { for (const v of vs) { const j = r.views && r.views[v]; if (!j) continue; $("#n-" + v).textContent = j.tasks.length; writeCache(v, j); } }).catch(() => {}); }; // 1 リクエストにまとめる (2026-10-21)
     const wait = Math.max(0, 8000 - (Date.now() - countsAt));
     countsTimer = setTimeout(run, wait);
   }

@@ -36,7 +36,7 @@
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
 import { tapsAdd, tapsReport } from "./taps.js";
-import { d1Notion, storageRoute, d1Environment, revDB } from "./d1.js";
+import { d1Notion, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
 import { isMcpPath, mcpRoute } from "./mcp.js";
 import APP_HTML from "./app.html";
 import SW_JS from "./sw.txt";
@@ -1229,9 +1229,20 @@ const kairosWorker = {
       }
       if (path.startsWith("/api/lab/")) return env.DATA_BACKEND === "d1" ? json({ error: "Legacy migration API is disabled after D1 cutover" }, 410) : await labRoute(req, env, url, json);
       if (path === "/api/tasks" && req.method === "GET") {
-        const view = url.searchParams.get("view") ?? "today";
-        const [tasks, wip, dl, cp] = await Promise.all([listTasks(env, view), wipCount(env).catch(() => null), delegates(env), companions(env)]);
-        return json({ view, today: todayJst(), tasks, wip, delegates: dl, companions: cp.list, companionsOk: cp.ok, phoneEnv: cp.ok ? (await phoneEnvName(env)) : undefined });
+        // 応答は rev ごとに D1 へ置いて isolate をまたいで使い回す (2026-10-21, タブ切り替えの遅さ対策)
+        const payload = (view) => cachedJson(env, "tasks:" + view, async () => {
+          const [tasks, wip, dl, cp] = await Promise.all([listTasks(env, view), wipCount(env).catch(() => null), delegates(env), companions(env)]);
+          return { view, today: todayJst(), tasks, wip, delegates: dl, companions: cp.list, companionsOk: cp.ok, phoneEnv: cp.ok ? (await phoneEnvName(env)) : undefined };
+        }, { shouldStore: (d) => d.companionsOk !== false });
+        // ?views=a,b,c: 画面のタブ件数用。6 本を別々に引くと別 isolate で全件読み込みが 6 回走るので、1 リクエストにまとめる
+        const multi = url.searchParams.get("views");
+        if (multi !== null) {
+          const names = [...new Set(multi.split(",").map((s) => s.trim()).filter(Boolean))].slice(0, 12);
+          const out = {};
+          await Promise.all(names.map(async (n) => { out[n] = await payload(n); }));
+          return json({ views: out });
+        }
+        return json(await payload(url.searchParams.get("view") ?? "today"));
       }
       if (path === "/api/search" && req.method === "GET") {
         const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
@@ -1247,7 +1258,7 @@ const kairosWorker = {
         return json({ task: await quickAdd(env, name, projectId, envTags) }, 201);
       }
       // 📁 PJ別の見出し (Phase B-7/8, 2026-10-06): 進行中 PJ の ゴール・完了条件・件数・クローズ候補
-      if (path === "/api/projects" && req.method === "GET") return json({ today: todayJst(), projects: await projectsInfo(env) });
+      if (path === "/api/projects" && req.method === "GET") return json(await cachedJson(env, "projects", async () => ({ today: todayJst(), projects: await projectsInfo(env) })));
       const mpc = path.match(/^\/api\/projects\/([0-9a-f-]{32,36})\/close$/);
       if (mpc && req.method === "POST") {
         const b = await req.json().catch(() => ({}));
@@ -1270,7 +1281,7 @@ const kairosWorker = {
         return json(await reviewAnswer(env, mrv[1], mrv[2], String(b.answer ?? ""), String(b.note ?? "")));
       }
       // 🧭 役割タブ (Phase B-6): 読むだけ。書くのは 今週の目標 (今週の石) だけ
-      if (path === "/api/roles" && req.method === "GET") return json(await rolesInfo(env));
+      if (path === "/api/roles" && req.method === "GET") return json(await cachedJson(env, "roles", () => rolesInfo(env)));
       if (path === "/api/where" && req.method === "GET") return json(await whereNow(env));
       // 📊 ボタンのタップ回数 (2026-10-20): シートのボタン配置を使用頻度で決めるための計測。日 × ボタン名 の回数だけを D1 に持つ (誰が・どのタスクかは持たない)
       if (path === "/api/taps" && req.method === "POST") return json(await tapsAdd(env, await req.json().catch(() => ({}))));

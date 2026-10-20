@@ -166,6 +166,37 @@ function requestState(env) {
  entry.promise.then(()=>{entry.pending=false;entry.at=Date.now();},()=>snapshots.delete(env.DB));return entry.promise;
 }
 function invalidate(env){env.__d1State=null;snapshots.delete(env.DB);}
+
+// 2026-10-21 タブ切り替えが遅い件の修正: 一覧系 GET の応答を D1 の storage_control に置き、isolate をまたいで使い回す。
+// キーは「全書き込みで進む rev カウンタ + JST の日付」(fingerprint と同じ)。書き込みがあれば自然に外れる。
+// 保存するのは「応答を作ったスナップショット自身の fp」で、読むときの現在の fp と一致したものだけ使うので、古い内容が新しい fp の下に残ることはない。
+// 2 時間で切れる 🤖 処理中 (aiActive) のような時間依存の値があるため、最大 2 分で必ず作り直す。
+// storage_control への書き込みは rev を進めない (WRITE_SQL の例外)。1 回の読み出しは 2 行だけ。
+const RESP_MAX_AGE_MS = 120000;
+export async function cachedJson(env, key, build, { maxAge = RESP_MAX_AGE_MS, shouldStore = () => true } = {}) {
+  if (env.DATA_BACKEND !== 'd1' || !env.DB) return build();
+  const ck = 'resp:' + key;
+  try {
+    const [f, c] = await env.DB.batch([env.DB.prepare(FINGERPRINT), env.DB.prepare('SELECT value FROM storage_control WHERE key=?').bind(ck)]);
+    const rev = f.results?.[0]?.value;
+    const raw = c.results?.[0]?.value;
+    if (rev != null && raw) {
+      const fp = String(rev) + '|' + new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+      const a = raw.indexOf('\n'), b = raw.indexOf('\n', a + 1);
+      if (a > 0 && b > a && raw.slice(0, a) === fp && Date.now() - Number(raw.slice(a + 1, b)) < maxAge) return JSON.parse(raw.slice(b + 1));
+    }
+  } catch (e) { /* 読めなければ作り直す */ }
+  const data = await build();
+  try {
+    const sfp = snapshots.get(env.DB)?.fp;
+    if (sfp && shouldStore(data)) {
+      await env.DB.prepare('INSERT INTO storage_control(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+        .bind(ck, sfp + '\n' + Date.now() + '\n' + JSON.stringify(data)).run();
+    }
+  } catch (e) { /* 保存できなくても応答は返す */ }
+  return data;
+}
+
 async function freshPage(env,id) {
  const row=await env.DB.prepare('SELECT collection,payload FROM entities WHERE id=?').bind(id).first();
  if(!row)throw new Error('D1 page not found');
