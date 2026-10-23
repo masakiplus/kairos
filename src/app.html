@@ -55,14 +55,19 @@
   .go.sess{text-decoration:none;font-size:18px;background:#fff;box-shadow:var(--shadow)}
   .row.ai.run .go.sess{color:#7c5cff} .row.ai.upd .go.sess{color:#0a84ff}
   .sheet .list a.sess{font-weight:600}
-  .desc{background:var(--card);border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.5;color:var(--fg);box-shadow:var(--shadow)}
-  .desc .dtext{word-break:break-word;max-height:9.5em;overflow:hidden;position:relative}
+  .desc{background:var(--card);border-radius:12px;padding:12px 14px;font-size:15px;line-height:1.65;color:var(--fg);box-shadow:var(--shadow)}
+  /* 2026-10-23 モバイルの見にくさ対策: 行の途中で切れて字の上半分だけ見えていた → 下端をフェードで消し、トグルは切れた箇所の直下に置く */
+  .desc .dtext{word-break:break-word;overflow-wrap:anywhere;max-height:26em;overflow:hidden;position:relative} /* 説明は「なぜ／何を」の2行規約なので原則畳まない。異常に長いときだけ畳む */
   .desc ul,.desc ol{margin:2px 0 2px 1.3em;padding:0}.desc li{margin:1px 0}.desc .dh{font-weight:700;margin-top:4px}.desc .dgap{height:6px}
   .desc code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--seg);border-radius:4px;padding:0 4px}
   .desc a{color:var(--acc);text-decoration:none}
-  .desc .dtext.open{max-height:none}
-  .desc .dbody{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--mute);word-break:break-word;font-size:13px;max-height:12em;overflow:hidden}
-  .desc .dbody.open{max-height:none}
+  .desc .dtext.open,.desc .dbody.open{max-height:none}
+  .desc .clip{-webkit-mask-image:linear-gradient(#000 calc(100% - 2.4em),transparent);mask-image:linear-gradient(#000 calc(100% - 2.4em),transparent)}
+  .desc .dl{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:baseline}
+  .desc .dl+.dl{margin-top:8px}
+  .desc .dl .dk{margin:0;align-self:start;margin-top:.3em}
+  .desc .dbody{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);color:var(--mute);word-break:break-word;overflow-wrap:anywhere;font-size:13.5px;line-height:1.6;max-height:9.6em;overflow:hidden}
+  .desc .tg{display:block;border:0;background:transparent;padding:6px 0 0;color:var(--acc);font-size:13px;font-weight:600;cursor:pointer}
   .desc .more{display:block;margin-top:6px;color:var(--acc);font-size:13px;font-weight:600;text-decoration:none}
   .desc .kv{font-size:12px;color:var(--mute);margin-bottom:6px}
   .desc .dk{display:inline-block;font-size:11px;font-weight:700;color:var(--acc);background:var(--accbg);border-radius:6px;padding:1px 6px;margin-right:4px}
@@ -359,8 +364,9 @@
   .reader .rb .sub{display:block;margin:4px 0;color:var(--acc);text-decoration:none;font-weight:600}
   .reader .rb a{color:var(--acc)}.reader .rb code{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--seg);border-radius:4px;padding:0 4px}
   .reader .rb img{max-width:100%;border-radius:8px}
-  .desc .rel{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
-  .desc .rel a{font-size:12px;color:var(--acc);background:var(--accbg);border-radius:999px;padding:3px 9px;text-decoration:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .desc .rel .relx{display:none}.desc .rel.open .relx{display:inline-block}
+  .desc .rel{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
+  .desc .rel a,.desc .rel button{font-size:12px;border:0;color:var(--acc);background:var(--accbg);border-radius:999px;padding:3px 9px;text-decoration:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:var(--bg);border-radius:18px 18px 0 0;padding:10px 12px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
   .sheet{transition:transform .18s;touch-action:pan-y;max-height:calc(100dvh - 28px);max-height:calc(100vh - 28px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
   @supports (height:100dvh){.sheet{max-height:calc(100dvh - 28px)}}
@@ -780,10 +786,24 @@
       close();
       if ((m = l.match(/^(#{1,3})\s+(.*)$/))) { out += `<div class="dh">${mdInline(m[2])}</div>`; continue; }
       if (!l.trim()) { out += '<div class="dgap"></div>'; continue; }
+      // なぜ／何を などの見出し語は左に置き、本文は折り返しても揃える (2026-10-23 モバイルで詰まって見えた対策)
+      if ((m = l.match(/^(なぜ|何を|留意|留意点|出所|完了条件)[:：]\s*(.*)$/))) { out += `<div class="dl"><b class="dk">${m[1]}</b><span>${mdInline(m[2])}</span></div>`; continue; }
       out += `<div>${mdInline(l)}</div>`;
     }
     close();
     return out;
+  }
+  // 概要の折りたたみ (2026-10-23): はみ出した欄だけ下端をフェードし、その直下に「続きを読む／たたむ」を置く
+  function fitDesc(box) {
+    if (!box) return;
+    box.querySelectorAll(".tg").forEach((b) => b.remove());
+    box.querySelectorAll(".dtext,.dbody").forEach((el) => {
+      if (el.classList.contains("open") || el.scrollHeight <= el.clientHeight + 2) { el.classList.remove("clip"); return; }
+      el.classList.add("clip");
+      const b = document.createElement("button"); b.type = "button"; b.className = "tg"; b.textContent = "続きを読む ▾";
+      b.onclick = () => { const open = !el.classList.contains("open"); el.classList.toggle("open", open); el.classList.toggle("clip", !open); b.textContent = open ? "たたむ ▴" : "続きを読む ▾"; };
+      el.after(b);
+    });
   }
   const fmtTime = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; };
   function fmtDate(d) { const [y, m, dd] = d.split("-"); return `${+m}/${+dd} (${W[new Date(d + "T00:00:00").getDay()]})`; }
@@ -1636,6 +1656,14 @@
   }
 
   // 一覧の順に処理するためのページャ (2026-10-04)。並びは今のタブに描かれている .row の順 (🤖/🧔 セクション込み)
+  // 関連チップ (2026-10-23): モバイルで 6 個並ぶと概要が画面の外まで伸びたので、3 個まで出して残りは「他 N 件」に畳む
+  function relHtml(d) {
+    const chips = [...(d.related || []).map((r) => `<a href="#" data-reader="${r.id}">📄 ${esc(r.kind)}: ${r.icon ? r.icon + " " : ""}${esc(r.name)}</a>`),
+      ...(d.links || []).map((l) => l.kind === "notion" ? `<a href="#" data-reader="${l.pageId}">📄 ${esc(l.title)}</a>` : `<a href="${esc(l.url)}" target="_blank" rel="noopener">${{ drive: "📁", gmail: "✉️", github: "🐙" }[l.kind] || "🌐"} ${esc(l.title)}</a>`)];
+    if (!chips.length) return "";
+    const N = 3, rest = chips.length - N;
+    return `<div class="rel">${chips.map((c, i) => i < N ? c : c.replace(/^<a /, '<a class="relx" ')).join("")}${rest > 0 ? `<button type="button" data-relmore>他 ${rest} 件 ▾</button>` : ""}</div>`;
+  }
   function sheetOrder() { return [...document.querySelectorAll("#list .row[data-id]")].map((r) => r.dataset.id); }
   function openSheet(t, today) {
     sheetTask = t;
@@ -1710,6 +1738,7 @@
       </div>`}`;
 
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = "";
+    fitDesc($("#descBox"));
     // 端末の「戻る」で閉じられるように履歴を1つ積む
     if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheetClose").onclick = closeSheet;
@@ -1751,9 +1780,9 @@
       box.innerHTML = (kv ? `<div class="kv">${esc(kv)}</div>` : "") +
         (d.desc ? `<div class="dtext">${descHtml(d.desc)}</div>` : `<div class="dtext" style="color:var(--mute)">説明なし</div>`) +
         (d.body ? `<div class="dbody">${descHtml(d.body)}${d.more ? "<div>…（続きは Notion）</div>" : ""}</div>` : "") +
-        ((d.related || []).length || (d.links || []).length ? `<div class="rel">${(d.related || []).map((r) => `<a href="#" data-reader="${r.id}">📄 ${esc(r.kind)}: ${r.icon ? r.icon + " " : ""}${esc(r.name)}</a>`).join("")}${(d.links || []).map((l) => l.kind === "notion" ? `<a href="#" data-reader="${l.pageId}">📄 ${esc(l.title)}</a>` : `<a href="${esc(l.url)}" target="_blank" rel="noopener">${{ drive: "📁", gmail: "✉️", github: "🐙" }[l.kind] || "🌐"} ${esc(l.title)}</a>`).join("")}</div>` : "");
-      const long = [...box.querySelectorAll(".dtext,.dbody")].some((el) => el.scrollHeight > el.clientHeight + 2);
-      if (long) { const a = document.createElement("a"); a.href = "#"; a.className = "more"; a.textContent = "もっと見る"; a.onclick = (e) => { e.preventDefault(); box.querySelectorAll(".dtext,.dbody").forEach((el) => el.classList.add("open")); a.remove(); }; box.appendChild(a); }
+        relHtml(d);
+      fitDesc(box);
+      const rx = box.querySelector("[data-relmore]"); if (rx) rx.onclick = () => { rx.parentElement.classList.add("open"); rx.remove(); };
     }).catch(() => { const box = $("#descBox"); if (box && !t.rawDesc) box.innerHTML = `<div class="dtext" style="color:var(--mute)">概要を取得できませんでした</div>`; });
     // 2026-10-04: preventDefault せず、アンカーの既定動作で intent:// へ飛ばす (クリックの文脈をそのまま使うのが一番確実)。印は投げっぱなし、シートは少し遅れて閉じる
     // data-fresh (2026-10-08): 新しいチャットで始める。AIセッション は Worker が空にして、新しい Claude が書き直す。それ以外で AIセッション があれば前回の続き (resume)
