@@ -19,7 +19,7 @@
  *   POST /api/tasks/:id/skip     見送りで完了。done と同じ3点セット + 説明欄の先頭に「見送り (日付, PWA)」を残す
  *   done / skip / dup はどれも ?note=<1行> を受け、あれば根拠行に「: メモ」を続ける (done はメモがあるときだけ「完了 (日付, PWA): メモ」を先頭に) (2026-10-06)
  *   POST /api/tasks/:id/delegate?to=<担当>  家族へ委任 (2026-10-01)。担当 (select) を立てる。to= 空で自分に戻す。委任中は今日系タブから消え「委任」タブに出る
- *   POST /api/tasks/:id/restore  取り消し (2026-10-02)。body {due,startRaw,status,owner,desc,done} のうち渡された列だけ元に戻す (null=空にする)。Kairos の ↩ が使う
+ *   POST /api/tasks/:id/restore  取り消し (2026-10-02)。body {due,startRaw,status,owner,desc,done,mitRaw} のうち渡された列だけ元に戻す (null=空にする)。Kairos の ↩ が使う
  *   POST /api/tasks/:id/dup      重複で完了 (2026-10-01)。done と同じ3点セット + 説明欄の先頭に「重複のため完了 (日付, PWA[, 相手: ?with])」
  *   GET  /api/tasks/:id/chain    未完了の先行タスクを順に (順送り実行用)。{chain:[…], cycle, truncated}
  *     done / skip の応答には pendingPreds (残っていた先行) と unblocked (着手可になった後続) が付く
@@ -226,6 +226,7 @@ function pageToTask(page) {
     rawDesc: (p["説明"]?.rich_text ?? []).map((t) => t.plain_text).join(""),
     // ⭐ 今日の3つ (MIT, 2026-10-06): 当日の日付が入っていれば真。翌日には自然に外れる
     mit: (p["今日の3つ"]?.date?.start ?? "").slice(0, 10) === todayJst(),
+    mitRaw: p["今日の3つ"]?.date?.start ?? null, // 取り消しの控え用 (2026-10-23)。延期で ⭐ を外したのを ↩ で戻す
     // 待ちの相手 (GTD の Waiting For, 2026-10-06): 説明欄の先頭行「待ち (日付, PWA): 相手」から拾う
     waitFor: (() => { const m = ((p["説明"]?.rich_text ?? []).map((t) => t.plain_text).join("")).match(/^待ち \([^)]*\): (.+)$/m); return m ? m[1].trim().slice(0, 60) : null; })(),
     // 繰越回数 (Bullet Journal の Migration, 2026-10-06): 棚卸しが書く「[棚卸し滞留 繰越N回 …]」から
@@ -1324,6 +1325,7 @@ const kairosWorker = {
         if ("status" in b && b.status) props["ステータス"] = { status: { name: b.status } };
         if ("owner" in b) props["担当"] = { select: b.owner ? { name: b.owner } : null };
         if ("desc" in b) props["説明"] = { rich_text: [{ text: { content: String(b.desc ?? "").slice(0, 1900) } }] };
+        if ("mitRaw" in b) props["今日の3つ"] = { date: b.mitRaw ? { start: b.mitRaw } : null }; // 延期で外した ⭐ の取り消し (2026-10-23)
         if ("aiSince" in b) props["AI処理開始"] = { date: b.aiSince ? { start: b.aiSince } : null };
         if (Array.isArray(b.env)) props["実行環境"] = { multi_select: b.env.map((name) => ({ name })) }; // 🌅 早朝向き の付け外しの取り消し (2026-10-12)
         // PJ の付け替えの取り消し (2026-10-06)。控えと今が違うときだけ戻す (他の操作の取り消しで PJ を触らない)
@@ -1468,7 +1470,11 @@ const kairosWorker = {
           const cur = await getTask(env, id);
           const props = { "開始日": { date: { start: d } } };
           if (cur.due && (cur.due < d || (cur.start && cur.due === cur.start))) props["期日"] = { date: { start: d } };
-          return json({ task: await patchTask(env, id, props), dueMoved: !!props["期日"] });
+          // ⭐ 今日の3つ (2026-10-23 利用者「明日以降にスワイプしても今日の3つから消えない」): 開始日を未来へ送るなら ⭐ も外す。
+          // 外さないと 今日やる の ⭐ 合流が拾い直し、開始日まで今日に書き戻して延期が打ち消される
+          const mitCleared = cur.mit && d > todayJst();
+          if (mitCleared) props["今日の3つ"] = { date: null };
+          return json({ task: await patchTask(env, id, props), dueMoved: !!props["期日"], mitCleared });
         }
       }
       return json({ error: "not found" }, 404);
