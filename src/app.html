@@ -1610,7 +1610,7 @@
   // 操作の前にタスクの値を控えて積む。↩ で最後の1件を POST /restore に渡して戻す。端末ごと・最大20件・再読込しても残る
   const UNDO_KEY = "kairos_undo";
   let undoStack = JSON.parse(localStorage.getItem(UNDO_KEY) || "[]");
-  function snapOf(t) { return { done: false, due: t.due, startRaw: t.startRaw ?? t.start, status: t.status, owner: t.owner, desc: t.rawDesc ?? "", aiSince: t.aiSince ?? null, projectIds: t.projectIds || [], predIds: t.predIds || [], env: t.env || [] }; }
+  function snapOf(t) { return { done: false, due: t.due, startRaw: t.startRaw ?? t.start, status: t.status, owner: t.owner, desc: t.rawDesc ?? "", aiSince: t.aiSince ?? null, mitRaw: t.mitRaw ?? null, projectIds: t.projectIds || [], predIds: t.predIds || [], env: t.env || [] }; }
   function pushUndo(t, label) {
     undoStack.push({ id: t.id, name: t.name, label, snap: snapOf(t), at: Date.now() });
     if (undoStack.length > 20) undoStack.shift();
@@ -1649,7 +1649,7 @@
         if (j.pendingPreds && j.pendingPreds.length) askPending(t, j.pendingPreds); // 先行が残っていたらその場で聞く
       }
       else if (base === "reopen") toast(`未完了に戻した: ${t.name}`);
-      else toast(`${label}: ${t.name}${j.dueMoved ? "（期日も同じ日に）" : ""}`, undoLast);
+      else toast(`${label}: ${t.name}${j.dueMoved ? "（期日も同じ日に）" : ""}${j.mitCleared ? "（⭐ 今日の3つから外しました）" : ""}`, undoLast);
       counts();
       setTimeout(() => load(view, { silent: true }), 1500); // Notion 側の反映遅れを拾い直す
     } catch (e) { toast("失敗: " + e.message); load(view, { silent: true }); }
