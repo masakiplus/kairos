@@ -903,7 +903,8 @@
     const ai = tasks.filter((t) => t.aiActive);
     if (ai.length) secs = [["🤖 AI が処理中", "aih", ai], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.aiActive)])];
     // 🧔 人対応 (Claude が止めて本人の手番) は 処理中 の次に独立した節で (2026-10-03)
-    const hu = tasks.filter((t) => t.status === "人対応" && !t.aiActive);
+    // 開始日が先の 人対応 は手番がまだ来ていないので節に上げない (2026-10-24 利用者「本人の手番も始まってないものが出ちゃう」)。PJ別・委任などでは元の節に「開始 M/D」付きで残る
+    const hu = tasks.filter((t) => t.status === "人対応" && !t.aiActive && !(t.start && t.start > today));
     if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ["🧔 本人の手番（AI が止めた）", "huh", hu], ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
     // ⭐ 今日の3つ (MIT, 2026-10-06) は一番上。4件以上なら見出しで注意 (検索タブでは節を作らない)
     const mit = view === "search" ? [] : tasks.filter((t) => t.mit && !t.done);
