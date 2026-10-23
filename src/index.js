@@ -848,9 +848,10 @@ function passesView(t, view, today) {
   if (view === "project") return t.projectIds.length > 0; // 待機・待ちも含めて全部
   // 着手中: 開始日が先 (待機) のものは外す (2026-10-08 利用者「開始日が先にあれば着手中から外す・数えない」)。先行待ちは出す
   if (view === "doing") return (t.status === "進行中" || t.status === "人対応") && !(t.start && t.start > today);
+  // 開始日が先 (待機) は今日系タブに出さない。先行待ちの判定より先にかける (2026-10-24: 開始日が先でも期日が過ぎた先行待ちが 今日やる に出ていた)
+  if (t.start && t.start > today) return false; // 着手可否=待機
   // 先行待ち: 今日系タブには原則出さない。期日が今日以前のものだけ「今日やる」に薄く出す (2026-09-29 決定)
   if (t.blocked) return view === "today" && !!t.due && t.due <= today;
-  if (t.start && t.start > today) return false; // 着手可否=待機
   if (view === "today") return !!t.due && t.due <= today;
   if (view === "can" || view === "phone") {
     if (t.status === "待ち") return false;
