@@ -1216,7 +1216,6 @@ const kairosWorker = {
     if (path === "/" || path === "/index.html") {
       const preview = url.searchParams.get("preview") === "d1", backend = preview ? "d1" : env.DATA_BACKEND || "notion";
       let html = APP_HTML.replace('<script>', '<script>window.KAIROS_STORAGE=' + JSON.stringify(backend) + ';window.KAIROS_PREVIEW=' + JSON.stringify(preview) + ';');
-      if (backend === "d1") html = html.replaceAll("Notion で開く", "Kairos で開く").replaceAll("🔗 Notion</div>", "🔗 Kairos</div>");
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
     }
 
