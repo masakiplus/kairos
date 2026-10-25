@@ -273,11 +273,25 @@ async function extraTargetDs(env,state,pathname,args,method) {
  const core=Object.values(collectionVars).map(k=>cleanId(env[k]));
  return core.includes(ds)?null:ds;
 }
+// 書き込むリレーションの相手が、共有スナップショットに載らない追加コレクション(blog_neta・daily など)にあるとき、
+// その行だけ D1 から足す。足さないと相手が存在するのに「Relation target is not migrated」で落ちる (2026-10-26)
+async function withRelationTargets(env,state,pathname,args,method) {
+ if(!((method==='PATCH'&&/^\/pages\/[^/]+$/.test(pathname))||(method==='POST'&&pathname==='/pages')))return state;
+ const missing=new Set();
+ for(const p of Object.values(args?.properties || {}))if(p&&Array.isArray(p.relation))for(const rel of p.relation){const id=cleanId(rel?.id || '');if(id&&!state.rows.has(id))missing.add(id);}
+ if(!missing.size)return state;
+ const ids=[...missing],found=[];
+ for(let i=0;i<ids.length;i+=50){const part=ids.slice(i,i+50);const r=await env.DB.prepare('SELECT id,ds,collection,payload FROM entities WHERE id IN ('+part.map(()=>'?').join(',')+')').bind(...part).all();found.push(...(r.results || []));}
+ if(!found.length)return state;
+ const rows=new Map(state.rows);for(const r of found)rows.set(r.id,{...r,page:JSON.parse(r.payload)});
+ return {...state,rows};
+}
 export async function d1Notion(env,path,init={}) {
  const url=new URL('https://d1.local'+path),method=init.method || 'GET';
  const args=init.body?JSON.parse(init.body):Object.fromEntries(url.searchParams);
  let state=/^\/(blocks\/|search$)/.test(url.pathname)?null:await (env.__d1State ||= requestState(env));
  if(state){const xds=await extraTargetDs(env,state,url.pathname,args,method);if(xds){const ex=await loadState(env,xds);state={rows:new Map([...state.rows,...ex.rows]),schemas:state.schemas};}}
+ if(state)state=await withRelationTargets(env,state,url.pathname,args,method);
  if(env.D1_READ_ONLY&&((method==='PATCH')||(method==='POST'&&url.pathname==='/pages')))throw new Error('D1 preview is read only');
  let m; if(method==='POST'&&url.pathname==='/search'){const q=String(args.query || '').toLowerCase(),dir=args.sort?.direction==='ascending'?'ASC':'DESC';const rows=await env.DB.prepare("SELECT payload FROM entities WHERE COALESCE(json_extract(payload,'$.archived'),0)=0 AND COALESCE(json_extract(payload,'$.in_trash'),0)=0 ORDER BY json_extract(payload,'$.last_edited_time') "+dir+" LIMIT "+(q?5000:1500)).all();const titleOf=p=>Object.values(p.properties || {}).find(v=>v.type==='title')?.title?.map(x=>x.plain_text ?? x.text?.content ?? '').join('') || '';return paged((rows.results || []).map(r=>JSON.parse(r.payload)).filter(p=>!q||titleOf(p).toLowerCase().includes(q)),args);} if((m=url.pathname.match(/^\/data_sources\/([^/]+)(\/query)?$/))) {
   const ds=cleanId(m[1]);

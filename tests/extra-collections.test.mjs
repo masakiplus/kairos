@@ -91,3 +91,25 @@ test('D1 切替後: 中核の capture は 409、追加コレクションの capt
   assert.equal((await call('coll=tasks')).status, 409);
   assert.equal((await call('coll=sessions')).status, 400); // ds 欠落で弾かれる=切替ガードは通った
 });
+
+test('リレーションの相手が別の追加コレクションにあっても書ける（作成・更新とも。2026-10-26 blog_metrics 502）', async t => {
+  const {sql, env} = setup(t);
+  await initD1(env);
+  const resDs = '1'.repeat(32), netaDs = '2'.repeat(32);
+  sql.prepare('INSERT INTO entity_schemas VALUES(?,?,?)').run(netaDs, 'blogneta', schemaOf({タイトル: {id: 'title', type: 'title'}}));
+  sql.prepare('INSERT INTO entity_schemas VALUES(?,?,?)').run(resDs, 'articleresults', schemaOf({
+    slug: {id: 'title', type: 'title'},
+    ネタ: {id: 'n', type: 'relation', relation: {data_source_id: netaDs}},
+  }));
+  t.mock.method(globalThis, 'fetch', () => { throw new Error('Notion must not be called'); });
+  const call = (path, method, body) => d1Notion(env, path, {method, body: JSON.stringify(body)});
+  const neta = await call('/pages', 'POST', {parent: {data_source_id: netaDs}, properties: {タイトル: {title: [{text: {content: 'ネタA'}}]}}});
+  delete env.__d1State;
+  const created = await call('/pages', 'POST', {parent: {data_source_id: resDs}, properties: {
+    slug: {title: [{text: {content: 'a'}}]}, ネタ: {relation: [{id: neta.id.replace(/-/g, '')}]}}});
+  delete env.__d1State;
+  const updated = await call('/pages/' + created.id, 'PATCH', {properties: {ネタ: {relation: [{id: neta.id}]}}});
+  assert.equal(updated.properties.ネタ.relation.length, 1);
+  delete env.__d1State;
+  await assert.rejects(call('/pages/' + created.id, 'PATCH', {properties: {ネタ: {relation: [{id: '3'.repeat(32)}]}}}), /Relation target is not migrated/);
+});
