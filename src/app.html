@@ -460,7 +460,7 @@
   <button type="button" id="aiCopy">依頼文をコピー</button>
   <a id="aiOpen" target="_blank" rel="noopener noreferrer"></a>
 </dialog>
-<div class="reader" id="reader" hidden><div class="rh"><button id="rdBack">‹ 戻る</button><div class="rt" id="rdTitle"></div><a id="rdOpen" href="#" target="_blank" rel="noopener">Notion ↗</a></div><div class="rb" id="rdBody"></div></div>
+<div class="reader" id="reader" hidden><div class="rh"><button id="rdBack">‹ 戻る</button><div class="rt" id="rdTitle"></div><a id="rdOpen" href="#" target="_blank" rel="noopener">別タブ ↗</a></div><div class="rb" id="rdBody"></div></div>
 <label for="datePick" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">開始日</label>
 <script>
 (() => {
@@ -604,7 +604,7 @@
     return "#ai-handoff=" + encodeURIComponent(JSON.stringify({ provider: aiProvider, prompt, session }));
   }
   function taskPrompt(t, mode, chain, provider = aiProvider) {
-    const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
+    const page = t.url || (location.origin + "/?page=" + t.id.replace(/-/g, ""));
     let ask = mode === "update"
       ? "の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。相談したいことがあれば一問一答で。決めたことはタスクの本文に詳しく書き、関連するノート・ファイル・URL は本文にリンクで並べてください。"
       : "を進めてください。必要なら時間調整・実行まで含め、終わったら操作規約どおり完了処理まで。成果・決定事項はタスクの本文に詳しく書き、関連するノート・ファイル・URL は本文にリンクで並べてください（進行中も同様）。";
@@ -615,8 +615,8 @@
     }
     const handoff = provider === "claude"
       ? 'Kairos から渡したので AI処理開始 が立っています。まず read_conversation("current") でこのチャットの URL を取り、タスクの AIセッション に書いてください。'
-      : 'Kairos からの依頼です。前のAIが途中まで処理した可能性があるため、現在のタスクを確認し、完了済みの登録や更新を重複実行しないでください。Notionを更新できる場合は、実行を始めるときに AI処理開始 を記録し、このチャットのURLを取得できる場合は AIセッション に書いてください。必要な接続や操作規約を確認できない場合は質問し、実行していない操作を完了と報告しないでください。';
-    return "「" + t.name + "」" + ask + "（Notion ✅ Tasks のタスク。ページ: " + page + " ）\n" + handoff + "完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。";
+      : 'Kairos からの依頼です。前のAIが途中まで処理した可能性があるため、現在のタスクを確認し、完了済みの登録や更新を重複実行しないでください。Kairosを更新できる場合は、実行を始めるときに AI処理開始 を記録し、このチャットのURLを取得できる場合は AIセッション に書いてください。必要な接続や操作規約を確認できない場合は質問し、実行していない操作を完了と報告しないでください。';
+    return "「" + t.name + "」" + ask + "（Kairos ✅ Tasks のタスク。ページ: " + page + " ）\n" + handoff + "完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。";
   }
   function claudeHref(t, mode, chain) {
     const q = taskPrompt(t, mode, chain);
@@ -650,7 +650,7 @@
     const d = (t.start && t.start > todayStr) ? t.start : (t.due && t.due >= todayStr) ? t.due : todayStr;
     const ymd = d.replace(/-/g, "");
     const lines = (t.rawDesc || "").split("\n").filter((l) => /^(なぜ|何を)[:：]/.test(l)).slice(0, 2).join("\n");
-    const details = (lines ? lines + "\n\n" : "") + "Notion: " + t.url;
+    const details = (lines ? lines + "\n\n" : "") + "Kairos: " + t.url;
     const u = new URL("https://calendar.google.com/calendar/render");
     u.searchParams.set("action", "TEMPLATE");
     u.searchParams.set("text", (t.icon ? t.icon + " " : "") + t.name);
@@ -673,7 +673,7 @@
   // 既存チャットには文面を URL で渡せないので、文面はクリップボードに入れて「貼って送る」運用にする。新しいチャットで始めたいときはシートの別リンク
   function aiHref(t, mode = "run", chain) { return aiProvider !== "claude" ? handoffHref(taskPrompt(t, mode, chain), sessionProvider(t.aiSession) === aiProvider ? t.aiSession : null) : sessionProvider(t.aiSession) === "claude" ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
   function aiPrompt(t, mode = "run") {
-    const page = t.url || ("https://www.notion.so/" + t.id.replace(/-/g, ""));
+    const page = t.url || (location.origin + "/?page=" + t.id.replace(/-/g, ""));
     return storagePrompt(mode === "update"
       ? `「${t.name}」の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。前回の続きです。終わるときに AI処理開始 を空にしてください。（${page}）`
       : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`);
@@ -939,7 +939,7 @@
     const a = ts.slice(0, n).map((t, i) => `${i + 1}. ${t.name}（${t.url}）`);
     return a.join("、") + (ts.length > n ? `、…ほか ${ts.length - n} 件` : "");
   }
-  const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Notion を更新し、終わったら 📻 Sessions に足跡を 1 行。";
+  const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Kairos を更新し、作業記録は関連タスクの本文に追記してください。";
   // ---- いまの状況 (2026-10-12, OmniFocus のタグ／パースペクティブの「端末に応じて切り替わる」版) ----
   // 実行環境 の選択肢を 4 軸に読む (👥 相手 は 2026-10-12。「〜と」で終わる選択肢＝その人と一緒のときにできる)。タグが付いている軸ごとに 1 つ以上が今の状況と合えば「いまできる」。タグが無い軸は不問
   const SIT_AXES = { place: ["自宅", "職場", "外出"], tool: ["Mac", PHONE_ENV, "電話", "紙・郵送"], time: ["早朝"] }; // tool[1] はスマホ (Worker から来た名前で差し替わる)
@@ -1049,15 +1049,15 @@
       q = `家族に委任中のタスク ${ts.length} 件を確認したいです: ${taskLines(ts)}。担当ごとに「終わっていそうか／声をかける文面（1〜2 行）／自分に戻すか」を決め、終わったものは完了処理、戻すものは 担当 を外してください。${META_TAIL}`;
     } else if (v === "roles") {
       label = aiName() + " と週次役割レビュー"; sub = "今週の石の達成と来週の石";
-      q = `週次の役割レビューをお願いします。Notion 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。終わったら 📻 Sessions に足跡を 1 行。`;
+      q = `週次の役割レビューをお願いします。Kairos 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。作業記録は関連タスクの本文に追記してください。`;
     } else if (v === "review") {
       const qs = reviewList();
       label = qs.length ? aiName() + " と残りの問いを話しながら決める" : aiName() + " と Decisions を見直す";
       sub = qs.length ? `残り ${qs.length} 問を理由つきで` : "提案中・提示済みの未決を一問一答で";
       const lines = qs.slice(0, 10).map((x, i) => `${i + 1}. [${x.db}] ${x.name || x.q}（${x.url}）`).join("、") + (qs.length > 10 ? `、…ほか ${qs.length - 10} 件` : "");
       q = qs.length
-        ? `見直しの残り ${qs.length} 問を、理由を話しながら決めたいです: ${lines}。1 問ずつ判断に要る事実を聞いて、決着したら Notion（Decisions の 決定・決定日・結論、Tasks、Projects）を操作規約どおり更新してください。終わったら 📻 Sessions に足跡を 1 行。`
-        : `Notion 🧠 Decisions の 提案中・提示済み で未決のものを一問一答で見直したいです。古いものから順に「着手する／棚上げ／やめる／今は決めない」を聞いて、決着したら 決定・決定日・結論 を書き、着手するものは ✅ Tasks に起票してください。終わったら 📻 Sessions に足跡を 1 行。`;
+        ? `見直しの残り ${qs.length} 問を、理由を話しながら決めたいです: ${lines}。1 問ずつ判断に要る事実を聞いて、決着したら Kairos（Decisions の 決定・決定日・結論、Tasks、Projects）を操作規約どおり更新してください。作業記録は関連タスクの本文に追記してください。`
+        : `Kairos 🧠 Decisions の 提案中・提示済み で未決のものを一問一答で見直したいです。古いものから順に「着手する／棚上げ／やめる／今は決めない」を聞いて、決着したら 決定・決定日・結論 を書き、着手するものは ✅ Tasks に起票してください。作業記録は関連タスクの本文に追記してください。`;
     } else return "";
     return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
   }
@@ -1185,7 +1185,7 @@
     const needNote = q.kind !== "project-close";
     list.innerHTML = chipBar + `<div class="rvp"><div class="bar"><i style="width:${total ? Math.round(done / total * 100) : 0}%"></i></div><span>${done + 1} / ${total} 問</span></div>
       <div class="rvc in" data-qid="${q.id}" data-kind="${q.kind}">
-        <div class="kb ${q.kind}"><span>${K.ic} ${K.t}</span><small>${esc(q.db)}${q.label && q.label !== K.t ? " · " + esc(q.label) : ""}</small><a href="${q.url}" target="_blank" rel="noopener" style="color:rgba(255,255,255,.85);text-decoration:none;font-weight:500">Notion ↗</a></div>
+        <div class="kb ${q.kind}"><span>${K.ic} ${K.t}</span><small>${esc(q.db)}${q.label && q.label !== K.t ? " · " + esc(q.label) : ""}</small><a href="${q.url}" target="_blank" rel="noopener" style="color:rgba(255,255,255,.85);text-decoration:none;font-weight:500">開く ↗</a></div>
         <div class="rq">${reviewAsk(q)}</div>
         <div class="why">${esc(reviewWhy(q))}</div>
         ${q.body && q.kind === "decision" ? `<div class="rb">${esc(q.body)}</div>` : ""}
@@ -1199,7 +1199,7 @@
   }
   function reviewClaudeHref(q) {
     const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : "🧠 Decisions の決定";
-    return claudeLink(`「${q.name || q.q}」について一問一答で決めたいです（${where}。ページ: ${q.url} ）。${q.kind === "verify" ? "決めたことの検証結果（当たり／外れ／部分的）と学びを一緒に書いてください。" : q.kind === "project-close" ? "クローズするか、次のアクションを 1 件足すかを決めて、Projects と Decisions を更新してください。" : "判断に要る事実を 1 問ずつ聞いて、決着したら Notion を更新してください（操作規約どおり）。"}`);
+    return claudeLink(`「${q.name || q.q}」について一問一答で決めたいです（${where}。ページ: ${q.url} ）。${q.kind === "verify" ? "決めたことの検証結果（当たり／外れ／部分的）と学びを一緒に書いてください。" : q.kind === "project-close" ? "クローズするか、次のアクションを 1 件足すかを決めて、Projects と Decisions を更新してください。" : "判断に要る事実を 1 問ずつ聞いて、決着したら Kairos を更新してください（操作規約どおり）。"}`);
   }
   async function reviewAnswer(q, a) {
     const note = ($("#rvNote") || {}).value || "";
@@ -1418,10 +1418,10 @@
   }
   function nextStoneHref(r) {
     const done = r.stone && r.stone.name ? `今週の石「${r.stone.name}」は達成しました。` : "";
-    return claudeLink(`役割「${r.name}」の次の石（今週の目標）を一問一答で決めたいです。${done}Notion 🧭 Roles のページ: ${r.url} 。この役割の PJ の未完了から候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください（前の石は補足に残す）。`);
+    return claudeLink(`役割「${r.name}」の次の石（今週の目標）を一問一答で決めたいです。${done}Kairos 🧭 Roles のページ: ${r.url} 。この役割の PJ の未完了から候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください（前の石は補足に残す）。`);
   }
   function missionHref(r) {
-    return claudeLink(`役割「${r.name}」のミッションを一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。1 問ずつ聞いて、最後に ミッション 列に 1 行（30 字以内）で書き、必要なら 3年後の姿・今年のゴール も埋めてください。`);
+    return claudeLink(`役割「${r.name}」のミッションを一問一答で決めたいです。Kairos 🧭 Roles のページ: ${r.url} 。1 問ずつ聞いて、最後に ミッション 列に 1 行（30 字以内）で書き、必要なら 3年後の姿・今年のゴール も埋めてください。`);
   }
 
   // ---- 📄 リーダー (2026-10-13): Notion ページを Kairos の中で読む。Notion のリンク (notion.so / app.notion.com の 32 桁 id) はここで開く
@@ -1445,7 +1445,7 @@
       else if (b.t === "code") out += `<pre>${b.html}</pre>`;
       else if (b.t === "divider") out += "<hr>";
       else if (b.t === "child_page") out += `<a href="#" class="sub" data-reader="${b.pageId}">📄 ${esc(b.html)}</a>`;
-      else if (b.t === "child_database") out += Array.isArray(b.pages) ? `<details><summary>🗂 ${esc(b.html)}（${b.pages.length}件）</summary>${b.pages.map((p) => `<p><a href="#" data-reader="${esc(p.id)}">📄 ${esc(p.name || "無題")}</a></p>`).join("")}</details>` : `<div class="quote">🗂 ${esc(b.html)}（DB は Notion で）</div>`;
+      else if (b.t === "child_database") out += Array.isArray(b.pages) ? `<details><summary>🗂 ${esc(b.html)}（${b.pages.length}件）</summary>${b.pages.map((p) => `<p><a href="#" data-reader="${esc(p.id)}">📄 ${esc(p.name || "無題")}</a></p>`).join("")}</details>` : `<div class="quote">🗂 ${esc(b.html)}（この DB の中身はまだ表示できません）</div>`;
       else if (b.t === "bookmark" || b.t === "embed" || b.t === "link_preview") out += `<p><a href="${esc(b.href)}" target="_blank" rel="noopener">${esc(b.html).slice(0, 80)}</a></p>`;
       else if (b.t === "image") out += b.href ? `<p><img src="${esc(b.href)}" alt="" loading="lazy"></p>` : "";
       else if (["file", "pdf", "audio", "video"].includes(b.t)) out += b.href ? `<p><a href="${esc(b.href)}" target="_blank" rel="noopener">📎 ${esc(b.html || b.t)}</a></p>` : "";
@@ -1459,14 +1459,14 @@
     const r = $("#reader"); r.hidden = false;
     if (push && r.dataset.id && r.dataset.id !== pageId) rdStack.push(r.dataset.id);
     r.dataset.id = pageId;
-    $("#rdTitle").textContent = "読み込み中…"; $("#rdBody").innerHTML = ""; $("#rdOpen").href = "https://www.notion.so/" + pageId.replace(/-/g, "");
+    $("#rdTitle").textContent = "読み込み中…"; $("#rdBody").innerHTML = ""; $("#rdOpen").href = "/?page=" + pageId.replace(/-/g, "");
     if (!history.state || !history.state.reader) history.pushState({ sheet: !!(history.state && history.state.sheet), reader: true }, "");
     try {
       const j = await api(`/api/page/${pageId}`);
       if ($("#reader").dataset.id !== pageId) return;
       $("#rdTitle").textContent = (j.icon ? j.icon + " " : "") + j.name; $("#rdOpen").href = j.url || $("#rdOpen").href;
       $("#rdBody").innerHTML = (j.props && j.props.length ? `<div class="rp">${j.props.map(([k, v]) => `<span>${esc(k)}: ${esc(v)}</span>`).join("")}</div>` : "") +
-        (rdBlocks(j.blocks) || '<p style="color:var(--mute)">本文はありません</p>') + (j.more ? '<p style="color:var(--mute)">…（続きは Notion で）</p>' : "");
+        (rdBlocks(j.blocks) || '<p style="color:var(--mute)">本文はありません</p>') + (j.more ? '<p style="color:var(--mute)">…（以降は省略）</p>' : "");
       $("#rdBody").scrollTop = 0;
     } catch (e) { $("#rdBody").innerHTML = `<p style="color:var(--over)">読み込めませんでした: ${esc(e.message)}</p>`; }
   }
@@ -1721,9 +1721,9 @@
         ${DELEGATES.map((n) => `<button data-dg="${n}" class="${t.owner === n ? "pri" : ""}">${n}</button>`).join("")}
         ${t.owner ? `<button data-dg="" class="skip">自分に戻す</button>` : ""}
       </div>
-      <div class="sect">🔗 Notion</div>
+      <div class="sect">🔗 Kairos</div>
       <div class="list">
-        <a href="${t.url}" target="_blank" rel="noopener"><span class="ic">${ICONS.link || "↗"}</span>Notion で開く</a>
+        <a href="${t.url}" target="_blank" rel="noopener"><span class="ic">${ICONS.link || "↗"}</span>Kairos で開く</a>
         <a href="#" id="copyUrl"><span class="ic">⧉</span>URL をコピー</a>
         ${navigator.share ? `<a href="#" id="shareUrl"><span class="ic">⇪</span>共有</a>` : ""}
       </div>
@@ -1780,7 +1780,7 @@
       const kv = [d.kind, ...(d.labels || [])].filter(Boolean).join(" · ");
       box.innerHTML = (kv ? `<div class="kv">${esc(kv)}</div>` : "") +
         (d.desc ? `<div class="dtext">${descHtml(d.desc)}</div>` : `<div class="dtext" style="color:var(--mute)">説明なし</div>`) +
-        (d.body ? `<div class="dbody">${descHtml(d.body)}${d.more ? "<div>…（続きは Notion）</div>" : ""}</div>` : "") +
+        (d.body ? `<div class="dbody">${descHtml(d.body)}${d.more ? "<div>…（以降は省略）</div>" : ""}</div>` : "") +
         relHtml(d);
       fitDesc(box);
       const rx = box.querySelector("[data-relmore]"); if (rx) rx.onclick = () => { rx.parentElement.classList.add("open"); rx.remove(); };
@@ -1833,7 +1833,7 @@
             <button class="ring" aria-label="${esc(c.name)} を完了" data-cdone="${c.id}"></button>
             <span class="nm">${c.icon ? c.icon + " " : ""}${esc(c.name)}<small>${c.due ? fmtDate(c.due) + " · " : ""}${c.env.join("・") || "—"}</small></span>
             <a href="#" data-copen="${c.id}">開く</a></div>`).join("") +
-          (j.cycle ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が循環しています。Notion で直してください</span></div>` : "") +
+          (j.cycle ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が循環しています。先行タスクを付け直してください</span></div>` : "") +
           (j.truncated ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が深すぎます（10段まで）</span></div>` : "");
         $("#claudeRun").href = aiHref(t, "run", j.chain);
         $("#claudeRunLabel").textContent = `${aiName()} に先行から順に進めてもらう（${j.chain.length} 件先）`;
@@ -1990,7 +1990,7 @@
     $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>${r.icon ? r.icon + " " : ""}${esc(r.name)} — 今週の石を置く</h3><button class="close" aria-label="閉じる">✕</button></div>
       <div class="sub">予定に入れないと起きないもの。この役割の PJ の未完了から 1 つ</div>
       <div class="list pick">${items || '<button disabled><span class="nm" style="color:var(--mute)">候補なし（この役割の PJ に未完了タスクがありません）</span></button>'}</div>
-      <a class="notion" href="${claudeLink(`役割「${r.name}」の今週の石（今週の目標）を一問一答で決めたいです。Notion 🧭 Roles のページ: ${r.url} 。候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください。`)}" data-ext>${aiIcon()} ${aiName()} と相談して決める</a>`;
+      <a class="notion" href="${claudeLink(`役割「${r.name}」の今週の石（今週の目標）を一問一答で決めたいです。Kairos 🧭 Roles のページ: ${r.url} 。候補を 3 つ出して 1 つに絞り、✅ Tasks に無ければ起票して、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書いてください。`)}" data-ext>${aiIcon()} ${aiName()} と相談して決める</a>`;
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheet").querySelector(".close").onclick = closeSheet;
     $("#sheet").querySelectorAll("[data-pick]").forEach((b) => b.onclick = async () => {
@@ -2003,7 +2003,7 @@
     const st = r.stone; const t = st.taskId ? { id: st.taskId, name: st.name, url: st.url || ("https://www.notion.so/" + st.taskId.replace(/-/g, "")) } : null;
     $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>${st.icon ? st.icon + " " : ""}${esc(st.name)}</h3><button class="close" aria-label="閉じる">✕</button></div>
       <div class="sub">${esc(r.name)} の今週の石${st.until ? `（〜${esc(st.until)}）` : ""}${st.due ? ` · 期日 ${fmtDate(st.due)}` : ""}</div>
-      <div class="list">${t ? `<a href="${aiHref(t, "run")}" data-stoneai><span class="ic">${aiIcon()}</span>🤖 ${aiName()} に進めてもらう</a><a href="${t.url}" target="_blank" rel="noopener"><span class="ic">📄</span>Notion で開く</a>` : ""}
+      <div class="list">${t ? `<a href="${aiHref(t, "run")}" data-stoneai><span class="ic">${aiIcon()}</span>🤖 ${aiName()} に進めてもらう</a><a href="${t.url}" target="_blank" rel="noopener"><span class="ic">📄</span>Kairos で開く</a>` : ""}
         <a href="#" data-repick><span class="ic">${ICONS.pen}</span>別のタスクに置き換える</a><a href="#" data-unstone style="color:var(--mute)"><span class="ic">${ICONS.skip}</span>石を外す</a></div>`;
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheet").querySelector(".close").onclick = closeSheet;
