@@ -353,6 +353,9 @@
   .reader .rh .rt{flex:1;min-width:0;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .reader .rh a{color:var(--mute2);text-decoration:none;font-size:13px;flex:none}
   .reader .rb{flex:1;overflow-y:auto;padding:12px 16px calc(24px + env(safe-area-inset-bottom));font-size:15px;line-height:1.6;word-break:break-word}
+  .reader .ra{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--sep);background:var(--bg)}
+  .reader .ra button,.reader .ra a{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:4px;border:0;border-radius:12px;padding:12px 6px;font-size:15px;font-weight:600;background:var(--seg);color:var(--fg);text-decoration:none;white-space:nowrap}
+  .reader .ra .pri{background:var(--acc);color:#fff}
   .reader .rb .rp{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.reader .rb .rp span{font-size:12px;color:var(--mute);background:var(--seg);border-radius:999px;padding:2px 8px}
   .reader .rb h1{font-size:19px;margin:14px 0 4px}.reader .rb h2{font-size:17px;margin:12px 0 4px}.reader .rb h3{font-size:15px;margin:10px 0 2px}
   .reader .rb p{margin:0 0 6px}.reader .rb ul,.reader .rb ol{margin:0 0 6px 1.3em;padding:0}.reader .rb li{margin:2px 0}
@@ -460,7 +463,7 @@
   <button type="button" id="aiCopy">依頼文をコピー</button>
   <a id="aiOpen" target="_blank" rel="noopener noreferrer"></a>
 </dialog>
-<div class="reader" id="reader" hidden><div class="rh"><button id="rdBack">‹ 戻る</button><div class="rt" id="rdTitle"></div><a id="rdOpen" href="#" target="_blank" rel="noopener">別タブ ↗</a></div><div class="rb" id="rdBody"></div></div>
+<div class="reader" id="reader" hidden><div class="rh"><button id="rdBack">‹ 戻る</button><div class="rt" id="rdTitle"></div><a id="rdOpen" href="#" target="_blank" rel="noopener">別タブ ↗</a></div><div class="rb" id="rdBody"></div><div class="ra" id="rdActs" hidden></div></div>
 <label for="datePick" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">開始日</label>
 <script>
 (() => {
@@ -1459,7 +1462,7 @@
     const r = $("#reader"); r.hidden = false;
     if (push && r.dataset.id && r.dataset.id !== pageId) rdStack.push(r.dataset.id);
     r.dataset.id = pageId;
-    $("#rdTitle").textContent = "読み込み中…"; $("#rdBody").innerHTML = ""; $("#rdOpen").href = "/?page=" + pageId.replace(/-/g, "");
+    $("#rdTitle").textContent = "読み込み中…"; $("#rdBody").innerHTML = ""; $("#rdActs").hidden = true; $("#rdActs").innerHTML = ""; $("#rdOpen").href = "/?page=" + pageId.replace(/-/g, "");
     if (!history.state || !history.state.reader) history.pushState({ sheet: !!(history.state && history.state.sheet), reader: true }, "");
     try {
       const j = await api(`/api/page/${pageId}`);
@@ -1468,7 +1471,30 @@
       $("#rdBody").innerHTML = (j.props && j.props.length ? `<div class="rp">${j.props.map(([k, v]) => `<span>${esc(k)}: ${esc(v)}</span>`).join("")}</div>` : "") +
         (rdBlocks(j.blocks) || '<p style="color:var(--mute)">本文はありません</p>') + (j.more ? '<p style="color:var(--mute)">…（以降は省略）</p>' : "");
       $("#rdBody").scrollTop = 0;
+      rdActions(pageId, j.name);
     } catch (e) { $("#rdBody").innerHTML = `<p style="color:var(--over)">読み込めませんでした: ${esc(e.message)}</p>`; }
+  }
+  // リーダーで開いたのがタスクなら、下に次の一手のボタンを出す (2026-10-25、ウィジェットから ?page= で開くと操作が無かった)
+  // シートのサブセット: 完了・明日へ・🤖 進めてもらう・すべての操作 (=シート)
+  async function rdActions(pageId, name) {
+    const key = pageId.replace(/-/g, ""), same = (x) => x.id.replace(/-/g, "") === key;
+    let t = tasks.find(same);
+    if (!t && name) { try { t = ((await api(`/api/search?all=1&q=${encodeURIComponent(name.slice(0, 100))}`)).tasks || []).find(same); } catch (e) {} }
+    if (!t || $("#reader").dataset.id !== pageId) return;
+    const bar = $("#rdActs"), can = !t.done && !t.blocked;
+    bar.innerHTML = (can ? `<button class="pri" data-ra="done">✓ 完了</button><button data-ra="defer?days=1">明日へ</button>` : "") +
+      (t.done ? "" : `<a href="${aiHref(t, "run")}" data-ra-ai>🤖 進める</a>`) +
+      `<button data-ra="sheet">⋯ 操作</button>`;
+    bar.hidden = false;
+    const hideReader = () => { const r = $("#reader"); r.hidden = true; delete r.dataset.id; rdStack.length = 0; };
+    bar.querySelectorAll("button[data-ra]").forEach((b) => b.onclick = () => {
+      const a = b.dataset.ra;
+      if (a === "sheet") { hideReader(); history.replaceState({ sheet: true }, ""); openSheet(t, todayStr); return; } // リーダーの履歴をシートの履歴に置き換える
+      if (a === "done" && t.aiActive && !confirm("AI が処理中です。それでも完了にしますか？")) return;
+      closeReader(); act(t, a, a === "done" ? "完了" : "明日へ", false);
+    });
+    const ai = bar.querySelector("a[data-ra-ai]");
+    if (ai) ai.onclick = () => { const resume = sessionProvider(t.aiSession) === "claude"; markAi(t, "run", resume); if (resume) copyPrompt(t, "run"); setTimeout(closeReader, 400); };
   }
   function closeReader() {
     const r = $("#reader"); if (r.hidden) return;
