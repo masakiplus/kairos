@@ -1078,9 +1078,21 @@ async function readerPage(env, id) {
     else if (p.type === "status" && p.status) props.push([k, p.status.name]);
     else if (p.type === "date" && p.date?.start) props.push([k, p.date.start.slice(0, 10)]);
     else if (p.type === "checkbox" && p.checkbox) props.push([k, "✓"]);
+    else if (p.type === "multi_select" && p.multi_select?.length) props.push([k, p.multi_select.map((o) => o.name).join("・")]); // 実行環境・ラベル (2026-10-25)
   }
+  // 説明などの文章プロパティと、決定・PJ・先行のつながり (2026-10-25): ウィジェットから開いたタスクで説明も決定も出ていなかった
+  const texts = [], relIds = [];
+  for (const [k, p] of Object.entries(pg.properties ?? {})) {
+    if (p.type === "rich_text") { const v = (p.rich_text ?? []).map((x) => x.plain_text ?? "").join("").trim(); if (v) texts.push([k, v.slice(0, 4000)]); }
+    else if (p.type === "relation" && p.relation?.length) for (const r of p.relation) relIds.push({ id: r.id, kind: k });
+  }
+  texts.sort((a, b) => (b[0] === "説明") - (a[0] === "説明")); // 説明を先頭に
+  const rels = (await Promise.all(relIds.slice(0, 10).map(async (r) => {
+    try { const rp = await notion(env, `/pages/${r.id}`); const tt = Object.values(rp.properties ?? {}).find((x) => x.type === "title"); return { id: r.id, kind: r.kind, name: (tt?.title ?? []).map((x) => x.plain_text).join("") || "(無題)", icon: rp.icon?.emoji ?? "" }; }
+    catch (e) { return null; }
+  }))).filter(Boolean);
   const body = await readerBlocks(env, id, 0);
-  return { id, url: pg.url, icon: pg.icon?.emoji ?? "", name: (title?.title ?? []).map((x) => x.plain_text).join("") || "(無題)", props: props.slice(0, 8), ...body };
+  return { id, url: pg.url, icon: pg.icon?.emoji ?? "", name: (title?.title ?? []).map((x) => x.plain_text).join("") || "(無題)", props: props.slice(0, 10), texts: texts.slice(0, 4), rels, ...body };
 }
 
 async function patchTask(env, id, properties) {
