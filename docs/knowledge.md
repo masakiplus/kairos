@@ -51,13 +51,14 @@
 |---|---|
 | `entity_body_edits(id, edited)` | 本文を Kairos で最後に書いた時刻。id は本文の持ち主（入れ子のブロックなら最寄りのページ）。本文を書く全経路（追記・ブロック更新・ブロック削除・子ページ作成）が同じ batch で付ける。切り替え後は `/api/storage/init` が使えないので、無ければ isolate の初回に作る |
 | ブロックの `created_time`・`last_edited_time` | Kairos で足したブロックにも入れる（穴1） |
+| ブロック更新の `last_edited_by` | Kairos でブロックを更新したら消す。取り込み時の Notion の人に、その後の編集を付けない（`human_edited` の判定のため） |
 | `POST /api/data/pages` の `parent.page_id` | 親の本文の末尾に `child_page` ブロックを置き、子ページを collection `pages` の行として作る（穴2） |
 
 ### API（`/api/knowledge/*`、Cookie か `Authorization: Bearer APP_TOKEN`）
 
 | 呼び出し | 返すもの |
 |---|---|
-| `GET /api/knowledge/index` | 全文書。`path`・`id`・`kind`（readme / sub / reference）・`captured`（取り込み時の Notion の時刻）・`kairosEdited`・`pageEdited`・`topBlocks`・`complete` |
+| `GET /api/knowledge/index` | 全文書。`path`・`id`・`kind`（readme / sub / reference）・`captured`（取り込み時の Notion の時刻）・`kairosEdited`・`bodyEdited`（上の段のブロックの最大時刻と `kairosEdited` の遅い方。ボルトの写しが「動いたか」を見るのに使う）・`pageEdited`・`topBlocks`・`complete` |
 | `GET /api/knowledge/resolve?path=PRJ/x/README.md` | 1文書。子ページがまだ無ければ `id:null` と親 `parent` |
 | `GET /api/knowledge/inspect?id=` | 本文の木を見た判定。`touched`（取り込み後に Kairos で書いた）・`ambiguous`（証拠は無いがページの時刻が取り込みより後） |
 
@@ -91,19 +92,18 @@ node --env-file=.dev.vars scripts/knowledge-migrate.mjs <out> apply --confirm [-
 - `conflict` は自動では触らない。`before/` と Notion を突き合わせ、Kairos 側を手で直すか、Notion 側を採るなら `--accept`
 - D1 の書き込み無料枠（日次）があるので、多いときは `--limit` で日を分ける
 
-### 書き手の付け替えと名前（2本目以降。saito-tools）
+### 書き手の付け替えと名前（saito-tools、2026-10-29）
 
-Notion を使わなくなるので、**名前を中立にする**（2026-10-29 本人の指摘）。
+Notion を使わなくなるので、**名前を中立にした**（2026-10-29 本人の指摘）。
 
-| 今 | 次 | 中身 |
+| 旧 | 新 | 中身 |
 |---|---|---|
-| `notion_sync/notion_knowledge.py` | `knowledge/knowledge_store.py` | 同じ関数（`read`・`upsert_section`・`append_to_section`・`create_page`・`body_edited`・`human_edited`）を Kairos の `/api/knowledge/resolve` と `/api/data/*` で直接実装。`human_edited` は `entity_body_edits` と自動の書き手の印で判定 |
-| `notion_sync/mirror_knowledge.py` | `knowledge/knowledge_mirror.py` | Kairos → ボルトの写し。動いたかは `/api/knowledge/index` の `kairosEdited`／`captured` で見る |
-| `notion_knowledge.py` | 互換の入口だけ残す | 呼び出し元（ai-drive・card-debit-analysis ほか）を順に新しい名前へ移し、呼ぶものが無くなったら消す |
-| `knowledge_ownership.py` | `knowledge/` へ移す | `notion_owns()` を `kairos_owns()` へ（旧名は別名で残す）。表（FLIPPED・VAULT_OWNED・HOLD）はそのまま |
-| Projects・Reference の `正本` 列 | 選択肢に `Kairos` を足す | 今は `Notion` のまま。列の選択肢を足すのは `optionMigrations` で行う |
+| `notion_sync/notion_knowledge.py` | `knowledge/knowledge_store.py` | 同じ関数（`locate`・`read`・`read_section`・`replace_body`・`upsert_section`・`append_to_section`・`create_page`・`body_edited`・`human_edited`）を `/api/knowledge/resolve` と `/api/data/*` で直接実装。書いたブロックに `last_edited_by = saito-tools` を付け、`human_edited` はそれと Notion 時代のインテグレーションの id を人の編集から外す |
+| `notion_sync/mirror_knowledge.py`・`.sh` | `knowledge/knowledge_mirror.py`・`.sh` | Kairos → ボルトの写し。対象と時刻は `/api/knowledge/index` の `bodyEdited` を1回で取る。門（作成途中・空・入口だけ・衝突退避・認証情報）は同じ。launchd `com.masaki.mirrorknowledge` と scheduler_watchdog の鮮度検査はこちらを見る |
+| `knowledge_ownership.notion_owns` | `kairos_owns` | 判定は同じ。旧名は別名で残す（ファイルは `notion_sync/` のまま） |
+| 旧モジュール | 退役の印を付けて残す | 旧い検査と、まだ付け替えていない保守用スクリプト（`ensure_pages`・`check_knowledge_drift`・`fill_ownership_prop`・`flip_banner`）のため。`notion_sync/mirror_knowledge.sh` は新しい方への転送 |
 
-今回の PR では、穴2の回り道として `kairos_route.py` の `POST /pages`（`parent.page_id` が Kairos のページ）を Kairos へ回すところだけ直した。
+据え置いたもの: ボルトの写しの frontmatter の鍵（`mirror: notion`・`notion_edited`）。ai-drive の手順書と apple-notes の写しが「`mirror: notion` があれば機械の写し」と読むので、鍵の名前はそちらと一緒に替える。URL は `kairos_url` に替えた。Projects・Reference の `正本` 列（選択肢 `Notion`）も未変更。
 
 ### Kairos → Drive の控え
 
@@ -121,7 +121,7 @@ Notion を使わなくなるので、**名前を中立にする**（2026-10-29 �
 2. Mac で `audit` を流し、`audit.md` を本人が見る。`review`・`conflict`・`new-project` の扱いを決める
 3. D1 を export してから `apply --confirm`（必要なら `--accept`）
 4. もう一度 `audit` → `fast-forward`・`new-sub`・`new-ref` が 0、残る `review`／`conflict` が本人の判断どおり
-5. saito-tools の付け替え（中立名）→ `mirror_knowledge`・`sync_*` の Notion 経路を止める
+5. saito-tools の付け替え（中立名。済み）→ 残る保守用スクリプトの Notion 経路を止める
 6. Drive の `_knowledge/` に PRJ・archive・ref が揃っていることを確かめる
 
 ## 4. 限界
