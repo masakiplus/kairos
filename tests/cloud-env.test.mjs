@@ -110,12 +110,12 @@ test('Kairos／tasks-pwa なら masakiplus/kairos、saito-workers なら saito-w
   assert.ok(q.get('q').startsWith('リポジトリ '+repo+' を接続'));
  }
 });
-test('Android はアプリへ intent、Mac もブラウザの claude.ai/code。クラウド以外は従来の claude.ai/new',()=>{
+test('Android はアプリへ intent、Mac はデスクトップ版の claude://code/new。クラウド以外は従来の claude.ai/new',()=>{
  const a=harness({android:true});a.context.task=cloudTask;
  const href=a.run('aiHref(task)');
  assert.ok(href.startsWith('intent://claude.ai/code/new?q='));assert.match(href,/package=com\.anthropic\.claude;S\.browser_fallback_url=https%3A%2F%2Fclaude\.ai%2Fcode%2Fnew%3Fq%3D/);
  const m=harness({mac:true});m.context.task=cloudTask;
- assert.ok(m.run('aiHref(task)').startsWith('https://claude.ai/code/new?'));
+ const mh=m.run('aiHref(task)'); assert.ok(mh.startsWith('claude://code/new?q='),mh.slice(0,40)); assert.equal(qOf(mh).get('repo'),'masakiplus/saito-tools'); { const c=harness({mac:true}); c.context.href=mh; assert.equal(c.run('copyCloudLink(href)'),true,'claude:// でもコピーする'); assert.equal(c.copied[0],qOf(mh).get('q')); }
  m.context.task={...cloudTask,env:['Mac']};
  assert.ok(m.run('aiHref(task)').startsWith('claude://claude.ai/new?q='));
  const w=harness();w.context.task={...cloudTask,env:[]};

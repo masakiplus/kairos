@@ -605,10 +605,13 @@
     const qs = "q=" + encodeURIComponent(cloudPrompt(t, mode, chain)) + "&repo=" + encodeURIComponent(cloudRepo(t));
     const web = "https://claude.ai/code/new?" + qs;
     if (isAndroid) return "intent://claude.ai/code/new?" + qs + "#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=" + encodeURIComponent(web) + ";end";
-    return web; // Mac もブラウザで開く (claude:// はデスクトップアプリのローカルセッションに入りうるため使わない)
+    // Mac はデスクトップ版 Claude の Code 画面へ (2026-10-29 実機確認: claude://code/new で環境=クラウドの新規画面が開き、q は入力欄に入る。
+    // repo は反映されないので文面の先頭で接続先を指示している)。https のままだと既定ブラウザ (Chrome) で開いてしまう
+    if (isMac) return "claude://code/new?" + qs;
+    return web;
   }
   function copyCloudLink(href) {
-    const m = /^(?:https|intent):\/\/claude\.ai\/code\/new\?([^#]*)/.exec(href || "");
+    const m = /^(?:(?:https|intent):\/\/claude\.ai\/|claude:\/\/)code\/new\?([^#]*)/.exec(href || "");
     const q = m && new URLSearchParams(m[1]).get("q");
     if (!q) return false;
     try { navigator.clipboard && navigator.clipboard.writeText(q).catch(() => {}); } catch (e) { /* 貼れないだけ */ }
