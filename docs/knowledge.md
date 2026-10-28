@@ -92,19 +92,18 @@ node --env-file=.dev.vars scripts/knowledge-migrate.mjs <out> apply --confirm [-
 - `conflict` は自動では触らない。`before/` と Notion を突き合わせ、Kairos 側を手で直すか、Notion 側を採るなら `--accept`
 - D1 の書き込み無料枠（日次）があるので、多いときは `--limit` で日を分ける
 
-### 書き手の付け替えと名前（2本目以降。saito-tools）
+### 書き手の付け替えと名前（saito-tools、2026-10-29）
 
-Notion を使わなくなるので、**名前を中立にする**（2026-10-29 本人の指摘）。
+Notion を使わなくなるので、**名前を中立にした**（2026-10-29 本人の指摘）。
 
-| 今 | 次 | 中身 |
+| 旧 | 新 | 中身 |
 |---|---|---|
-| `notion_sync/notion_knowledge.py` | `knowledge/knowledge_store.py` | 同じ関数（`read`・`upsert_section`・`append_to_section`・`create_page`・`body_edited`・`human_edited`）を Kairos の `/api/knowledge/resolve` と `/api/data/*` で直接実装。`human_edited` は `entity_body_edits` と自動の書き手の印で判定 |
-| `notion_sync/mirror_knowledge.py` | `knowledge/knowledge_mirror.py` | Kairos → ボルトの写し。動いたかは `/api/knowledge/index` の `kairosEdited`／`captured` で見る |
-| `notion_knowledge.py` | 互換の入口だけ残す | 呼び出し元（ai-drive・card-debit-analysis ほか）を順に新しい名前へ移し、呼ぶものが無くなったら消す |
-| `knowledge_ownership.py` | `knowledge/` へ移す | `notion_owns()` を `kairos_owns()` へ（旧名は別名で残す）。表（FLIPPED・VAULT_OWNED・HOLD）はそのまま |
-| Projects・Reference の `正本` 列 | 選択肢に `Kairos` を足す | 今は `Notion` のまま。列の選択肢を足すのは `optionMigrations` で行う |
+| `notion_sync/notion_knowledge.py` | `knowledge/knowledge_store.py` | 同じ関数（`locate`・`read`・`read_section`・`replace_body`・`upsert_section`・`append_to_section`・`create_page`・`body_edited`・`human_edited`）を `/api/knowledge/resolve` と `/api/data/*` で直接実装。書いたブロックに `last_edited_by = saito-tools` を付け、`human_edited` はそれと Notion 時代のインテグレーションの id を人の編集から外す |
+| `notion_sync/mirror_knowledge.py`・`.sh` | `knowledge/knowledge_mirror.py`・`.sh` | Kairos → ボルトの写し。対象と時刻は `/api/knowledge/index` の `bodyEdited` を1回で取る。門（作成途中・空・入口だけ・衝突退避・認証情報）は同じ。launchd `com.masaki.mirrorknowledge` と scheduler_watchdog の鮮度検査はこちらを見る |
+| `knowledge_ownership.notion_owns` | `kairos_owns` | 判定は同じ。旧名は別名で残す（ファイルは `notion_sync/` のまま） |
+| 旧モジュール | 退役の印を付けて残す | 旧い検査と、まだ付け替えていない保守用スクリプト（`ensure_pages`・`check_knowledge_drift`・`fill_ownership_prop`・`flip_banner`）のため。`notion_sync/mirror_knowledge.sh` は新しい方への転送 |
 
-今回の PR では、穴2の回り道として `kairos_route.py` の `POST /pages`（`parent.page_id` が Kairos のページ）を Kairos へ回すところだけ直した。
+据え置いたもの: ボルトの写しの frontmatter の鍵（`mirror: notion`・`notion_edited`）。ai-drive の手順書と apple-notes の写しが「`mirror: notion` があれば機械の写し」と読むので、鍵の名前はそちらと一緒に替える。URL は `kairos_url` に替えた。Projects・Reference の `正本` 列（選択肢 `Notion`）も未変更。
 
 ### Kairos → Drive の控え
 
@@ -122,7 +121,7 @@ Notion を使わなくなるので、**名前を中立にする**（2026-10-29 �
 2. Mac で `audit` を流し、`audit.md` を本人が見る。`review`・`conflict`・`new-project` の扱いを決める
 3. D1 を export してから `apply --confirm`（必要なら `--accept`）
 4. もう一度 `audit` → `fast-forward`・`new-sub`・`new-ref` が 0、残る `review`／`conflict` が本人の判断どおり
-5. saito-tools の付け替え（中立名）→ `mirror_knowledge`・`sync_*` の Notion 経路を止める
+5. saito-tools の付け替え（中立名。済み）→ 残る保守用スクリプトの Notion 経路を止める
 6. Drive の `_knowledge/` に PRJ・archive・ref が揃っていることを確かめる
 
 ## 4. 限界
