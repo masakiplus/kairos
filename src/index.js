@@ -10,7 +10,7 @@
  * URL:
  *   GET  /                       PWA 本体 (app.html)。初回は ?t=<APP_TOKEN> を付けて開くと Cookie が入る
  *   GET  /manifest.webmanifest, /sw.js, /icon-192.png, /icon-512.png
- *   GET  /api/tasks?view=today|can|phone   一覧。Notion の 📱ビュー3本と同じフィルタ
+ *   GET  /api/tasks?view=today|can|phone|cloud   一覧。Notion の 📱ビュー3本と同じフィルタ (cloud は 2026-10-29 追加)
  *   POST /api/tasks              {name} タイトルだけで起票 (残りは 04:45 の棚卸しが補完)
  *   GET  /api/tasks/:id/detail   概要 (説明プロパティ + 本文の先頭 40 ブロック)。メニューを開いたときだけ (2026-09-30)
  *   POST /api/tasks/:id/ai?mode=run|update  🤖 に渡した印 (AI処理開始=今, AI処理種別=実行/更新)。ai-clear で外す (2026-09-30, 種別 2026-10-03)
@@ -97,6 +97,8 @@ function deferTo(to) {
 const NOT_DONE = { property: "完了", checkbox: { equals: false } };
 // 📱 スマホの選択肢名 (2026-10-15): 「iPhone」を「スマホ」にリネームした。書くときはスキーマに実在する方を使う (Notion 側のリネーム前後どちらでも動く。無い名前を書くと別の選択肢が勝手に生える)
 const PHONE_ENV_NAMES = ["スマホ", "iPhone"];
+// ☁️ クラウド (2026-10-29): Claude Code のクラウドセッション＋GitHub で進めるタスクの印。Mac が要らない作業。選択肢は D1 側で冪等に足す (d1.js ensureSchemaOptions)
+const CLOUD_ENV = "クラウド";
 const NOT_WAITING = { property: "ステータス", status: { does_not_equal: "待ち" } };
 const STARTABLE = { property: "着手可否", formula: { string: { equals: "着手可" } } };
 const VIEWS = {
@@ -144,6 +146,14 @@ const VIEWS = {
     sorts: [
       { property: "担当", direction: "ascending" },
       { property: "期日", direction: "ascending" },
+    ],
+  },
+  // クラウドで (2026-10-29): スマホで と同じ要領。着手可否は today/can と同じ式 (着手可・待ちを除く)
+  cloud: {
+    filter: { and: [NOT_DONE, NOT_WAITING, STARTABLE, { property: "実行環境", multi_select: { contains: CLOUD_ENV } }] },
+    sorts: [
+      { property: "期日", direction: "ascending" },
+      { property: "優先度", direction: "ascending" },
     ],
   },
   phone: {
@@ -853,9 +863,10 @@ function passesView(t, view, today) {
   // 先行待ち: 今日系タブには原則出さない。期日が今日以前のものだけ「今日やる」に薄く出す (2026-09-29 決定)
   if (t.blocked) return view === "today" && !!t.due && t.due <= today;
   if (view === "today") return !!t.due && t.due <= today;
-  if (view === "can" || view === "phone") {
+  if (view === "can" || view === "phone" || view === "cloud") {
     if (t.status === "待ち") return false;
     if (view === "phone") return t.env.some((x) => PHONE_ENV_NAMES.includes(x)) || t.env.includes("電話");
+    if (view === "cloud") return t.env.includes(CLOUD_ENV);
     if (t.env.includes("早朝")) return !t.start || t.start.slice(0, 10) <= today; // 🌅 早朝向きは期日に関係なく渡す (開始日が先のものは除く。2026-10-15: 静かな時間の 🌅 節に全部並べる。昼間は画面が 7 日より先を落とす)
     if (!t.due) return true;
     const d = Math.round((Date.parse(t.due + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86_400_000);

@@ -32,7 +32,7 @@
 
 | メソッド・パス | 役割 |
 |---|---|
-| `GET /api/tasks?view=today\|can\|phone\|project\|delegated` | 一覧。`wip`（着手中件数）と `delegates`（委任先）も返す |
+| `GET /api/tasks?view=today\|can\|phone\|cloud\|doing\|project\|delegated` | 一覧。`wip`（着手中件数）と `delegates`（委任先）も返す |
 | `GET /api/search?q=&all=1` | 検索（all=1 で完了も） |
 | `POST /api/tasks {name, projectId?}` | クイック追加 |
 | `GET /api/projects` ／ `POST /api/projects/:id/close {note}` ／ `GET /api/projects/:id/deps` | PJ 見出し・クローズ・つながり |

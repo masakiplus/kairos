@@ -32,7 +32,7 @@ Kairos を **リモート MCP サーバー**として公開する。claude.ai �
 | 名前 | 内容 |
 |---|---|
 | `kairos_rules` | 操作規約と、API 側の最新の規約 |
-| `kairos_list_tasks` | 画面別の一覧（today / can / phone / doing / project / delegated） |
+| `kairos_list_tasks` | 画面別の一覧（today / can / phone / cloud / doing / project / delegated） |
 | `kairos_search_tasks` | 名前・説明で検索（完了を含めるか選べる） |
 | `kairos_get` | 1 件のプロパティと本文（Markdown 風） |
 | `kairos_query` | DB の行（open_only・where・columns・limit） |
