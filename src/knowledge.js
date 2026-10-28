@@ -22,12 +22,14 @@ export async function knowledgeIndex(env) {
     env.DB.prepare(`SELECT e.id, e.collection, json_extract(e.payload,'$.properties."移行元".rich_text') src,
         json_extract(e.payload,'$.last_edited_time') page_edited, COALESCE(json_extract(e.payload,'$.archived'),0) archived,
         COALESCE(json_extract(e.payload,'$.in_trash'),0) trashed, b.complete, v.updated captured, k.edited kairos_edited,
-        (SELECT COUNT(*) FROM entity_children c WHERE c.parent_id=e.id AND json_extract(c.payload,'$.type')!='child_page') top
+        (SELECT COUNT(*) FROM entity_children c WHERE c.parent_id=e.id AND json_extract(c.payload,'$.type')!='child_page') top,
+        (SELECT MAX(json_extract(c.payload,'$.last_edited_time')) FROM entity_children c WHERE c.parent_id=e.id AND json_extract(c.payload,'$.type')!='child_page') top_edited
       FROM entities e LEFT JOIN entity_bodies b ON b.id=e.id LEFT JOIN entity_body_versions v ON v.id=e.id LEFT JOIN entity_body_edits k ON k.id=e.id
       WHERE e.collection IN ('projects','reference')`),
     env.DB.prepare(`SELECT c.parent_id root, c.id, json_extract(c.payload,'$.child_page.title') title,
         json_extract(e.payload,'$.last_edited_time') page_edited, b.complete, v.updated captured, k.edited kairos_edited,
-        (SELECT COUNT(*) FROM entity_children x WHERE x.parent_id=c.id AND json_extract(x.payload,'$.type')!='child_page') top
+        (SELECT COUNT(*) FROM entity_children x WHERE x.parent_id=c.id AND json_extract(x.payload,'$.type')!='child_page') top,
+        (SELECT MAX(json_extract(x.payload,'$.last_edited_time')) FROM entity_children x WHERE x.parent_id=c.id AND json_extract(x.payload,'$.type')!='child_page') top_edited
       FROM entity_children c JOIN entities p ON p.id=c.parent_id AND p.collection='projects'
       LEFT JOIN entities e ON e.id=c.id LEFT JOIN entity_bodies b ON b.id=c.id LEFT JOIN entity_body_versions v ON v.id=c.id LEFT JOIN entity_body_edits k ON k.id=c.id
       WHERE json_extract(c.payload,'$.type')='child_page'`),
@@ -50,7 +52,10 @@ export async function knowledgeIndex(env) {
 }
 function docRow(r, path, kind, extra) {
   return { path, id: r.id, kind, ...extra, archived: !!r.archived, complete: !!r.complete, captured: r.captured || null,
-    pageEdited: r.page_edited || null, kairosEdited: r.kairos_edited || null, topBlocks: r.top ?? 0 };
+    pageEdited: r.page_edited || null, kairosEdited: r.kairos_edited || null, topBlocks: r.top ?? 0,
+    // 本文が最後に動いた時刻: 上の段のブロックの最大 (saito-tools の body_edited() と同じ見方) と、Kairos で書いた印の遅い方。
+    // 入れ子だけの編集・ブロックの削除は上の段の時刻を進めないので、印の方で拾う (ボルトの写しの「動いたか」に使う)
+    bodyEdited: [r.top_edited, r.kairos_edited].filter(Boolean).sort().pop() || null };
 }
 
 /** ボルトの相対パス → 文書。notion_knowledge.locate() と同じ規則。見つからなければ null、子ページが未作成なら id:null。 */

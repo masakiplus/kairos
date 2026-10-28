@@ -51,13 +51,14 @@
 |---|---|
 | `entity_body_edits(id, edited)` | 本文を Kairos で最後に書いた時刻。id は本文の持ち主（入れ子のブロックなら最寄りのページ）。本文を書く全経路（追記・ブロック更新・ブロック削除・子ページ作成）が同じ batch で付ける。切り替え後は `/api/storage/init` が使えないので、無ければ isolate の初回に作る |
 | ブロックの `created_time`・`last_edited_time` | Kairos で足したブロックにも入れる（穴1） |
+| ブロック更新の `last_edited_by` | Kairos でブロックを更新したら消す。取り込み時の Notion の人に、その後の編集を付けない（`human_edited` の判定のため） |
 | `POST /api/data/pages` の `parent.page_id` | 親の本文の末尾に `child_page` ブロックを置き、子ページを collection `pages` の行として作る（穴2） |
 
 ### API（`/api/knowledge/*`、Cookie か `Authorization: Bearer APP_TOKEN`）
 
 | 呼び出し | 返すもの |
 |---|---|
-| `GET /api/knowledge/index` | 全文書。`path`・`id`・`kind`（readme / sub / reference）・`captured`（取り込み時の Notion の時刻）・`kairosEdited`・`pageEdited`・`topBlocks`・`complete` |
+| `GET /api/knowledge/index` | 全文書。`path`・`id`・`kind`（readme / sub / reference）・`captured`（取り込み時の Notion の時刻）・`kairosEdited`・`bodyEdited`（上の段のブロックの最大時刻と `kairosEdited` の遅い方。ボルトの写しが「動いたか」を見るのに使う）・`pageEdited`・`topBlocks`・`complete` |
 | `GET /api/knowledge/resolve?path=PRJ/x/README.md` | 1文書。子ページがまだ無ければ `id:null` と親 `parent` |
 | `GET /api/knowledge/inspect?id=` | 本文の木を見た判定。`touched`（取り込み後に Kairos で書いた）・`ambiguous`（証拠は無いがページの時刻が取り込みより後） |
 

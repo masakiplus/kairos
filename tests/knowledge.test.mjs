@@ -14,7 +14,7 @@ function setup(t) {
   const env = {DB, DATA_BACKEND: 'd1', PROJECTS_DATA_SOURCE_ID: PDS, KAIROS_ORIGIN: 'https://kairos.test', NOTION_TOKEN: 'x'};
   const page = (id, ds, props, extra = {}) => ({object: 'page', id, last_edited_time: T0, parent: {data_source_id: ds}, properties: props, ...extra});
   const src = s => ({移行元: {type: 'rich_text', rich_text: [{plain_text: s}]}, 名前: {type: 'title', title: [{plain_text: s}]}});
-  const block = (id, type, text, extra = {}) => ({object: 'block', id, type, [type]: type === 'child_page' ? {title: text} : {rich_text: [{plain_text: text}]}, created_time: T0, last_edited_time: T0, has_children: false, ...extra});
+  const block = (id, type, text, extra = {}) => ({object: 'block', id, type, last_edited_by: {object: 'user', id: 'notion-person'}, [type]: type === 'child_page' ? {title: text} : {rich_text: [{plain_text: text}]}, created_time: T0, last_edited_time: T0, has_children: false, ...extra});
   const seed = async () => {
     await initD1(env); await ensureBodyEdits(env);
     sql.exec(`CREATE TABLE IF NOT EXISTS docs (id TEXT PRIMARY KEY, collection TEXT, title TEXT, parent_id TEXT, props TEXT, body_md TEXT, created TEXT, updated TEXT, version INTEGER, body_status TEXT, conv TEXT)`);
@@ -53,6 +53,7 @@ test('一覧とパス解決: README は行の本文、子ページは題名、�
   assert.equal(resolvePath(docs, 'PRJ/無い/README.md'), null);
   const r = await knowledgeRoute({method: 'GET'}, env, new URL('https://kairos.test/api/knowledge/resolve?path=' + encodeURIComponent('archive/電力会社比較_2026-04/README.md')), (b, s = 200) => ({b, s}));
   assert.equal(r.b.id, ARC);
+  assert.equal(docs.find(d => d.path === 'PRJ/負債/README.md').bodyEdited, T0, '上の段のブロックの時刻');
 });
 
 test('Kairos で本文を書くと、入れ子のブロックでも持ち主のページに印が付き、新しいブロックに時刻が入る', async t => {
@@ -62,6 +63,10 @@ test('Kairos で本文を書くと、入れ子のブロックでも持ち主の�
   assert.ok(sql.prepare('SELECT edited FROM entity_body_edits WHERE id=?').get(P));
   assert.equal((await inspectBody(env, P)).touched, true);
   assert.equal((await inspectBody(env, SUB)).touched, false, '子ページは別の文書');
+  const nested = JSON.parse(sql.prepare('SELECT payload FROM entity_children WHERE id=?').get('13'.repeat(16)).payload);
+  assert.equal(nested.last_edited_by, undefined, 'Kairos での編集を取り込み時の人に付けない');
+  const readme = (await knowledgeIndex(env)).find(d => d.path === 'PRJ/負債/README.md');
+  assert.ok(readme.bodyEdited > T0, '入れ子の編集も本文の時刻に出る');
   const added = await d1Notion(env, '/blocks/' + SUB + '/children', {method: 'PATCH', body: JSON.stringify({children: [{type: 'paragraph', paragraph: {rich_text: [{text: {content: '追記'}}]}}]})});
   assert.ok(added.results[0].created_time && added.results[0].last_edited_time);
   assert.ok(sql.prepare('SELECT edited FROM entity_body_edits WHERE id=?').get(SUB));
