@@ -102,12 +102,12 @@ test('クラウドのタスクは claude.ai/code/new に文面とリポジトリ
  assert.doesNotMatch(q.get('q'),/read_conversation/,'Claude Code にはチャットの道具が無い');
  assert.match(qOf(h.run('aiHref(task,"update")')).get('q'),/内容を見直して更新/);
 });
-test('saito-workers／Kairos／tasks-pwa の名前・PJ なら saito-workers を接続する',()=>{
- for(const extra of [{name:'Kairos に何かを足す'},{name:'tasks-pwa の修正'},{project:'saito-workers 移行'},{project:'kairos'}]){
+test('Kairos／tasks-pwa なら masakiplus/kairos、saito-workers なら saito-workers を接続する',()=>{
+ for(const [extra,repo] of [[{name:'Kairos に何かを足す'},'masakiplus/kairos'],[{name:'tasks-pwa の修正'},'masakiplus/kairos'],[{project:'kairos'},'masakiplus/kairos'],[{name:'Kairos の通知',project:'saito-workers 移行'},'masakiplus/kairos'],[{project:'saito-workers 移行'},'masakiplus/saito-workers'],[{name:'telegram-outbox (saito-workers) の修正'},'masakiplus/saito-workers']]){
   const h=harness();h.context.task={...cloudTask,...extra};
   const q=qOf(h.run('aiHref(task)'));
-  assert.equal(q.get('repo'),'masakiplus/saito-workers',JSON.stringify(extra));
-  assert.ok(q.get('q').startsWith('リポジトリ masakiplus/saito-workers を接続'));
+  assert.equal(q.get('repo'),repo,JSON.stringify(extra));
+  assert.ok(q.get('q').startsWith('リポジトリ '+repo+' を接続'));
  }
 });
 test('Android はアプリへ intent、Mac もブラウザの claude.ai/code。クラウド以外は従来の claude.ai/new',()=>{

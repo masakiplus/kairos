@@ -590,10 +590,13 @@
   const aiName = () => AI_APPS[aiProvider];
   // ☁️ クラウド (2026-10-29): 実行環境に「クラウド」を含むタスクの 🤖 は Claude Code のクラウド側 (claude.ai/code) へ。
   // 飛び先は https://claude.ai/code/new?q=<文面>&repo=<owner/name> (Claude ヘルプ「Open the Claude mobile app with a link」に載っている形。q は入力欄に入るだけで送信はしない)。
-  // 文面が入らなかったときのために押した瞬間にクリップボードにも入れる (copyCloudLink)。接続先は名前・PJ に saito-workers／Kairos／tasks-pwa があれば saito-workers
+  // 文面が入らなかったときのために押した瞬間にクリップボードにも入れる (copyCloudLink)。接続先は名前・PJ に Kairos／tasks-pwa があれば masakiplus/kairos (2026-10-08 に移管)、saito-workers があれば masakiplus/saito-workers、それ以外は masakiplus/saito-tools
   const CLOUD_ENV = "クラウド";
   const isCloudTask = (t) => !!t && Array.isArray(t.env) && t.env.includes(CLOUD_ENV);
-  function cloudRepo(t) { return /saito-workers|kairos|tasks-pwa/i.test((t.name || "") + " " + (t.project || "")) ? "masakiplus/saito-workers" : "masakiplus/saito-tools"; }
+  function cloudRepo(t) {
+    const s = (t.name || "") + " " + (t.project || "");
+    return /kairos|tasks-pwa/i.test(s) ? "masakiplus/kairos" : /saito-workers/i.test(s) ? "masakiplus/saito-workers" : "masakiplus/saito-tools";
+  }
   function cloudPrompt(t, mode, chain) {
     const page = t.url || (location.origin + "/?page=" + t.id.replace(/-/g, ""));
     return storagePrompt("リポジトリ " + cloudRepo(t) + " を接続し、ブランチを切って着手する。終わったら PR にする。Kairos タスク: " + page + "。説明と本文を先に読む\n" + taskPrompt(t, mode, chain, "claude-code"));
