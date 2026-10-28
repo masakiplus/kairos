@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 test('実Worker/D1で更新・依存・本文・添付を扱い、Notionを呼ばない',async()=>{
  const lab=readFileSync(new URL('../src/lab.js',import.meta.url),'utf8');
- const native=readFileSync(new URL('../src/d1.js',import.meta.url),'utf8').replace("import { nget, completeRelations } from './lab.js';",'');
+ const native=readFileSync(new URL('../src/d1.js',import.meta.url),'utf8').replace(/^import .*;$/gm,'')+'\n'+readFileSync(new URL('../src/knowledge.js',import.meta.url),'utf8').replace(/^import .*;$/gm,'').replace(/^export /gm,'');
  let outbound=0;
  const ds='d'.repeat(32),id='a'.repeat(32);
  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-09-01',d1Databases:['DB'],bindings:{TASKS_DATA_SOURCE_ID:ds,DATA_BACKEND:'d1'},outboundService:()=>{outbound++;return new Response('no outbound',{status:500});},script:lab+'\n'+native+`\nexport default {async fetch(req,env){const u=new URL(req.url);if(u.pathname==='/init'){await initD1(env);return Response.json({ok:true});}if(u.pathname.startsWith('/api/storage/'))return storageRoute(req,env,u,(v,s=200)=>Response.json(v,{status:s}));return Response.json(await d1Notion({...env,KAIROS_ORIGIN:'https://kairos.test'},u.pathname+u.search,{method:req.method,...(req.method==='GET'?{}:{body:await req.text()})}));}};`}));

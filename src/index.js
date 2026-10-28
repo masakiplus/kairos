@@ -41,6 +41,7 @@ import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/l
 import { tapsAdd, tapsReport } from "./taps.js";
 import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, launchAdd, launchRows, parseUsageRows, weeklyReport, weekStart } from "./launches.js";
 import { d1Notion, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
+import { knowledgeRoute } from "./knowledge.js"; // 知識文書 (PRJ・archive・ref) のパス解決・早送りの門 (2026-10-29)
 import { isMcpPath, mcpRoute } from "./mcp.js";
 import APP_HTML from "./app.html";
 import SW_JS from "./sw.txt";
@@ -1295,6 +1296,7 @@ const kairosWorker = {
       if (req.headers.get("X-Kairos-Preview") === "d1") env = { ...env, DATA_BACKEND: "d1", D1_READ_ONLY: true };
       if (env.DATA_BACKEND === "d1") env = await d1Environment(env);
       if (path.startsWith("/api/storage/")) return await storageRoute(req, env, url, json);
+      if (path.startsWith("/api/knowledge/")) return env.DATA_BACKEND === "d1" ? await knowledgeRoute(req, env, url, json) : json({ error: "Knowledge API needs the D1 backend" }, 409);
       if (path.startsWith("/api/data/") && env.DATA_BACKEND === "d1") {
         if (!(["GET", "POST", "PATCH"].includes(req.method) || (req.method === "DELETE" && path.startsWith("/api/data/blocks/")))) return json({ error: "method not allowed" }, 405);
         return json(await d1Notion(env, path.slice('/api/data'.length) + url.search, { method: req.method, ...(req.method === "GET" ? {} : { body: await req.text() }) }));

@@ -1,6 +1,7 @@
 // D1 is the source of truth in DATA_BACKEND=d1. Notion is used only by explicit
 // migration endpoints while the backend is still notion; there is no read fallback.
 import { nget, completeRelations } from './lab.js';
+import { knowledgeCaptureAllowed, knowledgeAfterCapturePage, knowledgeRefreshRoute } from './knowledge.js';
 export const collectionVars = {tasks:'TASKS_DATA_SOURCE_ID',projects:'PROJECTS_DATA_SOURCE_ID',roles:'ROLES_DATA_SOURCE_ID',decisions:'DECISIONS_DATA_SOURCE_ID',habits:'HABITS_DATA_SOURCE_ID',habit_log:'HABIT_LOG_DATA_SOURCE_ID'};
 export const cleanId = x => String(x || '').replace(/-/g,'').toLowerCase();
 // 6つの中核コレクション以外(Sessions・Daily など)を登録できる。名前は小文字英数字と _ だけ(予約語は不可)。
@@ -18,6 +19,14 @@ export async function collectionOfSource(env,source) {
  const row=await env.DB.prepare('SELECT collection FROM entity_schemas WHERE id=?').bind(s).first();
  return row?.collection || null;
 }
+// 本文を Kairos 側で最後に書いた時刻 (2026-10-29)。id は本文の持ち主(入れ子のブロックなら最寄りのページ)。
+// entity_body_versions は「取り込んだときの元ページの更新時刻」なので、両方を見れば取り込み後に Kairos で書かれたかが分かる。
+// 知識文書の早送り(Notion で取り込み後に動いた本文を取り直す)は、ここに行がある文書を上書きしない。
+const BODY_EDITS_TABLE=`CREATE TABLE IF NOT EXISTS entity_body_edits(id TEXT PRIMARY KEY, edited TEXT NOT NULL)`;
+/** 入れ子のブロックからでも、本文の持ち主のページへ「Kairos で書いた」印を付ける文。書き込みと同じ batch に入れる。 */
+export function bodyEditStatement(env,id,now){
+ return env.DB.prepare(`INSERT INTO entity_body_edits(id,edited) WITH RECURSIVE up(id,d) AS (SELECT ?1,0 UNION ALL SELECT c.parent_id,up.d+1 FROM entity_children c JOIN up ON c.id=up.id WHERE up.d<32) SELECT up.id,?2 FROM up WHERE up.id IN (SELECT id FROM entities) ORDER BY up.d LIMIT 1 ON CONFLICT(id) DO UPDATE SET edited=excluded.edited`).bind(cleanId(id),now);
+}
 const schema = [
  `CREATE TABLE IF NOT EXISTS entities(id TEXT PRIMARY KEY, ds TEXT, collection TEXT NOT NULL, payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1)`,
  `CREATE INDEX IF NOT EXISTS entities_ds ON entities(ds)`,
@@ -32,6 +41,7 @@ const schema = [
  `CREATE TABLE IF NOT EXISTS entity_assets(id TEXT PRIMARY KEY, mime TEXT, size INTEGER, name TEXT, complete INTEGER NOT NULL DEFAULT 0)`,
  `CREATE TABLE IF NOT EXISTS entity_asset_chunks(id TEXT NOT NULL, part INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(id,part))`,
  `CREATE TABLE IF NOT EXISTS storage_control(key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+ BODY_EDITS_TABLE,
  `INSERT OR IGNORE INTO storage_control VALUES('rev','0')`,
 ];
 export async function initD1(env) {for(const sql of schema) await env.DB.prepare(sql).run();}
@@ -48,12 +58,17 @@ export async function ensureSchemaOptions(env) {
  if(stmts.length)await env.DB.batch(stmts);
 }
 const optionsDone=new WeakSet();
+// 切り替え後は /api/storage/init を呼べないので、無いときだけ作る (作る文は rev を進めるので、毎回は流さない)
+export async function ensureBodyEdits(env){
+ const t=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='entity_body_edits'").first();
+ if(!t)await env.DB.prepare(BODY_EDITS_TABLE).run();
+}
 const rt = a => (a || []).map(x=>x.plain_text ?? x.text?.content ?? '').join('');
 const sourceIds = new WeakMap();
 export async function d1Environment(env) {
  let cached=sourceIds.get(env.DB);
  if(!cached || Date.now()-cached.at>5000) {cached={at:Date.now(),promise:env.DB.batch([env.DB.prepare('SELECT id,collection FROM entity_schemas'),env.DB.prepare("SELECT value FROM storage_control WHERE key='presence_page_id'")])};sourceIds.set(env.DB,cached);}
- if(!env.D1_READ_ONLY&&!optionsDone.has(env.DB)){optionsDone.add(env.DB);try{await ensureSchemaOptions(env);}catch(e){optionsDone.delete(env.DB);console.error('ensureSchemaOptions failed',String(e?.message ?? e));}}
+ if(!env.D1_READ_ONLY&&!optionsDone.has(env.DB)){optionsDone.add(env.DB);try{await ensureSchemaOptions(env);await ensureBodyEdits(env);}catch(e){optionsDone.delete(env.DB);console.error('ensureSchemaOptions failed',String(e?.message ?? e));}}
  const [sources,presence]=await cached.promise,copy={...env};
  for(const row of sources.results || [])if(collectionVars[row.collection])copy[collectionVars[row.collection]]=row.id;
  if(presence.results?.[0])copy.PRESENCE_PAGE_ID=presence.results[0].value;
@@ -71,6 +86,8 @@ function normalizeBlock(input) {
  const b=structuredClone(input),type=b.type || Object.keys(b).find(k=>['paragraph','heading_1','heading_2','heading_3','bulleted_list_item','numbered_list_item','to_do','quote','callout','toggle','code','divider','table','table_row','image','file','pdf'].includes(k));
  if(!type)throw new Error('Block type required');
  b.type=type;b.id ||= crypto.randomUUID();const v=b[type] || (b[type]={});
+ // Kairos で足したブロックにも時刻を持たせる。無いと本文の更新時刻(ミラー・控え・ナッジの判定)が取り込み時のまま止まる (2026-10-29)
+ const now=new Date().toISOString();b.object ||= 'block';b.created_time ||= now;b.last_edited_time ||= now;
  for(const key of ['rich_text','caption'])if(v[key])v[key]=v[key].map(x=>({...x,type:x.type || 'text',plain_text:x.plain_text ?? x.text?.content ?? '',annotations:x.annotations || {}}));
  if(v.cells)v.cells=v.cells.map(cell=>cell.map(x=>({...x,type:x.type || 'text',plain_text:x.plain_text ?? x.text?.content ?? ''})));
  b.has_children=!!v.children?.length || !!b.has_children;return b;
@@ -300,6 +317,35 @@ async function withRelationTargets(env,state,pathname,args,method) {
  const rows=new Map(state.rows);for(const r of found)rows.set(r.id,{...r,page:JSON.parse(r.payload)});
  return {...state,rows};
 }
+// ページの下に子ページを作る (知識文書の「PRJ の下に .md を1本足す」書き手のため。2026-10-29)。
+// Notion と同じく、親の本文の末尾に child_page ブロックを置き、子ページ自身は collection 'pages' の行になる。
+async function createChildPage(env,args){
+ if(env.D1_READ_ONLY)throw new Error('D1 preview is read only');
+ const parent=cleanId(args.parent.page_id);
+ const [owner,body]=await env.DB.batch([env.DB.prepare('SELECT payload FROM entities WHERE id=?').bind(parent),env.DB.prepare('SELECT complete FROM entity_bodies WHERE id=?').bind(parent)]);
+ const parentPage=owner.results?.[0];
+ if(!parentPage)throw new Error('D1 page not found');
+ if(!body.results?.[0]?.complete)throw new Error('D1 body has not been migrated');
+ const raw=args.properties?.title,list=Array.isArray(raw)?raw:(raw?.title || []);
+ const title=normalizeProperty({type:'title',title:list}).title;
+ const name=rt(title);if(!name)throw new Error('Child page title required');
+ const id=crypto.randomUUID(),key=cleanId(id),now=new Date().toISOString();
+ const page={object:'page',id,created_time:now,last_edited_time:now,archived:false,in_trash:false,icon:args.icon || null,parent:{type:'page_id',page_id:JSON.parse(parentPage.payload).id || parent},properties:{title:{id:'title',type:'title',title}},url:'/api/page/'+key};
+ const block={object:'block',id,type:'child_page',child_page:{title:name},has_children:true,created_time:now,last_edited_time:now,archived:false};
+ const pos=await env.DB.prepare('SELECT COALESCE(MAX(position)+1,0) n FROM entity_children WHERE parent_id=?').bind(parent).first();
+ const stmts=[
+  env.DB.prepare('INSERT INTO entities(id,ds,collection,payload) VALUES(?,?,?,?)').bind(key,'','pages',JSON.stringify(page)),
+  env.DB.prepare('INSERT INTO entity_bodies VALUES(?,1)').bind(key),
+  env.DB.prepare('INSERT INTO entity_body_versions VALUES(?,?)').bind(key,now),
+  env.DB.prepare('INSERT INTO entity_children VALUES(?,?,?,?)').bind(parent,key,pos?.n ?? 0,JSON.stringify(block)),
+  env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(now,parent),
+  bodyEditStatement(env,parent,now),
+  ...blockStatements(env,key,args.children || []).stmts,
+ ];
+ await env.DB.batch(stmts);
+ invalidate(env);
+ return freshPage(env,key);
+}
 export async function d1Notion(env,path,init={}) {
  const url=new URL('https://d1.local'+path),method=init.method || 'GET';
  const args=init.body?JSON.parse(init.body):Object.fromEntries(url.searchParams);
@@ -350,6 +396,7 @@ export async function d1Notion(env,path,init={}) {
   if(stmts.length)await env.DB.batch(stmts);
   invalidate(env); return freshPage(env,id);
  }
+ if(path==='/pages'&&method==='POST'&&args.parent?.page_id)return createChildPage(env,args);
  if(path==='/pages'&&method==='POST') {
   const ds=cleanId(args.parent?.data_source_id),definition=state.schemas.get(ds);if(!definition)throw new Error('Unknown D1 data source');
   const props={};for(const [name,def] of Object.entries(definition.properties || {})) {
@@ -372,13 +419,14 @@ export async function d1Notion(env,path,init={}) {
   if(method==='GET'){const assets=await env.DB.prepare('SELECT id FROM entity_assets WHERE complete=1').all();const saved=new Set((assets.results || []).map(a=>a.id));return paged((rows.results || []).map(r=>{const b=JSON.parse(r.payload);if(saved.has(cleanId(b.id))) {const v=b[b.type],href=(env.KAIROS_ORIGIN || '')+'/api/storage/files/'+cleanId(b.id);if(v.file)v.file.url=href;else v.external={url:href};}return b;}),args);}
   if(method==='PATCH') {
    let offset=(rows.results || []).length;const pre=[];const afterId=args.after?cleanId(args.after):null;if(afterId){const ar=await env.DB.prepare('SELECT position FROM entity_children WHERE parent_id=? AND id=?').bind(parent,afterId).first();if(!ar)throw new Error('after block not found');offset=ar.position+1;pre.push(env.DB.prepare('UPDATE entity_children SET position=position+? WHERE parent_id=? AND position>?').bind((args.children||[]).length,parent,ar.position));}const {blocks,stmts}=blockStatements(env,parent,args.children || [],offset);stmts.unshift(...pre);
-   stmts.push(env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(new Date().toISOString(),parent));
+   const now=new Date().toISOString();
+   stmts.push(env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(now,parent),bodyEditStatement(env,parent,now));
    await env.DB.batch(stmts);
    invalidate(env);
    return {results:blocks};
   }
  }
- if(method==='PATCH'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');if(args.archived===true||args.in_trash===true)return d1Notion(env,url.pathname,{method:'DELETE'});const b=JSON.parse(row.payload);for(const key of Object.keys(args))if(key!==b.type&&key!=='archived'&&key!=='in_trash')throw new Error('Unsupported D1 block field: '+key);if(!args[b.type])throw new Error('Block type '+b.type+' content required');const now=new Date().toISOString();const next=normalizeBlock({...b,[b.type]:{...b[b.type],...args[b.type]}});next.last_edited_time=now;await env.DB.batch([env.DB.prepare('UPDATE entity_children SET payload=? WHERE id=?').bind(JSON.stringify(next),id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(now,row.parent_id)]);invalidate(env);return next;} if(method==='DELETE'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');await env.DB.batch([env.DB.prepare('WITH RECURSIVE d(id) AS (SELECT ?1 UNION SELECT c.id FROM entity_children c JOIN d ON c.parent_id=d.id) DELETE FROM entity_children WHERE id IN (SELECT id FROM d)').bind(id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(new Date().toISOString(),row.parent_id)]);invalidate(env);return {...JSON.parse(row.payload),archived:true};}
+ if(method==='PATCH'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');if(args.archived===true||args.in_trash===true)return d1Notion(env,url.pathname,{method:'DELETE'});const b=JSON.parse(row.payload);for(const key of Object.keys(args))if(key!==b.type&&key!=='archived'&&key!=='in_trash')throw new Error('Unsupported D1 block field: '+key);if(!args[b.type])throw new Error('Block type '+b.type+' content required');const now=new Date().toISOString();const next=normalizeBlock({...b,[b.type]:{...b[b.type],...args[b.type]}});next.last_edited_time=now;await env.DB.batch([bodyEditStatement(env,id,now),env.DB.prepare('UPDATE entity_children SET payload=? WHERE id=?').bind(JSON.stringify(next),id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(now,row.parent_id)]);invalidate(env);return next;} if(method==='DELETE'&&(m=url.pathname.match(/^\/blocks\/([^/]+)$/))){const id=cleanId(m[1]);const row=await env.DB.prepare('SELECT parent_id,payload FROM entity_children WHERE id=?').bind(id).first();if(!row)throw new Error('block not found');const now=new Date().toISOString();await env.DB.batch([bodyEditStatement(env,id,now),env.DB.prepare('WITH RECURSIVE d(id) AS (SELECT ?1 UNION SELECT c.id FROM entity_children c JOIN d ON c.parent_id=d.id) DELETE FROM entity_children WHERE id IN (SELECT id FROM d)').bind(id),env.DB.prepare("UPDATE entities SET payload=json_set(payload,'$.last_edited_time',?),revision=revision+1 WHERE id=?").bind(now,row.parent_id)]);invalidate(env);return {...JSON.parse(row.payload),archived:true};}
  throw new Error('Unsupported D1 operation: '+method+' '+url.pathname);
 }
 
@@ -412,11 +460,15 @@ export async function storageRoute(req,env,url,json) {
   const pending=(await env.DB.prepare('SELECT e.id FROM entities e LEFT JOIN entity_bodies b ON b.id=e.id WHERE COALESCE(b.complete,0)=0').all()).results.length;
   return json({backend:env.DATA_BACKEND || 'notion',entities:counts.results,bodies:bodies.results,pending,ids});
  }
+ if(path==='/api/storage/knowledge-begin' || path==='/api/storage/knowledge-end')return knowledgeRefreshRoute(req,env,url,json);
+ let knowledgeOk=false;
  if(env.DATA_BACKEND==='d1') {
   // 切替後も中核6つは取り込み禁止(D1 側の更新を Notion で上書きしないため)。追加コレクションの取り込みだけ許す。
+  // 例外は知識文書の早送り (knowledge-begin で門を通った文書の中だけ。src/knowledge.js、2026-10-29)。
   const qc=url.searchParams.get('coll'),qid=cleanId(url.searchParams.get('id'));
   const extraOk=req.method==='POST' && (((path==='/api/storage/capture' || path==='/api/storage/capture-source') && isExtraName(qc)) || (path==='/api/storage/capture-body' && await isExtraEntity(env,qid)));
-  if(!extraOk)return json({error:'Migration is disabled after D1 cutover'},409);
+  knowledgeOk=!extraOk && req.method==='POST' && ['/api/storage/capture-body','/api/storage/capture-page','/api/storage/capture-asset'].includes(path) && await knowledgeCaptureAllowed(env,path,qid);
+  if(!extraOk&&!knowledgeOk)return json({error:'Migration is disabled after D1 cutover'},409);
  }
  if(req.method!=='POST')return json({error:'POST required'},405);
  if(path==='/api/storage/init'){await initD1(env);return json({ok:true});}
@@ -442,6 +494,7 @@ export async function storageRoute(req,env,url,json) {
   const page=await completeRelations(env,ctx,await nget(env,ctx,'/pages/'+id));
   const source=page.parent?.data_source_id || '',existing=await env.DB.prepare('SELECT collection FROM entities WHERE id=?').bind(id).first(),collection=(await collectionOfSource(env,source)) || existing?.collection || 'pages';
   await storePage(env,page,collection,source);
+  if(knowledgeOk)await knowledgeAfterCapturePage(env,id,collection);
   if(id===cleanId(env.PRESENCE_PAGE_ID))await env.DB.prepare("INSERT OR REPLACE INTO storage_control VALUES('presence_page_id',?)").bind(id).run();
   return json({id:page.id});
  }
