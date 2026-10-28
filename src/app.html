@@ -35,7 +35,7 @@
   .trow{display:flex;gap:4px;background:var(--seg);padding:3px;border-radius:10px}
   .trow button{flex:1 1 0;min-width:0;padding:7px 4px;border:0;border-radius:8px;background:transparent;color:var(--mute);font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .trow.sub{background:transparent;padding:0 3px}
-  .trow.sub button{font-size:12px;padding:4px 4px;color:var(--mute2)}
+  .trow.sub button{flex:1 1 auto;font-size:12px;padding:4px 4px;color:var(--mute2)} /* 下段は文字幅なり (2026-10-29「クラウドで」を足して 5 つ。上段に入れると 400px で「今日できる」が切れる) */
   .trow button.on{background:var(--segon);color:var(--fg);box-shadow:var(--shadow)}
   .trow.sub button.on{background:var(--seg);box-shadow:none;color:var(--fg)}
   .trow button .n{margin-left:3px;font-weight:600;color:var(--mute);font-size:11px}
@@ -431,6 +431,7 @@
       <button data-v="roles">役割</button>
       <button data-v="review">決める<span class="n" id="n-review"></span></button>
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
+      <button data-v="cloud">クラウドで<span class="n" id="n-cloud"></span></button>
     </div>
   </div>
   <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・一緒にいる人・時間帯）。タップで変更"></button></div>
@@ -468,8 +469,8 @@
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
-  const views = ["today", "can", "phone", "doing", "project", "delegated"];
-  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", deps: "つながり", graph: "つながり", quad: "象限" };
+  const views = ["today", "can", "phone", "cloud", "doing", "project", "delegated"];
+  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", cloud: "クラウドで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", deps: "つながり", graph: "つながり", quad: "象限" };
   let reviewData = null, reviewPos = 0, reviewSkipped = new Set(), reviewShowAll = false; // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
   let graphData = null, quadData = null; // 1 タスク 3 列 (C-11a)・象限 (C-10)
@@ -522,7 +523,7 @@
   applyTheme();
 
   let view = localStorage.getItem("view") || "today";
-  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "doing", "project", "roles", "review", "delegated"].includes(requested)) view = requested; }
+  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated"].includes(requested)) view = requested; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
   let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
@@ -587,6 +588,33 @@
   let aiProvider = "claude";
   try { const saved = localStorage.getItem("kairos_ai_app"); if (Object.hasOwn(AI_APPS, saved)) aiProvider = saved; } catch (e) {}
   const aiName = () => AI_APPS[aiProvider];
+  // ☁️ クラウド (2026-10-29): 実行環境に「クラウド」を含むタスクの 🤖 は Claude Code のクラウド側 (claude.ai/code) へ。
+  // 飛び先は https://claude.ai/code/new?q=<文面>&repo=<owner/name> (Claude ヘルプ「Open the Claude mobile app with a link」に載っている形。q は入力欄に入るだけで送信はしない)。
+  // 文面が入らなかったときのために押した瞬間にクリップボードにも入れる (copyCloudLink)。接続先は名前・PJ に Kairos／tasks-pwa があれば masakiplus/kairos (2026-10-08 に移管)、saito-workers があれば masakiplus/saito-workers、それ以外は masakiplus/saito-tools
+  const CLOUD_ENV = "クラウド";
+  const isCloudTask = (t) => !!t && Array.isArray(t.env) && t.env.includes(CLOUD_ENV);
+  function cloudRepo(t) {
+    const s = (t.name || "") + " " + (t.project || "");
+    return /kairos|tasks-pwa/i.test(s) ? "masakiplus/kairos" : /saito-workers/i.test(s) ? "masakiplus/saito-workers" : "masakiplus/saito-tools";
+  }
+  function cloudPrompt(t, mode, chain) {
+    const page = t.url || (location.origin + "/?page=" + t.id.replace(/-/g, ""));
+    return storagePrompt("リポジトリ " + cloudRepo(t) + " を接続し、ブランチを切って着手する。終わったら PR にする。Kairos タスク: " + page + "。説明と本文を先に読む\n" + taskPrompt(t, mode, chain, "claude-code"));
+  }
+  function cloudHref(t, mode, chain) {
+    const qs = "q=" + encodeURIComponent(cloudPrompt(t, mode, chain)) + "&repo=" + encodeURIComponent(cloudRepo(t));
+    const web = "https://claude.ai/code/new?" + qs;
+    if (isAndroid) return "intent://claude.ai/code/new?" + qs + "#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=" + encodeURIComponent(web) + ";end";
+    return web; // Mac もブラウザで開く (claude:// はデスクトップアプリのローカルセッションに入りうるため使わない)
+  }
+  function copyCloudLink(href) {
+    const m = /^(?:https|intent):\/\/claude\.ai\/code\/new\?([^#]*)/.exec(href || "");
+    const q = m && new URLSearchParams(m[1]).get("q");
+    if (!q) return false;
+    try { navigator.clipboard && navigator.clipboard.writeText(q).catch(() => {}); } catch (e) { /* 貼れないだけ */ }
+    if (typeof toast === "function") toast("Claude Code（クラウド）を開きます。文面が入っていなければ貼って送ってください");
+    return true;
+  }
   const aiIcon = () => aiProvider === "claude" ? ICONS.claude : "🤖";
   function storagePrompt(q) {
     if (typeof window === "undefined" || window.KAIROS_STORAGE !== "d1" || q.includes("【保存先: Kairos D1】")) return q;
@@ -616,12 +644,15 @@
         chain.map((c, i) => `${i + 1}. ${c.name}（${c.url}）`).join("、") +
         "」→ 最後に本タスク の順で進めてください。各タスクを終えるたびに操作規約どおり完了処理をし、判断が要る・人の手が要る・失敗した時点で止まって報告してください。";
     }
-    const handoff = provider === "claude"
+    const handoff = provider === "claude-code"
+      ? "Kairos から渡したので AI処理開始 が立っています。まずこのセッションの URL（claude.ai/code/…）をタスクの AIセッション に書いてください。"
+      : provider === "claude"
       ? 'Kairos から渡したので AI処理開始 が立っています。まず read_conversation("current") でこのチャットの URL を取り、タスクの AIセッション に書いてください。'
       : 'Kairos からの依頼です。前のAIが途中まで処理した可能性があるため、現在のタスクを確認し、完了済みの登録や更新を重複実行しないでください。Kairosを更新できる場合は、実行を始めるときに AI処理開始 を記録し、このチャットのURLを取得できる場合は AIセッション に書いてください。必要な接続や操作規約を確認できない場合は質問し、実行していない操作を完了と報告しないでください。';
     return "「" + t.name + "」" + ask + "（Kairos ✅ Tasks のタスク。ページ: " + page + " ）\n" + handoff + "完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。";
   }
   function claudeHref(t, mode, chain) {
+    if (aiProvider === "claude" && isCloudTask(t)) return cloudHref(t, mode, chain);
     const q = taskPrompt(t, mode, chain);
     if (aiProvider !== "claude") return handoffHref(q);
     return claudeLink(q);
@@ -646,6 +677,8 @@
     return u;
   }
   // ---- end AI app routing ----
+  // ☁️ クラウド行きのリンク (シート・読み取り画面・今週の石・新しいチャットで始める) は押した瞬間に文面をコピーしてから遷移する。await は挟まない
+  document.addEventListener("click", (e) => { const a = e.target && e.target.closest ? e.target.closest("a[href]") : null; if (a) copyCloudLink(a.getAttribute("href")); }, true);
 
   // 📅 カレンダーに予定を入れる (タイムブロッキング, 2026-10-06)。Google カレンダーの新規予定テンプレートを開くだけで、資格情報は持たない。
   // 日付は 開始日 (先) → 期日 (今日以降) → 今日。時刻は 9:00〜10:00 を仮置き (カレンダー側で動かす)。カレンダーの選択は URL で指定できないので手で家族のカレンダーに
@@ -690,6 +723,7 @@
     if (href.startsWith("#ai-handoff=")) { openAiHandoff(href); return; }
     markAi(t, mode, sessionProvider(t.aiSession) === "claude");
     if (sessionProvider(t.aiSession) === "claude") copyPrompt(t, mode);
+    else copyCloudLink(href);
     location.href = href;
     render(todayStr);
   }
@@ -821,7 +855,7 @@
     if (!t.env || !t.env.length) return "";
     const S = currentSit();
     const show = t.env.filter((x) => x === "早朝" ? true : SIT_AXES.place.includes(x) ? x !== S.place : SIT_AXES.tool.includes(x) ? !S.tools.includes(x) : COMPANIONS.includes(x) ? !(S.withs || []).includes(x) : true);
-    return show.length ? `<span>${esc(show.map((x) => x === "早朝" ? "🌅" : TOOL_LABEL[x] || x).join("・"))}</span>` : "";
+    return show.length ? `<span>${esc(show.map((x) => x === "早朝" ? "🌅" : x === CLOUD_ENV ? "☁️" : TOOL_LABEL[x] || x).join("・"))}</span>` : "";
   }
   function rowHtml(t, today) {
     return `<div class="row${t.blocked ? " blocked" : ""}${t.done ? " dn" : ""}${t.mit && !t.done ? " mit" : ""}${t.aiActive ? (t.aiMode === "更新" ? " ai upd" : " ai run") : t.status === "人対応" ? " hu" : ""}" data-id="${t.id}">
@@ -845,7 +879,7 @@
     const viewChanged = lastView !== view; lastView = view;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
-    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
+    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "cloud" ? "☁️" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
     $("#add").hidden = view === "roles" || view === "review";
@@ -1717,11 +1751,12 @@
       <div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${x}</button>`).join("")}</div>
       <div class="grid sit" style="grid-template-columns:repeat(4,1fr);margin-top:6px">${SIT_AXES.tool.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
       ${COMPANIONS.length ? `<div class="grid sit" style="grid-template-columns:repeat(${Math.min(COMPANIONS.length, 3)},1fr);margin-top:6px">${COMPANIONS.map((x) => `<button data-env="${esc(x)}" class="${t.env.includes(x) ? "on" : ""}">👥 ${esc(x)}</button>`).join("")}</div>` : ""}
-      <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="早朝" class="${t.env.includes("早朝") ? "on" : ""}">🌅 早朝向き<small style="font-weight:400;color:${t.env.includes("早朝") ? "rgba(255,255,255,.8)" : "var(--mute)"}">　家で静かに・時間をかけて</small></button></div>`}
+      <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="早朝" class="${t.env.includes("早朝") ? "on" : ""}">🌅 早朝向き<small style="font-weight:400;color:${t.env.includes("早朝") ? "rgba(255,255,255,.8)" : "var(--mute)"}">　家で静かに・時間をかけて</small></button></div>
+      <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="${CLOUD_ENV}" class="${t.env.includes(CLOUD_ENV) ? "on" : ""}">☁️ クラウドで<small style="font-weight:400;color:${t.env.includes(CLOUD_ENV) ? "rgba(255,255,255,.8)" : "var(--mute)"}">　Claude Code のクラウドで・Mac 不要</small></button></div>`}
       <div class="sect">🤖 ${aiName()} に任せる</div>
       <div class="list">
         ${sessionProvider(t.aiSession) ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `AI のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の AI セッションを開く（続きを任せる）"}</a>` : ""}
-        <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${aiIcon()}</span><span id="claudeRunLabel">進めてもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : ""}</span></a>
+        <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${aiIcon()}</span><span id="claudeRunLabel">進めてもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : aiProvider === "claude" && isCloudTask(t) ? "（Claude Code クラウドで）" : ""}</span></a>
         <a href="${aiHref(t, "update")}" data-ai data-mode="update"><span class="ic">${ICONS.pen}</span>タスク内容を更新してもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : ""}</a>
         ${t.aiSession ? `<a href="${claudeHref(t, "run")}" data-ai data-mode="run" data-fresh="1" style="color:var(--mute)"><span class="ic">✨</span>新しいチャットで始める（文面付き）</a>` : ""}
       </div>
@@ -1958,7 +1993,7 @@
   // タップ → メニュー、🤖 → Claude、スワイプ → 完了/明日へ
   let sx = 0, sy = 0, card = null, dx = 0, swiping = false, todayStr = "";
   // タスク行の外 (見出し・PJ カード・役割カード・余白) を横にスワイプしたら隣のタブへ (2026-10-10 利用者の提案)。横スクロールする部品 (ガント) と入力欄の上では無効
-  const TAB_ORDER = ["today", "can", "phone", "doing", "project", "roles", "review", "delegated"];
+  const TAB_ORDER = ["today", "can", "phone", "doing", "project", "roles", "review", "delegated", "cloud"];
   let pgSwipe = false, pgX = 0, pgY = 0;
   function pageSwipeStart(e) {
     pgSwipe = false;

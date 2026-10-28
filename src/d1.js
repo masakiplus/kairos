@@ -35,11 +35,25 @@ const schema = [
  `INSERT OR IGNORE INTO storage_control VALUES('rev','0')`,
 ];
 export async function initD1(env) {for(const sql of schema) await env.DB.prepare(sql).run();}
+// 選択肢の追加 (2026-10-29)。スキーマの options に同じ名前が無いときだけ末尾へ足す冪等な移行で、既存の選択肢・並び順・タスクの値には触れない。
+// D1 の正本はここなので、デプロイ後の最初の要求で isolate ごとに 1 回流す (2 回目以降は 0 行更新)。
+export const optionMigrations = [
+ {collection:'tasks',property:'実行環境',option:{id:'kairos-cloud',name:'クラウド',color:'blue',description:null}},
+];
+export async function ensureSchemaOptions(env) {
+ const stmts=optionMigrations.map(({collection,property,option})=>{
+  const path='$.properties.'+JSON.stringify(property)+'.multi_select.options';
+  return env.DB.prepare(`UPDATE entity_schemas SET payload=json_insert(payload,?1,json(?2)) WHERE collection=?3 AND json_type(payload,?4)='array' AND NOT EXISTS (SELECT 1 FROM json_each(entity_schemas.payload,?4) WHERE json_extract(value,'$.name')=?5)`).bind(path+'[#]',JSON.stringify(option),collection,path,option.name);
+ });
+ if(stmts.length)await env.DB.batch(stmts);
+}
+const optionsDone=new WeakSet();
 const rt = a => (a || []).map(x=>x.plain_text ?? x.text?.content ?? '').join('');
 const sourceIds = new WeakMap();
 export async function d1Environment(env) {
  let cached=sourceIds.get(env.DB);
  if(!cached || Date.now()-cached.at>5000) {cached={at:Date.now(),promise:env.DB.batch([env.DB.prepare('SELECT id,collection FROM entity_schemas'),env.DB.prepare("SELECT value FROM storage_control WHERE key='presence_page_id'")])};sourceIds.set(env.DB,cached);}
+ if(!env.D1_READ_ONLY&&!optionsDone.has(env.DB)){optionsDone.add(env.DB);try{await ensureSchemaOptions(env);}catch(e){optionsDone.delete(env.DB);console.error('ensureSchemaOptions failed',String(e?.message ?? e));}}
  const [sources,presence]=await cached.promise,copy={...env};
  for(const row of sources.results || [])if(collectionVars[row.collection])copy[collectionVars[row.collection]]=row.id;
  if(presence.results?.[0])copy.PRESENCE_PAGE_ID=presence.results[0].value;

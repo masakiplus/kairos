@@ -445,8 +445,8 @@ const TOOLS = [
   {
     name: "kairos_list_tasks",
     title: "タスクの一覧（画面別）",
-    description: "Kairos の画面と同じ一覧を返す。view: today=今日やる, can=今日できる, phone=スマホで, doing=着手中, project=PJ別, delegated=委任。",
-    inputSchema: { type: "object", properties: { view: { type: "string", enum: ["today", "can", "phone", "doing", "project", "delegated"], default: "today" } }, additionalProperties: false },
+    description: "Kairos の画面と同じ一覧を返す。view: today=今日やる, can=今日できる, phone=スマホで, cloud=クラウドで (実行環境にクラウドを含む着手可), doing=着手中, project=PJ別, delegated=委任。",
+    inputSchema: { type: "object", properties: { view: { type: "string", enum: ["today", "can", "phone", "cloud", "doing", "project", "delegated"], default: "today" } }, additionalProperties: false },
     annotations: READ,
     run: async (a, ctx) => api(ctx, "GET", `/api/tasks?view=${encodeURIComponent(a.view ?? "today")}`),
   },
