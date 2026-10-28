@@ -9,7 +9,7 @@ import { initD1 } from '../src/d1.js';
 // 連結のしかたは d1-app.test.mjs と同じ（mcp.js は名前の衝突を避けて関数で包む）
 const src = (name) => readFileSync(new URL('../src/' + name, import.meta.url), 'utf8');
 const bundle = () =>
-  src('lab.js') + '\n' + src('d1.js').replace(/^import .*;$/m, '') + '\n' + src('icons.js').replaceAll('export const ', 'const ') + '\n' +
+  src('lab.js') + '\n' + src('d1.js').replace(/^import .*;$/gm, '') + '\n' + src('knowledge.js').replace(/^import .*;$/gm, '').replace(/^export /gm, '') + '\n' + src('icons.js').replaceAll('export const ', 'const ') + '\n' +
   ['APP_HTML', 'SW_JS', 'MANIFEST'].map((name, i) => 'const ' + name + '=' + JSON.stringify(src(['app.html', 'sw.txt', 'manifest.webmanifest'][i])) + ';').join('\n') + '\n' +
   'const {isMcpPath,mcpRoute}=(()=>{' + src('mcp.js').replace(/^export /gm, '') + '\nreturn {isMcpPath,mcpRoute};})();\n' +
   src('index.js').replace(/^import .*\n/gm, '');

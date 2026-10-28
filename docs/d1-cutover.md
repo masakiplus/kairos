@@ -52,7 +52,7 @@ AI向けの文面はD1正本と上記のAPIを指示する。**既存のNotion�
 
 切り替え前のWorkerバージョンとD1 SQLエクスポートを記録する。全検査と監査を通した後に `DATA_BACKEND=d1` を反映する。リポジトリのwrangler.tomlにも同じ値を保存し、次のデプロイで戻らないようにする。`/api/storage/status` で実際のbackendを確認する。
 
-切り替え後は移行APIと旧lab APIの再取得を禁止し、Notionの古いコピーでD1を上書きさせない。**D1への実更新が始まった後に単にNotionへ戻すと、その更新が画面から消える。** 復旧はD1を保持した修正・互換Workerの再反映を基本とし、古いNotion版への切り戻しはD1の更新を退避・再移植してから判断する。
+切り替え後は移行APIと旧lab APIの再取得を禁止し、Notionの古いコピーでD1を上書きさせない。例外は知識文書（PRJ・archive・ref）の早送りだけで、Kairos で書いていない文書に限り門（`knowledge-begin`／`knowledge-end`）を通して本文を取り直せる（[`knowledge.md`](knowledge.md)）。**D1への実更新が始まった後に単にNotionへ戻すと、その更新が画面から消える。** 復旧はD1を保持した修正・互換Workerの再反映を基本とし、古いNotion版への切り戻しはD1の更新を退避・再移植してから判断する。
 
 ## 2026-10-18 の移行チェックポイント
 

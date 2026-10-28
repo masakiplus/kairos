@@ -73,7 +73,7 @@ test('打刻: D1 に 1 行ずつ残し、DB が無ければ何もしない',asyn
 
 test('本体API: 🤖 で打刻、クラウドで の処理中節はクラウドだけ、実行環境が空のものを規則で埋める',async()=>{
  const ds='d'.repeat(32),ids=['a','b','c','e','f'].map(c=>c.repeat(32));
- const source=src('lab.js')+'\n'+src('d1.js').replace(/^import .*;$/m,'')+'\n'+src('icons.js').replaceAll('export const ', 'const ')+'\n'+src('launches.js').replace(/^export /gm,'')+'\n'+['APP_HTML','SW_JS','MANIFEST'].map((name,i)=>'const '+name+'='+JSON.stringify(src(['app.html','sw.txt','manifest.webmanifest'][i]))+';').join('\n')+'\nconst {isMcpPath,mcpRoute}=(()=>{'+src('mcp.js').replace(/^export /gm,'')+'\nreturn {isMcpPath,mcpRoute};})();\n'+src('index.js').replace(/^import .*\n/gm,'');
+ const source=src('lab.js')+'\n'+src('d1.js').replace(/^import .*;$/gm,'')+'\n'+src('knowledge.js').replace(/^import .*;$/gm,'').replace(/^export /gm,'')+'\n'+src('icons.js').replaceAll('export const ', 'const ')+'\n'+src('launches.js').replace(/^export /gm,'')+'\n'+['APP_HTML','SW_JS','MANIFEST'].map((name,i)=>'const '+name+'='+JSON.stringify(src(['app.html','sw.txt','manifest.webmanifest'][i]))+';').join('\n')+'\nconst {isMcpPath,mcpRoute}=(()=>{'+src('mcp.js').replace(/^export /gm,'')+'\nreturn {isMcpPath,mcpRoute};})();\n'+src('index.js').replace(/^import .*\n/gm,'');
  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-09-01',d1Databases:['DB'],bindings:{APP_TOKEN:'test-only-token',DATA_BACKEND:'d1',TASKS_DATA_SOURCE_ID:ds,USAGE_LOG_TASK_ID:ids[4]},outboundService:()=>new Response('blocked',{status:500}),script:source}));
  try{
   const db=await mf.getD1Database('DB');await initD1({DB:db});
