@@ -34,6 +34,7 @@
 |---|---|
 | `GET /api/tasks?view=today\|can\|phone\|cloud\|doing\|project\|delegated` | 一覧。`wip`（着手中件数）と `delegates`（委任先）も返す |
 | `GET /api/search?q=&all=1` | 検索（all=1 で完了も） |
+| `GET /api/entry/rules` ／ `POST /api/entry/fill?dry=1` ／ `GET /api/entry/weekly?weeks=4` ／ `GET /api/entry/log?days=7` | 🤖 の入口（cloud/mac/cowork）の規則・空の実行環境の埋め込み・入口別の週次集計（`src/launches.js`、`docs/ai-handoff.md`） |
 | `POST /api/tasks {name, projectId?}` | クイック追加 |
 | `GET /api/projects` ／ `POST /api/projects/:id/close {note}` ／ `GET /api/projects/:id/deps` | PJ 見出し・クローズ・つながり |
 | `GET /api/roles` ／ `POST /api/roles/:id/goal {taskId}` | 役割タブ・今週の石 |
