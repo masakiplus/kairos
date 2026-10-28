@@ -56,3 +56,25 @@ PR #6（e9af223）をローカルへ取得し、架空のタスクを返す読�
 - AntigravityはMac上でアプリを見つけられず、アプリ内の貼り付けは未検証。ChatGPTのMacアプリとClaudeの実起動、実Notion接続・更新も未検証。
 
 本番反映は未実施。GitHub上では #5 は未マージ、#6 は #5 のブランチがベースで、その変更を包含する。#5のマージがmainのデプロイを起動するため、マージ前に検証結果と反映順を確認する。
+
+## 2026-10-29 入口の切り分けと打刻（kairos-v86）
+
+🤖 の入口は 3 つ。**cloud**（Claude Code のクラウド、`claude.ai/code/new`）・**mac**（Mac を接続して開く `claude.ai/new`）・**cowork**（それ以外の `claude.ai/new`）。規則は `src/launches.js` の `ENTRY_RULES` 1 か所に置き、夜間の棚卸しと 🤖 の打刻が同じものを読む。
+
+1. Mac の印: 実行環境に Mac・紙・郵送、または名前・説明・本文に `.env`・launchd・SRS・印刷・スキャン・box.com → mac（埋めるのは `Mac`）
+2. リポジトリの仕事: エリア=自動化・システム かつ 種類=作業/調査 で、名前・説明・本文に saito-tools・saito-workers・kairos・tasks-pwa・tools/ → cloud（埋めるのは `クラウド`、接続先は PR #33 と同じ）
+3. それ以外 → cowork（実行環境は空のまま）
+
+本人が手で付けた実行環境は常に勝つ。自動判定は空のときだけ埋める（書く直前に読み直して空でなければ飛ばす）。
+
+| API | 役割 |
+|---|---|
+| `GET /api/entry/rules` | 規則そのもの（JSON） |
+| `POST /api/entry/fill?dry=1` | 実行環境が空の未完了（委任中を除く）を規則で埋める。`dry=1` は書かずに候補だけ。応答の `summary` が「クラウドに振った n 本・Mac に振った n 本・Cowork のまま n 本」で、`cloud[]`／`mac[]` に名前・URL・当たった理由。毎晩 02:30 の tasks-undated-review（saito-tools）が呼んで翌朝の報告に載せる |
+| `POST /api/tasks/:id/ai?…&provider=&dev=` | 🤖 の印に加えて D1 の `launch_log`（ts・day・task_id・entry・repo・mode・resume・device・rule）に 1 行。entry は実際に飛んだ先（実行環境にクラウドがあるときだけ cloud）、rule は規則の判定。打刻に失敗しても 🤖 の印は返す |
+| `GET /api/entry/log?days=7` | 打刻の生の行 |
+| `GET /api/entry/weekly?weeks=4` | 週（月曜 16:00 JST の枠リセット区切り）ごとに入口別の本数・クラウドの割合と、使用率ログ（タスク「Claude週間枠 使用率ログ」本文の表の 日時・週間% 列。`USAGE_LOG_TASK_ID` で差し替え可）の最終値、枠の 1 日ごとの本数と週間% |
+
+比較の起点はクレジットが切れた 11/6 以降の最初の週。`credit: true` の週（11/5 16:59 までに始まった週）はクラウドの消費が週間枠に乗らないので比較に使わない。
+
+あわせて、「クラウドで」の 🤖 処理中 節に実行環境にクラウドを含まないタスクが混ざっていたのを直した（処理中の合流はどのタブにも足すが、クラウドで だけはクラウドのものに限る）。

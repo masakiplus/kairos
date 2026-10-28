@@ -14,6 +14,9 @@
  *   POST /api/tasks              {name} タイトルだけで起票 (残りは 04:45 の棚卸しが補完)
  *   GET  /api/tasks/:id/detail   概要 (説明プロパティ + 本文の先頭 40 ブロック)。メニューを開いたときだけ (2026-09-30)
  *   POST /api/tasks/:id/ai?mode=run|update  🤖 に渡した印 (AI処理開始=今, AI処理種別=実行/更新)。ai-clear で外す (2026-09-30, 種別 2026-10-03)
+ *     &provider=<AIアプリ>&dev=android|mac|web を付けると、飛んだ入口 (cloud/mac/cowork) を D1 の launch_log に 1 行残す (2026-10-29)
+ *   GET  /api/entry/rules  入口の切り分け規則 (launches.js)。POST /api/entry/fill?dry=1 実行環境が空の未完了を規則で埋める (夜間の棚卸し用)
+ *   GET  /api/entry/weekly?weeks=4  入口別の本数と使用率ログの週間% を週ごとに。GET /api/entry/log?days=7 打刻の生の行
  *   POST /api/tasks/:id/done     完了チェック + 完了日=今日 + ステータス=完了 (Notion Tasks 操作規約 §4-1)
  *   POST /api/tasks/:id/reopen   done の取り消し (誤スワイプ用)
  *   POST /api/tasks/:id/skip     見送りで完了。done と同じ3点セット + 説明欄の先頭に「見送り (日付, PWA)」を残す
@@ -36,6 +39,7 @@
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
 import { tapsAdd, tapsReport } from "./taps.js";
+import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, launchAdd, launchRows, parseUsageRows, weeklyReport, weekStart } from "./launches.js";
 import { d1Notion, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
 import { isMcpPath, mcpRoute } from "./mcp.js";
 import APP_HTML from "./app.html";
@@ -216,6 +220,7 @@ function pageToTask(page) {
     status: p["ステータス"]?.status?.name ?? null,
     done: p["完了"]?.checkbox === true,
     area: p["エリア"]?.select?.name ?? null,
+    kind: p["種類"]?.select?.name ?? null, // 入口の切り分け (launches.js) が見る (2026-10-29)
     env: (p["実行環境"]?.multi_select ?? []).map((o) => o.name),
     owner: p["担当"]?.select?.name ?? null, // 委任先 (2026-10-01)。空＝自分
     icon: page.icon?.type === "emoji" ? page.icon.emoji : null,
@@ -913,6 +918,7 @@ async function listTasks(env, view) {
     const have = new Set(out.map((t) => t.id));
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
+      if (view === "cloud" && !t.env.includes(CLOUD_ENV)) continue; // クラウドで の 🤖 処理中 節にはクラウドのものだけ (2026-10-29: 紙・早朝のタスクが混ざっていた)
       if (t.aiActive && !have.has(t.id)) { t.aiForeign = true; out.push(t); }
     }
   } catch (e) { /* 一覧本体は返す */ }
@@ -1079,6 +1085,60 @@ async function readerBlocks(env, id, depth) {
     out.push(row);
   }
   return { blocks: out, more: !!r.has_more };
+}
+// ---- 入口の切り分け (2026-10-29, launches.js) ----
+// 本文を素の文字列で (表はセルを | でつなぐ)。深さ 1 まで。判定と使用率ログの読み取りに使う
+async function bodyText(env, id, depth = 0) {
+  const lines = []; let cursor, n = 0;
+  do {
+    const r = await notion(env, `/blocks/${id}/children?page_size=100${cursor ? "&start_cursor=" + encodeURIComponent(cursor) : ""}`).catch(() => ({ results: [] }));
+    for (const b of r.results ?? []) {
+      const v = b[b.type] ?? {};
+      if (b.type === "table_row") lines.push((v.cells || []).map((c) => (c || []).map((x) => x.plain_text ?? "").join("")).join(" | "));
+      else lines.push((v.rich_text ?? []).map((x) => x.plain_text ?? "").join(""));
+      if (b.has_children && (depth < 1 || b.type === "table") && b.type !== "child_page" && b.type !== "child_database") lines.push(await bodyText(env, b.id, depth + 1));
+    }
+    cursor = r.has_more ? r.next_cursor : null;
+  } while (cursor && ++n < 20);
+  return lines.join("\n");
+}
+// 実行環境が空の未完了に、規則で Mac / クラウド を埋める。dry=1 なら書かずに候補だけ返す。夜間の tasks-undated-review が呼ぶ
+async function entryFill(env, dry) {
+  const rows = []; let cursor;
+  do {
+    const r = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({ filter: NOT_DONE, page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }) });
+    for (const page of r.results ?? []) { const t = pageToTask(page); if (!t.done && !t.env.length && !t.owner) rows.push(t); }
+    cursor = r.has_more ? r.next_cursor : null;
+  } while (cursor && rows.length < 400);
+  const names = await projectNames(env).catch(() => new Map());
+  const out = { dry: !!dry, rulesVersion: ENTRY_RULES.version, checked: rows.length, cloud: [], mac: [], cowork: 0, errors: [] };
+  for (const t of rows.slice(0, 200)) {
+    t.project = t.projectIds.map((pid) => names.get(pid)).filter(Boolean).join(" / ") || null;
+    let c = classifyEntry(t);
+    if (c.entry === "cowork") c = classifyEntry(t, await bodyText(env, t.id).catch(() => ""));
+    if (c.entry === "cowork") { out.cowork++; continue; }
+    const fill = ENTRY_RULES[c.entry].fill;
+    const item = { id: t.id, name: t.name, url: t.url, env: fill, why: c.why, ...(c.repo ? { repo: c.repo } : {}) };
+    if (!dry) {
+      try {
+        const now = await getTask(env, t.id); // 書く直前に空のままかを確かめ直す (本人が手で付けたら上書きしない)
+        if (now.env.length || now.done) continue;
+        await patchTask(env, t.id, { "実行環境": { multi_select: [{ name: fill }] } });
+      } catch (e) { out.errors.push({ id: t.id, error: String(e?.message ?? e).slice(0, 200) }); continue; }
+    }
+    out[c.entry].push(item);
+  }
+  out.summary = `クラウドに振った ${out.cloud.length} 本・Mac に振った ${out.mac.length} 本・Cowork のまま ${out.cowork} 本${dry ? " (dry)" : ""}`;
+  return out;
+}
+// 週次: 入口別の本数と、使用率ログの週間% を週 (月曜 16:00 区切り) ごとに並べる
+async function entryWeekly(env, weeks) {
+  const n = Math.max(1, Math.min(26, weeks | 0 || 4));
+  const since = weekStart(Date.now()) - (n - 1) * 7 * 86400000;
+  const launches = await launchRows(env, since);
+  const text = await bodyText(env, env.USAGE_LOG_TASK_ID || USAGE_LOG_TASK_ID).catch(() => "");
+  const usage = parseUsageRows(text.split("\n").filter((l) => l.includes(" | ")).map((l) => l.split(" | ")));
+  return { ...weeklyReport(launches, usage, n), usageLogTask: env.USAGE_LOG_TASK_ID || USAGE_LOG_TASK_ID, usageSamples: usage.filter((x) => Date.parse(x.at) >= since).length };
 }
 async function readerPage(env, id) {
   const pg = await notion(env, `/pages/${id}`);
@@ -1298,6 +1358,11 @@ const kairosWorker = {
       // 📊 ボタンのタップ回数 (2026-10-20): シートのボタン配置を使用頻度で決めるための計測。日 × ボタン名 の回数だけを D1 に持つ (誰が・どのタスクかは持たない)
       if (path === "/api/taps" && req.method === "POST") return json(await tapsAdd(env, await req.json().catch(() => ({}))));
       if (path === "/api/taps" && req.method === "GET") return json(await tapsReport(env, Number(url.searchParams.get("days")) || 30));
+      // 🔀 入口の切り分け (2026-10-29): 規則・空の実行環境の埋め込み・入口別の週次集計。規則は launches.js の 1 か所
+      if (path === "/api/entry/rules" && req.method === "GET") return json(ENTRY_RULES);
+      if (path === "/api/entry/fill" && req.method === "POST") return json(await entryFill(env, url.searchParams.get("dry") === "1"));
+      if (path === "/api/entry/weekly" && req.method === "GET") return json(await entryWeekly(env, Number(url.searchParams.get("weeks")) || 4));
+      if (path === "/api/entry/log" && req.method === "GET") return json({ rows: await launchRows(env, Date.now() - Math.max(1, Math.min(90, Number(url.searchParams.get("days")) || 7)) * 86400000) });
       const mpg = path.match(/^\/api\/page\/([0-9a-f-]{32,36})$/);
       if (mpg && req.method === "GET") return json(await readerPage(env, mpg[1]));
       const mrg = path.match(/^\/api\/roles\/([0-9a-f-]{32,36})\/goal$/);
@@ -1367,7 +1432,14 @@ const kairosWorker = {
           // AIセッション は前回の URL が残っていると新セッションと紛れるので空にしてから Claude に書かせる (resume のときは残す)
           const props = { "AI処理開始": { date: { start: new Date().toISOString() } }, "AI処理種別": { select: { name: mode } }, ...(resume ? {} : { "AIセッション": { url: null } }) };
           if (cur.status === "人対応") props["ステータス"] = { status: { name: "進行中" } }; // 人対応 を Claude に渡し直したら手番は Claude へ
-          return json({ task: await patchTask(env, id, props) });
+          const task = await patchTask(env, id, props);
+          // 入口の打刻 (2026-10-29): どの入口へ飛んだかを launch_log に 1 行。失敗しても 🤖 の印は返す
+          try {
+            if (cur.projectIds.length) { const names = await projectNames(env).catch(() => new Map()); cur.project = cur.projectIds.map((pid) => names.get(pid)).filter(Boolean).join(" / ") || null; }
+            const entry = launchEntry(cur, url.searchParams.get("provider") || "claude", resume ? cur.aiSession : null);
+            await launchAdd(env, { taskId: id, entry, repo: entry === "cloud" ? cloudRepo((cur.name || "") + " " + (cur.project || "")) : null, mode, resume, device: url.searchParams.get("dev"), rule: classifyEntry(cur).entry });
+          } catch (e) { /* 打刻は補助 */ }
+          return json({ task });
         }
         if (action === "ai-clear") return json({ task: await patchTask(env, id, { "AI処理開始": { date: null }, "AI処理種別": { select: null } }) });
         // 家族へ委任 (2026-10-01): 担当 を立てる。to= 空で自分に戻す。選択肢に無い名前は 400
