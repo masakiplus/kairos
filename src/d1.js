@@ -294,6 +294,19 @@ function paged(items,args) {
  const size=Math.min(100,Math.max(1,Number(args.page_size)||100)),end=offset+size;
  return {object:'list',results:items.slice(offset,end),has_more:end<items.length,next_cursor:end<items.length?'d1:'+end:null};
 }
+// 2026-10-30: 追加コレクション(bookmark_suggest など)だけを読み書きする要求では、中核 6 DB と pages・nested の全スナップショット(約13MB)を組み立てない。
+// 書き込みのたびにスナップショットが捨てられるので、書き込みが続くと 1 要求 8〜10 秒・ときに 40 秒超になり、hatebu_suggest の提案記録が timeout していた。
+// 対象行が中核側(collection が中核・pages・nested)なら従来どおり全体を読む。関係先は withRelationTargets が ID で足すので、追加→中核のリレーション書き込みも通る。
+async function extraTargetEarly(env,pathname,args,method) {
+ let ds=null,coll=null,m;
+ if((m=pathname.match(/^\/data_sources\/([^/]+)/)))ds=cleanId(m[1]);
+ else if((m=pathname.match(/^\/pages\/([^/]+)$/))){const r=await env.DB.prepare('SELECT ds,collection FROM entities WHERE id=?').bind(cleanId(m[1])).first();if(!r)return null;ds=r.ds || null;coll=r.collection;}
+ else if(pathname==='/pages'&&method==='POST'&&!args.parent?.page_id)ds=cleanId(args.parent?.data_source_id || '');
+ if(!ds)return null;
+ if(coll&&[...Object.keys(collectionVars),'pages','nested'].includes(coll))return null;
+ const core=Object.values(collectionVars).map(k=>cleanId(env[k]));
+ return core.includes(ds)?null:ds;
+}
 // 中核以外(sessions など)の行は共有スナップショットに載せず、対象のデータソースを触る要求のときだけ足す (2026-10-20)
 async function extraTargetDs(env,state,pathname,args,method) {
  let ds=null,m;
@@ -349,8 +362,7 @@ async function createChildPage(env,args){
 export async function d1Notion(env,path,init={}) {
  const url=new URL('https://d1.local'+path),method=init.method || 'GET';
  const args=init.body?JSON.parse(init.body):Object.fromEntries(url.searchParams);
- let state=/^\/(blocks\/|search$)/.test(url.pathname)?null:await (env.__d1State ||= requestState(env));
- if(state){const xds=await extraTargetDs(env,state,url.pathname,args,method);if(xds){const ex=await loadState(env,xds);state={rows:new Map([...state.rows,...ex.rows]),schemas:state.schemas};}}
+ let state=null; if(!/^\/(blocks\/|search$)/.test(url.pathname)){const xds=await extraTargetEarly(env,url.pathname,args,method);state=xds?await loadState(env,xds):await (env.__d1State ||= requestState(env));}
  if(state)state=await withRelationTargets(env,state,url.pathname,args,method);
  if(env.D1_READ_ONLY&&((method==='PATCH')||(method==='POST'&&url.pathname==='/pages')))throw new Error('D1 preview is read only');
  let m; if(method==='POST'&&url.pathname==='/search'){const q=String(args.query || '').toLowerCase(),dir=args.sort?.direction==='ascending'?'ASC':'DESC';const rows=await env.DB.prepare("SELECT payload FROM entities WHERE COALESCE(json_extract(payload,'$.archived'),0)=0 AND COALESCE(json_extract(payload,'$.in_trash'),0)=0 ORDER BY json_extract(payload,'$.last_edited_time') "+dir+" LIMIT "+(q?5000:1500)).all();const titleOf=p=>Object.values(p.properties || {}).find(v=>v.type==='title')?.title?.map(x=>x.plain_text ?? x.text?.content ?? '').join('') || '';return paged((rows.results || []).map(r=>JSON.parse(r.payload)).filter(p=>!q||titleOf(p).toLowerCase().includes(q)),args);} if((m=url.pathname.match(/^\/data_sources\/([^/]+)(\/query)?$/))) {

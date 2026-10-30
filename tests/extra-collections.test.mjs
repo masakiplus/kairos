@@ -113,3 +113,33 @@ test('リレーションの相手が別の追加コレクションにあって�
   delete env.__d1State;
   await assert.rejects(call('/pages/' + created.id, 'PATCH', {properties: {ネタ: {relation: [{id: '3'.repeat(32)}]}}}), /Relation target is not migrated/);
 });
+
+test('追加コレクションだけの読み書きでは中核のスナップショットを組まない。中核タスクへのリレーションも書ける（2026-10-30 hatebu_suggest timeout）', async t => {
+  const {sql, env, tasksDs} = setup(t);
+  await initD1(env);
+  const bmDs = '4'.repeat(32);
+  sql.prepare('INSERT INTO entity_schemas VALUES(?,?,?)').run(tasksDs, 'tasks', schemaOf({名前: {id: 'title', type: 'title'}}));
+  sql.prepare('INSERT INTO entity_schemas VALUES(?,?,?)').run(bmDs, 'bookmarksuggest', schemaOf({
+    タイトル: {id: 'title', type: 'title'},
+    タスク: {id: 't', type: 'relation', relation: {data_source_id: tasksDs}},
+  }));
+  t.mock.method(globalThis, 'fetch', () => { throw new Error('Notion must not be called'); });
+  const call = (path, method, body) => d1Notion(env, path, method === 'GET' ? {method} : {method, body: JSON.stringify(body || {})});
+  const task = await call('/pages', 'POST', {parent: {data_source_id: tasksDs}, properties: {名前: {title: [{text: {content: 'T'}}]}}});
+  delete env.__d1State;
+  const row = await call('/pages', 'POST', {parent: {data_source_id: bmDs}, properties: {
+    タイトル: {title: [{text: {content: 'b'}}]}, タスク: {relation: [{id: task.id}]}}});
+  assert.ok(!env.__d1State, '追加コレクションの作成で中核スナップショットを読んだ');
+  assert.equal(row.properties.タスク.relation.length, 1);
+  const patched = await call('/pages/' + row.id, 'PATCH', {properties: {タイトル: {title: [{text: {content: 'b2'}}]}}});
+  assert.equal(patched.properties.タイトル.title[0].plain_text ?? patched.properties.タイトル.title[0].text.content, 'b2');
+  const got = await call('/pages/' + row.id, 'GET');
+  assert.equal(got.properties.タスク.relation.length, 1);
+  const q = await call('/data_sources/' + bmDs + '/query', 'POST', {});
+  assert.equal(q.results.length, 1);
+  assert.ok(!env.__d1State, '追加コレクションの読み書きで中核スナップショットを読んだ');
+  // 中核の行は従来どおり全体スナップショットから引く
+  const gotTask = await call('/pages/' + task.id, 'GET');
+  assert.equal(gotTask.id, task.id);
+  assert.ok(env.__d1State, '中核の行の取得では全体スナップショットを使う');
+});
