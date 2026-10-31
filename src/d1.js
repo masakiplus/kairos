@@ -35,6 +35,8 @@ const schema = [
  `CREATE TABLE IF NOT EXISTS entity_links(from_id TEXT NOT NULL, prop TEXT NOT NULL, to_id TEXT NOT NULL, PRIMARY KEY(from_id,prop,to_id))`,
  `CREATE INDEX IF NOT EXISTS entity_links_to ON entity_links(to_id)`,
  `CREATE TABLE IF NOT EXISTS entity_children(parent_id TEXT NOT NULL, id TEXT NOT NULL, position INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(parent_id,id))`,
+ // 2026-10-31: id だけで引く箇所（親たどりの再帰・ブロック削除・SELECT ... WHERE id=?）が毎回 39 万行を全件走査し、D1 が CPU 上限でリセットされていた
+ `CREATE INDEX IF NOT EXISTS entity_children_id ON entity_children(id)`,
  `CREATE TABLE IF NOT EXISTS entity_bodies(id TEXT PRIMARY KEY, complete INTEGER NOT NULL DEFAULT 0)`,
  `CREATE TABLE IF NOT EXISTS entity_body_versions(id TEXT PRIMARY KEY, updated TEXT)`,
  `CREATE TABLE IF NOT EXISTS entity_databases(id TEXT PRIMARY KEY, payload TEXT NOT NULL)`,
