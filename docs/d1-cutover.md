@@ -32,6 +32,22 @@ node --env-file=.dev.vars scripts/migrate-native.mjs /tmp/kairos-migration-vars.
 
 画面の `/?preview=d1` はD1の読み取り専用プレビュー。全APIリクエストにプレビュー用ヘッダーを付け、更新操作はサーバー側で拒否する。`X-Kairos-Preview: d1` を付けたAPIの読み取りと、通常のNotion版を比較できる。通常版の検証でも `X-Kairos-Validation: readonly` を付けるとGET中の自動記録を抑止する。
 
+### 追加コレクションの入れ子の埋め直し（2026-11-01）
+
+2026-10-19 に追加コレクション（daily・dreamtime・reference など）として取り込んだ行は、本文の上の段だけが入り、表の行・入れ子の箇条書きが未取得のまま残った（読むと 502 `D1 body has not been migrated`）。`capture-body` は親の本文を消して取り直すので、切り替え後に Kairos で書いた日報を上書きする。代わりに入れ子だけを取る口を使う（`src/nested.js`）。
+
+- `GET /api/storage/nested-pending[?coll=]` 未取得の入れ子の一覧（持ち主・コレクション付き）
+- `POST /api/storage/capture-nested?id=<入れ子のブロック>[&cursor=]` 持ち主が追加コレクションで、まだ取り込み済みの印が無い入れ子だけ。親の本文・Kairos 編集の印・ページの版には触らない
+- `capture-asset` も、持ち主が追加コレクションで未保存の添付なら通す
+
+```sh
+npx wrangler d1 export kairos --remote --output <非公開の控え>.sql
+node --env-file=.dev.vars scripts/capture-nested.mjs <非公開の出力先> list
+node --env-file=.dev.vars scripts/capture-nested.mjs <非公開の出力先> apply --confirm   # --coll=daily --limit=N で小分けにできる
+```
+
+終わったら `apply.json` の failed と残り件数（`pending-after.json`）が 0 であることを確かめる。
+
 ## AI・外部ジョブ
 
 `GET /api/storage/agent` がAPIの操作規約、`GET /api/storage/sources` がデータソースID一覧。既存のKairos Cookieまたは `Authorization: Bearer APP_TOKEN` で認証する。秘密を依頼文やURLに含めない。
