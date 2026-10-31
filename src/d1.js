@@ -2,6 +2,7 @@
 // migration endpoints while the backend is still notion; there is no read fallback.
 import { nget, completeRelations } from './lab.js';
 import { knowledgeCaptureAllowed, knowledgeAfterCapturePage, knowledgeRefreshRoute } from './knowledge.js';
+import { nestedRoute, extraAssetAllowed } from './nested.js';
 export const collectionVars = {tasks:'TASKS_DATA_SOURCE_ID',projects:'PROJECTS_DATA_SOURCE_ID',roles:'ROLES_DATA_SOURCE_ID',decisions:'DECISIONS_DATA_SOURCE_ID',habits:'HABITS_DATA_SOURCE_ID',habit_log:'HABIT_LOG_DATA_SOURCE_ID'};
 export const cleanId = x => String(x || '').replace(/-/g,'').toLowerCase();
 // 6つの中核コレクション以外(Sessions・Daily など)を登録できる。名前は小文字英数字と _ だけ(予約語は不可)。
@@ -476,12 +477,14 @@ export async function storageRoute(req,env,url,json) {
   return json({backend:env.DATA_BACKEND || 'notion',entities:counts.results,bodies:bodies.results,pending,ids});
  }
  if(path==='/api/storage/knowledge-begin' || path==='/api/storage/knowledge-end')return knowledgeRefreshRoute(req,env,url,json);
+ // 追加コレクションの未取得の入れ子だけを取る口 (親の本文は消さない。src/nested.js、2026-11-01)
+ if(path==='/api/storage/nested-pending' || path==='/api/storage/capture-nested')return nestedRoute(req,env,url,json);
  let knowledgeOk=false;
  if(env.DATA_BACKEND==='d1') {
   // 切替後も中核6つは取り込み禁止(D1 側の更新を Notion で上書きしないため)。追加コレクションの取り込みだけ許す。
   // 例外は知識文書の早送り (knowledge-begin で門を通った文書の中だけ。src/knowledge.js、2026-10-29)。
   const qc=url.searchParams.get('coll'),qid=cleanId(url.searchParams.get('id'));
-  const extraOk=req.method==='POST' && (((path==='/api/storage/capture' || path==='/api/storage/capture-source') && isExtraName(qc)) || (path==='/api/storage/capture-body' && await isExtraEntity(env,qid)));
+  const extraOk=req.method==='POST' && (((path==='/api/storage/capture' || path==='/api/storage/capture-source') && isExtraName(qc)) || (path==='/api/storage/capture-body' && await isExtraEntity(env,qid)) || (path==='/api/storage/capture-asset' && await extraAssetAllowed(env,qid)));
   knowledgeOk=!extraOk && req.method==='POST' && ['/api/storage/capture-body','/api/storage/capture-page','/api/storage/capture-asset'].includes(path) && await knowledgeCaptureAllowed(env,path,qid);
   if(!extraOk&&!knowledgeOk)return json({error:'Migration is disabled after D1 cutover'},409);
  }
