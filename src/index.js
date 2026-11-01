@@ -920,6 +920,7 @@ async function listTasks(env, view) {
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
       if (view === "cloud" && !t.env.includes(CLOUD_ENV)) continue; // クラウドで の 🤖 処理中 節にはクラウドのものだけ (2026-10-29: 紙・早朝のタスクが混ざっていた)
+      if (t.start && t.start > today) continue; // 開始日が先 (待機) は 🤖 処理中 でも出さない (2026-11-01: 開始日を 11/20 にずらした後も AI処理開始 が残って 今日やる に出た)
       if (t.aiActive && !have.has(t.id)) { t.aiForeign = true; out.push(t); }
     }
   } catch (e) { /* 一覧本体は返す */ }

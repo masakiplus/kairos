@@ -413,6 +413,19 @@ async function guardUpdate(ctx, ds, fields) {
   return coll;
 }
 
+// 開始日を先にずらしたら、その場で手番を待機に戻す (2026-11-01: 開始日を 11/20 にしたのに 進行中 と AI処理開始 が残り「今日やる」に出続けた)。
+// ステータスを同じ呼び出しで指定していればそれに従う。人対応 はそのまま (人の手番の印なので消さない)
+const todayJstMcp = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+export function futureStartFix(coll, schema, page, fields) {
+  if (coll !== "tasks" || !("開始日" in fields) || !fields["開始日"]) return {};
+  const v = fields["開始日"], start = String(typeof v === "object" ? v.start ?? "" : v).slice(0, 10);
+  if (!start || start <= todayJstMcp()) return {};
+  const p = page.properties ?? {}, fix = {};
+  if (!("ステータス" in fields) && p["ステータス"]?.status?.name === "進行中" && schema["ステータス"]) fix["ステータス"] = "未着手";
+  if (!("AI処理開始" in fields) && p["AI処理開始"]?.date?.start && schema["AI処理開始"]) { fix["AI処理開始"] = null; if (schema["AI処理種別"]) fix["AI処理種別"] = null; }
+  return fix;
+}
+
 const RULES = [
   "Kairos の D1 が正本。Notion は更新しない。",
   "タスクの完了は kairos_task_action の done で行う（完了日とステータスが一緒に入り、AI処理開始も空になる）。",
@@ -422,6 +435,7 @@ const RULES = [
   "タスクの 説明 は「なぜ: …」「何を: …」の2行だけ（留意は 何を の行に足す）。出所・根拠・手順・経過は本文（kairos_create の body／kairos_append_body）に書く。例外は機械が読み書きする行（完了・見送り・重複・待ちの理由行、[棚卸し …] マーカー、スレッド URL や wallet_txn:<id> のような重複判定の鍵）だけ。",
   "タスクを更新・起票するとき、次のどれかに当たればサブタスクに分ける（確認は要らない。分けた理由は親の本文に書く）: 実行環境・担当・場所が違う工程が混ざる／本人の手番と AI の手番が混ざる／途中に待ち（返事・到着・特定日以降）を挟む／1回で終わらない（目安2時間超・複数日）。1回・1か所で終わるものは分けない。子は2〜5件で名前は①②…、説明は2行、親アイテム に親の id、待ちのある子は 開始日、順番があれば 先行タスク。作る前に親の サブアイテム を見て重複させない。親の 何を に「サブタスクN件。全部終わったら親を完了」と書き、親の 実行環境・期日 を子の全体に合わせる。",
   "AIに渡されたタスクは、終わるとき AI処理開始 を空にする（done なら自動。止まるなら kairos_task_action の human か ai_clear）。人の手が要って止まるなら human（ステータス=人対応）。",
+  "Kairos の「前回のセッションを開く」で同じチャットに続きが来ると、AI処理開始 が立ち直り、人対応 は 進行中 に変わる。続きのやり取りでも、返答を終えるたびに 1 回目と同じ締めをする（AI処理開始 を空に、人の手番なら human、開始日を先にずらした・待つだけなら ステータス を 未着手）。最後に kairos_get でステータスと AI処理開始 を確かめてから返答を終える。",
 ];
 
 const INSTRUCTIONS =
@@ -539,12 +553,14 @@ const TOOLS = [
       const id = reqId(a.id), page = await api(ctx, "GET", `/api/data/pages/${id}`);
       const ds = clean(page.parent?.data_source_id ?? "");
       if (!ds) throw new Error("このページの所属 DB が分かりません");
-      await guardUpdate(ctx, ds, a.fields);
+      const coll = await guardUpdate(ctx, ds, a.fields);
       const schema = await schemaOf(ctx, ds);
-      const payload = { properties: Object.fromEntries(Object.entries(a.fields).map(([k, v]) => [k, toProp(schema, k, v)])) };
+      const fields = { ...a.fields, ...futureStartFix(coll, schema, page, a.fields) };
+      const payload = { properties: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, toProp(schema, k, v)])) };
       if (a.icon) payload.icon = { type: "emoji", emoji: a.icon };
       const out = await api(ctx, "PATCH", `/api/data/pages/${id}`, payload);
-      return { ok: true, id: out.id, name: plain(out.properties?.["名前"] ?? { type: "title", title: [] }) };
+      const auto = Object.keys(fields).filter((k) => !(k in a.fields));
+      return { ok: true, id: out.id, name: plain(out.properties?.["名前"] ?? { type: "title", title: [] }), ...(auto.length ? { auto: auto.map((k) => `${k}=${fields[k] ?? "空"}`) } : {}) };
     },
   },
   {
