@@ -54,6 +54,7 @@ test('ChatGPT / Antigravityに同じタスク・先行順・更新依頼を渡�
     assert.ok(d.prompt.includes('先行（https://www.notion.so/predecessor）'));
     assert.match(d.prompt, /重複実行しない/); assert.doesNotMatch(d.prompt, /read_conversation|立っています/);
     assert.match(decode(h.run('aiHref(task,"update",chain)')).prompt, /内容を見直して更新/);
+    assert.match(decode(h.run('aiHref(task,"update",chain)')).prompt, /サブタスク基準に当たれば、確認せずにサブタスクに分けて/);
   }
 });
 
@@ -183,4 +184,10 @@ test('Androidは共有対応時だけ表示し、取消・失敗を成功とし�
  assert.equal(h.calls.length,0);
  h.run('aiProvider="antigravity";openAiHandoff(aiHref(task))');
  assert.equal(h.node('#aiShare').hidden,true);
+});
+
+test('更新の続き（前回のセッション）の文面にもサブタスク基準を含める', () => {
+  // aiPrompt は harness に読み込んでいないので、関数の本体を source から確かめる
+  const body = html.slice(html.indexOf('function aiPrompt('), html.indexOf('function copyPrompt('));
+  assert.match(body, /サブタスク基準に当たれば確認せずに分けて/);
 });
