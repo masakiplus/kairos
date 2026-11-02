@@ -622,6 +622,20 @@ function parseDatesRow(p) {
   const r = { taskId: m[1], start: D(kv.start), due: D(kv.due) };
   return r.start || r.due ? r : null;
 }
+// 問いごとの選択肢 (2026-11-02): Decisions の 問い に「[案 着手 推奨] 続ける：体重計を洗面所へ — 理由」の行で書く。
+// 効き目は 着手（既定）／棚上げ／やめる。推奨は 1 つ。案の行が無い未決は、人に聞く前に AI が調べて案を書く「下ごしらえ待ち」に回す
+const OPT_RE = /^\s*[-・*]?\s*\[案(?:\s+(着手|棚上げ|やめる))?(\s+推奨)?\]\s*(.+?)\s*$/;
+const OPT_EFFECT = { "着手": "着手する", "棚上げ": "棚上げ", "やめる": "削除" };
+function parseDecisionOpts(text) {
+  const opts = [], rest = [];
+  for (const line of String(text || "").split("\n")) {
+    const m = line.match(OPT_RE);
+    if (!m) { rest.push(line); continue; }
+    const [t, ...why] = m[3].split(/\s+[—–]\s+/);
+    opts.push({ effect: m[1] || "着手", pri: !!m[2], t: t.trim().slice(0, 60), s: why.join(" — ").trim().slice(0, 80) });
+  }
+  return { opts: opts.slice(0, 5), body: rest.join("\n").trim() };
+}
 async function reviewQuestions(env) {
   const today = todayJst();
   const out = [];
@@ -685,12 +699,17 @@ async function reviewQuestions(env) {
       });
       continue;
     }
+    const { opts, body } = parseDecisionOpts(DEC_RT(p["問い"]));
+    const EFF_S = { "着手": "決着・タスクを進める", "棚上げ": "決着・今は動かない", "やめる": "決着・やめる" };
     out.push({
       kind: "decision", db: "Decisions", label: p["状態"]?.select?.name === "提示済み" ? "提示済みの未決" : "提案中", id: pg.id, url: pg.url,
+      prep: !opts.length, // 案が無い＝まだ人に聞ける形になっていない。AI が調べて案を書くのが先
       meta: { state: p["状態"]?.select?.name ?? "", at: (p["日付"]?.date?.start ?? "").slice(0, 10), shown: (p["提示日"]?.date?.start ?? "").slice(0, 10), ai, src: DEC_RT(p["出所"]).slice(0, 60), expect: DEC_RT(p["期待する結果"]).slice(0, 120) },
-      q: name, body: DEC_RT(p["問い"]).slice(0, 400) || null,
-      ctx: [["出所", DEC_RT(p["出所"]).slice(0, 60)], ["AI推奨", ai], ["PJ", pj.join("・")], ["日付", (p["日付"]?.date?.start ?? "").slice(0, 10)]].filter((x) => x[1]),
-      options: [{ a: "着手する", t: "着手する", s: "決着・次のアクションへ", pri: ai === "着手する" }, { a: "棚上げ", t: "棚上げ", s: "決着・今は動かない", pri: ai === "棚上げ" }, { a: "削除", t: "やめる", s: "決着・削除扱い", pri: ai === "削除" }, { a: "skip", t: "今は決めない", s: "提示済みにして次回" }],
+      q: name, body: body.slice(0, 400) || null,
+      ctx: [["PJ", pj.join("・")]].filter((x) => x[1]), // 出所・日付は「なぜ今か」の行に出ている
+      options: opts.length
+        ? [...opts.map((o, i) => ({ a: "opt:" + i, t: o.t, s: o.s || EFF_S[o.effect], pri: o.pri })), { a: "skip", t: "今は決めない", s: "提示済みにして次回" }]
+        : [{ a: "着手する", t: "着手する", s: "決着・次のアクションへ", pri: ai === "着手する" }, { a: "棚上げ", t: "棚上げ", s: "決着・今は動かない", pri: ai === "棚上げ" }, { a: "削除", t: "やめる", s: "決着・削除扱い", pri: ai === "削除" }, { a: "skip", t: "今は決めない", s: "提示済みにして次回" }],
       name,
     });
   }
@@ -742,9 +761,16 @@ async function reviewAnswer(env, kind, id, answer, note) {
       await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: { "状態": { select: { name: "提示済み" } }, "提示日": { date: { start: today } } } }) });
       return { ok: true, state: "提示済み" };
     }
+    let label = answer;
+    if (answer.startsWith("opt:")) { // 問いごとの案: 選んだ案の文を結論に、効き目を 決定 に
+      const pg = await notion(env, `/pages/${id}`);
+      const o = parseDecisionOpts(DEC_RT(pg.properties?.["問い"])).opts[Number(answer.slice(4))];
+      if (!o) throw new Error("bad answer");
+      answer = OPT_EFFECT[o.effect]; label = o.t;
+    }
     if (!["着手する", "棚上げ", "削除"].includes(answer)) throw new Error("bad answer");
     const props = { "状態": { select: { name: "決着" } }, "決定": { select: { name: answer } }, "決定日": { date: { start: today } },
-      "結論": { rich_text: [{ text: { content: (`${answer} (${today}, Kairos 見直し)` + (memo ? `: ${memo}` : "")).slice(0, 1900) } }] } };
+      "結論": { rich_text: [{ text: { content: (`${label} (${today}, Kairos 見直し)` + (memo ? `: ${memo}` : "")).slice(0, 1900) } }] } };
     await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: props }) });
     return { ok: true, state: "決着" };
   }

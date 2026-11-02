@@ -1,6 +1,6 @@
 // tasks-pwa の service worker。殻 (/, manifest, icon) だけキャッシュし、/api は常にネットワーク。
 // 一覧のオフライン表示は app.html 側が localStorage に前回結果を持つことで行う。
-const CACHE = "kairos-v92";
+const CACHE = "kairos-v93";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -8,9 +8,9 @@ self.addEventListener("install", (e) => {
 });
 self.addEventListener("activate", (e) => {
   e.waitUntil(
+    // 開いている画面の再読み込みは画面側 (controllerchange) に任せる。ここで client.navigate すると、
+    // 読み込み途中の画面が固まる (2026-11-02 再現。初回インストールでも走っていた)
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: "window" }))
-      .then((clients) => Promise.all(clients.map((client) => client.navigate(client.url).catch(() => {}))))
   );
 });
 self.addEventListener("fetch", (e) => {
