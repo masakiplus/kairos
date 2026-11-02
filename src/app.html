@@ -30,12 +30,12 @@
   .ttl{display:flex;align-items:center;gap:10px}
   .ttl h1{margin:0;font-size:28px;font-weight:700;letter-spacing:-.4px}
   .ttl .date{margin-left:auto;font-size:15px;color:var(--mute)}
-  /* タブは 2 段 (2026-10-08): 上段「やる」(今日やる・今日できる・スマホで・着手中)、下段「整える」(PJ別・役割・見直し・委任)。横スクロールはやめた */
+  /* タブは 2 段 (2026-10-08): 上段「やる」(今日やる・今日できる・着手中。スマホで は 2026-11-03 に 🔍 絞り込みの 📍 スマホ へ)、下段「整える」(PJ別・役割・見直し・委任)。横スクロールはやめた */
   .tabs{display:flex;flex-direction:column;gap:4px}
   .trow{display:flex;gap:4px;background:var(--seg);padding:3px;border-radius:10px}
   .trow button{flex:1 1 0;min-width:0;padding:7px 4px;border:0;border-radius:8px;background:transparent;color:var(--mute);font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .trow.sub{background:transparent;padding:0 3px}
-  .trow.sub button{flex:1 1 auto;font-size:12px;padding:4px 4px;color:var(--mute2)} /* 下段は文字幅なり (2026-10-29「クラウドで」を足して 5 つ。上段に入れると 400px で「今日できる」が切れる) */
+  .trow.sub button{flex:1 1 auto;font-size:12px;padding:4px 4px;color:var(--mute2)} /* 下段は文字幅なり (2026-10-29「クラウドで」を足して 5 つ → 2026-11-03 クラウドで は 🔍 絞り込みの 📍 クラウド に移し、買い物を足して 5 つ) */
   .trow button.on{background:var(--segon);color:var(--fg);box-shadow:var(--shadow)}
   .trow.sub button.on{background:var(--seg);box-shadow:none;color:var(--fg)}
   .trow button .n{margin-left:3px;font-weight:600;color:var(--mute);font-size:11px}
@@ -414,6 +414,16 @@
   .sheet .notion{display:flex;justify-content:center;padding:13px 10px;color:var(--acc);font-size:15px;font-weight:600;text-decoration:none}
   .done-ring{background:var(--acc);border-color:var(--acc);display:flex;align-items:center;justify-content:center}
   svg{flex:none}
+  /* 右クリックメニュー (2026-11-03): 一覧の行を右クリック／長押しで、シートを開かずに主な操作 */
+  .cmenu{position:fixed;z-index:30;min-width:220px;max-width:calc(100vw - 16px);padding:6px;border-radius:14px;background:var(--card);color:var(--fg);border:1px solid var(--sep);box-shadow:0 10px 32px #0003;display:flex;flex-direction:column}
+  .cmenu .cmh{padding:6px 10px 8px;font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line);margin-bottom:4px}
+  .cmenu button{display:flex;align-items:center;gap:10px;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--fg);font-size:15px;text-align:left;white-space:nowrap}
+  .cmenu button .ci{width:22px;text-align:center;flex:none}
+  .cmenu button.mute{color:var(--mute)}
+  .cmenu button:hover:not(:disabled),.cmenu button:focus-visible{background:var(--accbg);outline:none}
+  .cmenu button:disabled{opacity:.35}
+  .row .card,.srow{-webkit-touch-callout:none} /* iOS の長押しメニュー (リンクのプレビュー) を出さず、右クリックメニューに任せる */
+  .cmenu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
   #aiHandoff{width:min(440px,calc(100% - 24px));max-height:85dvh;overflow:auto;border:1px solid var(--sep);border-radius:18px;padding:20px;background:var(--bg);color:var(--fg);box-shadow:0 12px 40px #0004}
   #aiHandoff::backdrop{background:#0006}
   .aihead{display:flex;align-items:center;gap:12px}.aihead h2{margin:0;flex:1;font-size:19px}
@@ -449,7 +459,6 @@
     <div class="trow">
       <button data-v="today">今日やる<span class="n" id="n-today"></span></button>
       <button data-v="can">今日できる<span class="n" id="n-can"></span></button>
-      <button data-v="phone">スマホで<span class="n" id="n-phone"></span></button>
       <button data-v="doing">着手中<span class="n" id="n-doing"></span></button>
     </div>
     <div class="trow sub">
@@ -457,7 +466,6 @@
       <button data-v="roles">役割</button>
       <button data-v="review">決める<span class="n" id="n-review"></span></button>
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
-      <button data-v="cloud">クラウドで<span class="n" id="n-cloud"></span></button>
       <button data-v="shop">買い物<span class="n" id="n-shop"></span></button>
     </div>
   </div>
@@ -479,6 +487,7 @@
   <input id="addName" placeholder="タイトルだけで追加" autocomplete="off">
   <button type="submit" aria-label="追加"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
 </form>
+<div id="cmenu" class="cmenu" role="menu" hidden></div>
 <div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="undo">元に戻す</button></div>
 <div id="sheetWrap" hidden><div class="veil" id="veil"></div><div class="sheet" id="sheet"></div></div>
 <dialog id="aiHandoff" aria-labelledby="aiHandoffTitle">
@@ -495,7 +504,7 @@
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
-  const views = ["today", "can", "phone", "cloud", "doing", "project", "delegated"];
+  const views = ["today", "can", "doing", "project", "delegated"];
   const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", cloud: "クラウドで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", shop: "買い物", deps: "つながり", graph: "つながり", quad: "象限" };
   let reviewData = null, reviewPos = 0, reviewSkipped = new Set(), reviewShowAll = false; // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
@@ -549,8 +558,11 @@
   mq.addEventListener("change", applyTheme);
   applyTheme();
 
-  let view = localStorage.getItem("view") || "today";
-  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated", "shop"].includes(requested)) view = requested; }
+  // 旧「スマホで」「クラウドで」タブ (2026-11-03 廃止。コンテキストの一種なので 🔍 絞り込みの 📍 へ移した): 最後に開いていた・?view= で来たら 今日できる ＋ 📍 その値 で開く
+  const LEGACY_ENV_VIEWS = { phone: () => PHONE_ENV, cloud: () => "クラウド" };
+  let view = localStorage.getItem("view") || "today", legacyEnv = null;
+  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "doing", "project", "roles", "review", "delegated", "shop"].includes(requested)) view = requested; else if (LEGACY_ENV_VIEWS[requested]) view = requested; }
+  if (LEGACY_ENV_VIEWS[view]) { legacyEnv = LEGACY_ENV_VIEWS[view](); view = "can"; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
   const allTasks = () => tasks; // render は絞った後の行を同名の tasks で持つので、元の一覧はこれで読む
@@ -558,23 +570,28 @@
   // 🔍 ラベル・コンテキスト (実行環境)・種類 で一覧を絞る (2026-11-03)。各軸は単一選択、軸どうしは AND。
   // 役割・決める などの一覧でないタブには効かせない。🤖 処理中の行は絞り込み中も出す (どのタブにも出す既存ルール)
   const FILTER_AXES = [["label", "🏷", "ラベル", (t) => t.labels || []], ["env", "📍", "コンテキスト", (t) => t.env || []], ["kind", "🧩", "種類", (t) => (t.kind ? [t.kind] : [])]];
-  const FILTER_VIEWS = ["today", "can", "phone", "doing", "project", "delegated", "cloud", "search"];
+  const FILTER_VIEWS = ["today", "can", "doing", "project", "delegated", "search"];
+  // 📍 スマホ は 電話 も含む (旧「スマホで」タブと同じ。電話はスマホでかける)。📍 電話 は電話だけ
+  const ENV_ALSO = { "スマホ": ["電話"], "iPhone": ["電話"] };
   const filterOn = (f) => FILTER_AXES.some(([k]) => f && f[k]);
   function cleanFilter(f) { const o = {}; for (const [k] of FILTER_AXES) if (f && typeof f[k] === "string" && f[k]) o[k] = f[k]; return o; }
   // skip に軸名を渡すと、その軸だけ見ない (シートの件数は「この値を選んだら何件になるか」を出すため)
-  function filterMatch(t, f, skip) { return FILTER_AXES.every(([k, , , get]) => k === skip || !f[k] || get(t).includes(f[k])); }
-  function applyFilter(ts, f, v) { return FILTER_VIEWS.includes(v) && filterOn(f) ? ts.filter((t) => t.aiActive || filterMatch(t, f)) : ts; }
+  function axisHas(k, t, v) { const xs = FILTER_AXES.find((a) => a[0] === k)[3](t); return xs.includes(v) || (k === "env" && (ENV_ALSO[v] || []).some((x) => xs.includes(x))); }
+  function filterMatch(t, f, skip) { return FILTER_AXES.every(([k]) => k === skip || !f[k] || axisHas(k, t, f[k])); }
+  // 🤖 処理中はラベル・種類では落とさないが、📍 コンテキストが合わなければ落とす (旧「クラウドで」タブの 2026-10-29 の決め: 紙・早朝の 🤖 をクラウドに混ぜない)
+  function applyFilter(ts, f, v) { return FILTER_VIEWS.includes(v) && filterOn(f) ? ts.filter((t) => filterMatch(t, f) || (t.aiActive && (!f.env || axisHas("env", t, f.env)))) : ts; }
   // 軸ごとの選択肢と件数。今のタブにある値だけ出し、選択中の値は 0 件でも残す。並びは件数の多い順
   function filterOptions(ts, f, k) {
     const get = FILTER_AXES.find((a) => a[0] === k)[3], base = ts.filter((t) => filterMatch(t, f, k)), n = new Map();
     for (const t of ts) for (const x of get(t)) if (!n.has(x)) n.set(x, 0);
-    for (const t of base) for (const x of get(t)) n.set(x, n.get(x) + 1);
+    for (const x of n.keys()) n.set(x, base.filter((t) => axisHas(k, t, x)).length);
     if (f[k] && !n.has(f[k])) n.set(f[k], 0);
     return { all: base.length, opts: [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")) };
   }
   // ---- end 絞り込み ----
   let filt = {}; try { filt = cleanFilter(JSON.parse(localStorage.getItem("filter") || "{}")); } catch (e) {} // 端末ごとに覚える。取れなければ「すべて」
   const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} };
+  if (legacyEnv) { filt = { env: legacyEnv }; saveFilt(); }
   let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
   let undoTask = null, undoTimer = null;
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -603,6 +620,7 @@
       if (b.matches("a[data-ai]")) return "sheet:ai:" + (b.dataset.mode || "run");
       return "";
     }
+    if (b.closest("#cmenu")) return b.dataset.m ? "menu:" + (b.dataset.m.startsWith("delegate") ? "delegate" : b.dataset.m) : ""; // 右クリックメニュー (2026-11-03)。シートと同じ操作名で数え、並びの見直しに使う
     if (b.matches("button.ring[data-done]")) return "row:done";
     if (b.matches("button.go[data-claude]")) return "row:claude";
     return "";
@@ -934,11 +952,11 @@
     const viewChanged = lastView !== view; lastView = view;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
-    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "cloud" ? "☁️" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
+    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
     $("#add").hidden = view === "roles" || view === "review" || view === "shop";
-    const sitOn = view === "today" || view === "can" || view === "phone", fltOn = FILTER_VIEWS.includes(view);
+    const sitOn = view === "today" || view === "can", fltOn = FILTER_VIEWS.includes(view);
     $("#sitChip").hidden = !sitOn; $("#fltChip").hidden = !fltOn; $("#sitbar").hidden = !sitOn && !fltOn;
     if (sitOn) pollWhere(); renderSit(); renderFilt();
     if (view === "roles") { renderRoles(today); return; }
@@ -989,9 +1007,6 @@
         [`今週中 <small style="font-weight:400;color:var(--mute)">期日まで 4〜7 日</small>`, "", tasks.filter((t) => !far(t) && t.due && dd(t) > 3)],
         [`日付なし <small style="font-weight:400;color:var(--mute)">着手できる・いつでも</small>`, "", tasks.filter((t) => !t.due)],
       ];
-    } else if (view === "phone") {
-      // スマホで (2026-10-15): 📞 電話する と 📱 スマホで片付ける に分ける
-      secs = [["📞 電話する", "", tasks.filter((t) => t.env.includes("電話"))], ["📱 スマホで片付ける", "", tasks.filter((t) => !t.env.includes("電話"))]];
     } else {
       secs = [["期日あり", "", tasks.filter((t) => t.due)], ["日付なし", "", tasks.filter((t) => !t.due)]];
     }
@@ -1011,8 +1026,8 @@
       const mr = tasks.filter((t) => !t.done && !t.blocked && !t.aiActive && t.status !== "人対応" && t.env.includes("早朝")).sort((a, b) => (a.priority || "p9").localeCompare(b.priority || "p9") || (b.mit ? 1 : 0) - (a.mit ? 1 : 0) || (a.due || "9999").localeCompare(b.due || "9999"));
       if (mr.length) secs = [[`🌅 早朝にゆっくり <small style="font-weight:400;color:var(--mute)">相談が要るものは準備まで</small>`, "mrh", mr], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !mr.includes(t))])];
     }
-    // 状況に合わないものは末尾に沈める (隠さない。期限切れを見失わないため, 2026-10-12)。今日やる・今日できる・スマホで だけ
-    if (view === "today" || view === "can" || view === "phone") {
+    // 状況に合わないものは末尾に沈める (隠さない。期限切れを見失わないため, 2026-10-12)。今日やる・今日できる だけ
+    if (view === "today" || view === "can") {
       const un = tasks.filter((t) => !t.done && !t.aiActive && !t.blocked && unavailWhy(t)); // 🧔 人対応 も沈める (2026-10-12: 本人の手番でも、その場でできなければ同じ)
       if (un.length) {
         const why = [...new Set(un.map(unavailWhy))].slice(0, 3).join("・");
@@ -1028,7 +1043,7 @@
       }
       return `<section class="sec"><h2 class="${cls}">${cls === "prjh" ? esc(h) + `<span class="n">${ts.length}</span>` : h}</h2><div class="group">${ts.map((t) => rowHtml(t, today)).join("")}</div></section>`;
     }).join("") +
-      `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>` + metaHtml(view);
+      `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー ／ 右クリック・長押し＝すぐ操作</div>` + metaHtml(view);
   }
   // 各タブの一番下: そのタブ全体を Claude と見返すメタ操作 (2026-10-10)。1 件ずつの 🤖 とは別に「一覧ごと」渡す。文面は URL に乗せるので 12 件まで
   function taskLines(ts, n = 12) {
@@ -1154,10 +1169,6 @@
       if (!ts.length) return "";
       label = aiName() + " と前倒しを選ぶ"; sub = "今日に引き上げるものを決める";
       q = `今日できる（前倒し候補）${ts.length} 件から、今日に引き上げるものを決めたいです: ${taskLines(ts)}。空き時間と重要度を聞いて 1〜3 件に絞り、選んだものは 開始日 を今日にし、残りはそのままで構いません。${META_TAIL}`;
-    } else if (v === "phone") {
-      if (!ts.length) return "";
-      label = aiName() + " とまとめて片付ける"; sub = "電話・スマホ作業を順に";
-      q = `スマホ・電話でできるタスク ${ts.length} 件をまとめて片付けたいです: ${taskLines(ts)}。かける順番と、電話なら要件を 2 行ずつ用意し、1 件ずつ「済んだ／相手待ち（待ち）／後で」を聞いて進めてください。${META_TAIL}`;
     } else if (v === "doing") {
       if (!ts.length) return "";
       label = aiName() + " と WIP を整理する"; sub = "本当に進行中か、戻すか、任せるか";
@@ -2219,7 +2230,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   // タップ → メニュー、🤖 → Claude、スワイプ → 完了/明日へ
   let sx = 0, sy = 0, card = null, dx = 0, swiping = false, todayStr = "";
   // タスク行の外 (見出し・PJ カード・役割カード・余白) を横にスワイプしたら隣のタブへ (2026-10-10 利用者の提案)。横スクロールする部品 (ガント) と入力欄の上では無効
-  const TAB_ORDER = ["today", "can", "phone", "doing", "project", "roles", "review", "delegated", "cloud"];
+  const TAB_ORDER = ["today", "can", "doing", "project", "roles", "review", "delegated"];
   let pgSwipe = false, pgX = 0, pgY = 0;
   function pageSwipeStart(e) {
     pgSwipe = false;
@@ -2362,6 +2373,76 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     }
     openSheet(t, todayStr);
   });
+  // ---- 右クリックメニュー (2026-11-03) ----
+  // 一覧の行を右クリック (Mac)・長押し (Android) で、シートを開かずに主な操作を選ぶ。項目はシートの操作のうち使われているものだけ
+  // (選定の根拠は docs/design-notes.md)。中身は data-m のキー列。シートと同じ act() を通すので ↩ 取り消しもそのまま効く
+  // dg = 委任先の先頭 (担当 の選択肢の 1 番目。委任の 9 割がここ)
+  function cmenuItems(t, dg) {
+    if (t.done) return [{ m: "reopen", ic: "↩", t: "未完了に戻す" }, "-", { m: "open", ic: "☰", t: "詳細を開く" }];
+    const b = !!t.blocked;
+    return [
+      { m: "done", ic: "✓", t: "完了", off: b },
+      { m: "ai", ic: "🤖", t: "AI に進めてもらう" },
+      { m: "ai-update", ic: "✎", t: "AI にタスク内容を更新してもらう" }, // シートの「タスク内容を更新してもらう」(AI処理種別=更新)。先行待ちでも押せる
+      "-",
+      t.mit ? { m: "mit-clear", ic: "⭐", t: "今日の3つから外す" } : { m: "mit", ic: "⭐", t: "今日の3つに入れる", off: b },
+      { m: "defer?days=1", ic: "→", t: "明日へ", off: b },
+      { m: "defer?to=weekend", ic: "📅", t: "週末に", off: b },
+      { m: "defer?to=nextweek", ic: "📅", t: "来週に", off: b },
+      "-",
+      t.owner ? { m: "delegate?to=", ic: "👥", t: "自分に戻す" } : dg ? { m: "delegate?to=" + encodeURIComponent(dg), ic: "👥", t: dg + " に委任" } : null,
+      { m: "skip", ic: "⤼", t: "見送りで完了", off: b, mute: true },
+      { m: "open", ic: "☰", t: "詳細を開く" },
+    ].filter(Boolean);
+  }
+  // ---- end 右クリックメニュー ----
+  let cmTask = null;
+  function closeCmenu() { const m = $("#cmenu"); if (m.hidden) return; m.hidden = true; cmTask = null; }
+  function openCmenu(t, x, y) {
+    cmTask = t;
+    const m = $("#cmenu");
+    m.innerHTML = `<div class="cmh">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>` + cmenuItems(t, DELEGATES[0]).map((it) => it === "-" ? "<hr>"
+      : `<button type="button" role="menuitem" data-m="${it.m}"${it.mute ? ' class="mute"' : ""}${it.off ? " disabled" : ""}><span class="ci">${it.ic}</span>${it.m === "ai" ? `${esc(aiName())} に進めてもらう` : it.m === "ai-update" ? `${esc(aiName())} にタスク内容を更新してもらう` : it.t}</button>`).join("");
+    m.hidden = false;
+    // 画面からはみ出さないように寄せる (幅 400px の端末でも収まる)
+    const W = innerWidth, H = innerHeight, r = m.getBoundingClientRect();
+    m.style.left = Math.max(8, Math.min(x, W - r.width - 8)) + "px";
+    m.style.top = Math.max(8, Math.min(y, H - r.height - 8)) + "px";
+    const first = m.querySelector("button:not(:disabled)"); if (first) first.focus({ preventScroll: true });
+  }
+  $("#list").addEventListener("contextmenu", (e) => {
+    const row = e.target.closest(".row[data-id], .srow[data-id]"); if (!row) return;
+    if (e.target.closest("a[href]") && !e.target.closest(".card")) return; // リンクの右クリックはブラウザ既定 (新しいタブで開く 等) を残す
+    const t = tasks.find((x) => x.id === row.dataset.id); if (!t) return;
+    e.preventDefault();
+    if (card) { card.style.transform = ""; card = null; } // 長押しの最中に始まっていたスワイプは捨てる
+    let x = e.clientX, y = e.clientY;
+    if (!x && !y) { const r = row.getBoundingClientRect(); x = r.left + 24; y = r.bottom - 4; } // キーボード (Shift+F10・メニューキー) から
+    openCmenu(t, x, y);
+  });
+  $("#cmenu").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-m]"); if (!b || b.disabled || !cmTask) return;
+    const t = cmTask, m = b.dataset.m; closeCmenu();
+    if (m === "open") { openSheet(t, todayStr); return; }
+    if (m === "ai-update") { goClaude(t, aiHref(t, "update"), "update"); return; } // 期日・実行環境・説明・サブタスク分割の見直しを AI に頼む
+    if (m === "ai") { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでシートへ (行の 🤖 と同じ)
+    if ((m === "done" || m === "skip") && t.aiActive && !confirm("AI が処理中です。それでも完了にしますか？")) return;
+    const it = cmenuItems(t, DELEGATES[0]).find((x) => x.m === m);
+    act(t, m, it ? it.t : m, m === "mit" || m === "mit-clear"); // ⭐ は一覧に残したまま節を移す。委任は行を消して取り直しで正しいタブへ (シートと同じ)
+  });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#cmenu")) closeCmenu(); }, true);
+  document.addEventListener("keydown", (e) => {
+    const m = $("#cmenu"); if (m.hidden) return;
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeCmenu(); return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { // ↑↓ で項目を移る
+      e.preventDefault();
+      const bs = [...m.querySelectorAll("button:not(:disabled)")], i = bs.indexOf(document.activeElement);
+      const n = bs[(i + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length]; if (n) n.focus();
+    }
+  }, true);
+  window.addEventListener("scroll", closeCmenu, { passive: true });
+  window.addEventListener("resize", closeCmenu);
+  window.addEventListener("blur", closeCmenu);
   const _render = render; render = (today) => { todayStr = today; _render(today); };
   $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) load(b.dataset.v); };
   $("#sitChip").onclick = openSitPick;

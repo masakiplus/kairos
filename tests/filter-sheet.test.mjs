@@ -26,12 +26,16 @@ test('3 軸は AND。未選択の軸は条件にしない',()=>{
  assert.deepEqual(ids(rows.filter(t=>filterMatch(t,{kind:'作業'}))),['b','e']);
  assert.deepEqual(ids(rows.filter(t=>filterMatch(t,{}))),['a','b','c','d','e']);
 });
-test('🤖 処理中の行は絞り込み中も残す',()=>{
+test('🤖 処理中の行は絞り込み中も残す。ただし 📍 コンテキストが合わない 🤖 は落とす',()=>{
  assert.deepEqual(ids(applyFilter(rows,{label:'AI提案'},'today')),['a','b','e']);
+ assert.deepEqual(ids(applyFilter(rows,{kind:'連絡'},'today')),['a','e']);
+ assert.deepEqual(ids(applyFilter(rows,{env:'スマホ'},'today')),['a','c'],'Mac の 🤖 は スマホ で絞ったら出さない');
+ const cloud=[T('k',[],['クラウド'],'作業'),T('p',[],['紙・郵送'],'作業',{aiActive:true}),T('q',[],['クラウド'],'作業',{aiActive:true})];
+ assert.deepEqual(ids(applyFilter(cloud,{env:'クラウド'},'can')),['k','q'],'紙の 🤖 処理中 は 📍 クラウド に混ぜない (旧 クラウドで タブ 2026-10-29 の決め)');
 });
 test('役割・決める など一覧でないタブでは効かせない',()=>{
  for(const v of ['roles','review','deps','graph','quad'])assert.equal(applyFilter(rows,{label:'AI提案'},v),rows,v);
- for(const v of ['today','can','phone','doing','project','delegated','cloud','search'])assert.ok(FILTER_VIEWS.includes(v),v);
+ for(const v of ['today','can','doing','project','delegated','search'])assert.ok(FILTER_VIEWS.includes(v),v);
  assert.equal(applyFilter(rows,{},'today'),rows,'未選択なら元の配列のまま');
 });
 test('シートの件数は「その値を選んだら何件か」。選択中の値は 0 件でも残す',()=>{
@@ -55,4 +59,19 @@ test('名前がカタカナの「カイロス」でも kairos リポジトリに
  assert.equal(cloudRepo({name:'カイロスに絞り込みシートを付ける'}),'masakiplus/kairos');
  assert.equal(cloudRepo({name:'Kairos の修正'}),'masakiplus/kairos');
  assert.equal(cloudRepo({name:'日報の整理'}),'masakiplus/saito-tools');
+});
+test('スマホで・クラウドで はタブではなく 📍 コンテキストの絞り込み。旧タブ (?view= や最後に開いていたタブ) は 今日できる ＋ 📍 その値 で開く',()=>{
+ const tabs=html.slice(html.indexOf('<div class="tabs"'),html.indexOf('id="sitbar"'));
+ assert.doesNotMatch(tabs,/data-v="(phone|cloud)"/);
+ for(const v of ['phone','cloud'])assert.ok(!FILTER_VIEWS.includes(v),v);
+ assert.match(html,/const LEGACY_ENV_VIEWS = \{ phone: \(\) => PHONE_ENV, cloud: \(\) => "クラウド" \};/);
+ assert.match(html,/if \(LEGACY_ENV_VIEWS\[view\]\) \{ legacyEnv = LEGACY_ENV_VIEWS\[view\]\(\); view = "can"; \}/);
+ assert.match(html,/if \(legacyEnv\) \{ filt = \{ env: legacyEnv \}; saveFilt\(\); \}/);
+});
+test('📍 スマホ は 電話 も拾う (旧 スマホで タブと同じ)。📍 電話 は電話だけ。件数も同じ規則',()=>{
+ const ph=[T('s',[],['スマホ'],null),T('c',[],['電話'],null),T('m',[],['Mac'],null),T('x',[],['電話'],null,{aiActive:true}),T('y',[],['Mac'],null,{aiActive:true})];
+ assert.deepEqual(ids(applyFilter(ph,{env:'スマホ'},'can')),['s','c','x']);
+ assert.deepEqual(ids(applyFilter(ph,{env:'電話'},'can')),['c','x']);
+ const o=Object.fromEntries(filterOptions(ph,{},'env').opts);
+ assert.equal(o['スマホ'],3);assert.equal(o['電話'],2);assert.equal(o['Mac'],2);
 });
