@@ -620,7 +620,7 @@
       if (b.matches("a[data-ai]")) return "sheet:ai:" + (b.dataset.mode || "run");
       return "";
     }
-    if (b.closest("#cmenu")) return b.dataset.m ? "menu:" + b.dataset.m : ""; // 右クリックメニュー (2026-11-03)。シートと同じ操作名で数え、並びの見直しに使う
+    if (b.closest("#cmenu")) return b.dataset.m ? "menu:" + (b.dataset.m.startsWith("delegate") ? "delegate" : b.dataset.m) : ""; // 右クリックメニュー (2026-11-03)。シートと同じ操作名で数え、並びの見直しに使う
     if (b.matches("button.ring[data-done]")) return "row:done";
     if (b.matches("button.go[data-claude]")) return "row:claude";
     return "";
@@ -2325,7 +2325,8 @@
   // ---- 右クリックメニュー (2026-11-03) ----
   // 一覧の行を右クリック (Mac)・長押し (Android) で、シートを開かずに主な操作を選ぶ。項目はシートの操作のうち使われているものだけ
   // (選定の根拠は docs/design-notes.md)。中身は data-m のキー列。シートと同じ act() を通すので ↩ 取り消しもそのまま効く
-  function cmenuItems(t) {
+  // dg = 委任先の先頭 (担当 の選択肢の 1 番目。委任の 9 割がここ)
+  function cmenuItems(t, dg) {
     if (t.done) return [{ m: "reopen", ic: "↩", t: "未完了に戻す" }, "-", { m: "open", ic: "☰", t: "詳細を開く" }];
     const b = !!t.blocked;
     return [
@@ -2336,11 +2337,11 @@
       { m: "defer?days=1", ic: "→", t: "明日へ", off: b },
       { m: "defer?to=weekend", ic: "📅", t: "週末に", off: b },
       { m: "defer?to=nextweek", ic: "📅", t: "来週に", off: b },
-      t.status === "待ち" ? { m: "todo", ic: "○", t: "待ちをやめる（未着手）", off: b } : { m: "wait", ic: "⏸", t: "待ちにする", off: b },
       "-",
+      t.owner ? { m: "delegate?to=", ic: "👥", t: "自分に戻す" } : dg ? { m: "delegate?to=" + encodeURIComponent(dg), ic: "👥", t: dg + " に委任" } : null,
       { m: "skip", ic: "⤼", t: "見送りで完了", off: b, mute: true },
       { m: "open", ic: "☰", t: "詳細を開く" },
-    ];
+    ].filter(Boolean);
   }
   // ---- end 右クリックメニュー ----
   let cmTask = null;
@@ -2348,7 +2349,7 @@
   function openCmenu(t, x, y) {
     cmTask = t;
     const m = $("#cmenu");
-    m.innerHTML = `<div class="cmh">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>` + cmenuItems(t).map((it) => it === "-" ? "<hr>"
+    m.innerHTML = `<div class="cmh">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>` + cmenuItems(t, DELEGATES[0]).map((it) => it === "-" ? "<hr>"
       : `<button type="button" role="menuitem" data-m="${it.m}"${it.mute ? ' class="mute"' : ""}${it.off ? " disabled" : ""}><span class="ci">${it.ic}</span>${it.m === "ai" ? `${esc(aiName())} に進めてもらう` : it.t}</button>`).join("");
     m.hidden = false;
     // 画面からはみ出さないように寄せる (幅 400px の端末でも収まる)
@@ -2373,14 +2374,8 @@
     if (m === "open") { openSheet(t, todayStr); return; }
     if (m === "ai") { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでシートへ (行の 🤖 と同じ)
     if ((m === "done" || m === "skip") && t.aiActive && !confirm("AI が処理中です。それでも完了にしますか？")) return;
-    if (m === "wait") {
-      const w = prompt("誰・何を待つ？（任意。例: 業者の見積、家族の返事）", t.waitFor || "");
-      if (w === null) return;
-      act(t, "wait" + (w.trim() ? "?who=" + encodeURIComponent(w.trim()) : ""), "待ちに", true);
-      return;
-    }
-    const it = cmenuItems(t).find((x) => x.m === m);
-    act(t, m, it ? it.t : m, ["mit", "mit-clear", "todo"].includes(m)); // ⭐ と 状態 は一覧に残したまま節を移す (シートと同じ)
+    const it = cmenuItems(t, DELEGATES[0]).find((x) => x.m === m);
+    act(t, m, it ? it.t : m, m === "mit" || m === "mit-clear"); // ⭐ は一覧に残したまま節を移す。委任は行を消して取り直しで正しいタブへ (シートと同じ)
   });
   document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#cmenu")) closeCmenu(); }, true);
   document.addEventListener("keydown", (e) => {
