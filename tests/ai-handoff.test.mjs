@@ -119,7 +119,7 @@ test('コピー成功と失敗を区別し、失敗時は手動コピーでき�
 });
 
 test('選択だけを保存し依頼文を保存しない。リンクを再描画する', () => {
-  const h = harness(); h.node('#aiProvider').value='chatgpt'; h.node('#aiProvider').onchange();
+  const h = harness(); const onChange = h.listeners.find(([type]) => type === 'change')[1]; onChange({ target:{ id:'aiProvider', value:'chatgpt' } });
   assert.equal(h.run('aiProvider'),'chatgpt'); assert.equal(h.store.get('kairos_ai_app'),'chatgpt');
   assert.equal(h.store.size,1); assert.equal(h.context.lastSig,''); assert.deepEqual(h.calls,[['render']]);
 });

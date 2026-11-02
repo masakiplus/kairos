@@ -113,10 +113,20 @@
   .empty{padding:56px 20px;text-align:center;color:var(--mute2)}
   .hint{font-size:12px;color:var(--mute2);text-align:center;padding-top:4px}
   /* いまの状況チップ (2026-10-12): 場所・道具・時間帯。タブは増やさず、ここ 1 つで一覧の並びを変える */
-  .sitbar{display:flex;justify-content:center;margin-top:2px}
+  .sitbar{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .sitbar button[hidden]{display:none}
   .sitbar button{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:0;border-radius:999px;background:var(--seg);color:var(--fg);font-size:12px;font-weight:600}
   .sitbar button small{font-weight:500;color:var(--mute)}
   .sitbar button.manual{background:var(--accbg);color:var(--acc)}
+  /* 🔍 絞り込み (2026-11-03): ラベル・コンテキスト・種類。ヘッダーにはボタン 1 つだけ置き、選ぶのはシートで */
+  .sitbar #fltChip.on{background:var(--acc);color:#fff}
+  .sitbar #fltChip .x{margin-left:2px;padding:0 2px;font-weight:700}
+  .sheet .grid.flt{grid-template-columns:repeat(3,1fr);gap:6px}
+  .sheet .grid.flt button{padding:9px 6px;font-size:13px;gap:4px;flex-wrap:wrap;line-height:1.25}
+  .sheet .grid.flt button small{font-weight:500;opacity:.75}
+  .sheet .grid.flt button.on{background:var(--acc);color:#fff}
+  .sheet .grid.flt button.later{opacity:.45}
+  .sheet .sect select{margin-left:6px;min-height:30px;padding:3px 8px;border:1px solid var(--sep);border-radius:8px;background:var(--card);color:var(--fg);font:inherit;font-size:12px}
   .sheet .grid.sit button.on{background:var(--acc);color:#fff}
   .sec h2.unav{color:var(--mute2)}
   .stale{font-size:12px;color:var(--p2);text-align:center}
@@ -404,8 +414,6 @@
   .sheet .notion{display:flex;justify-content:center;padding:13px 10px;color:var(--acc);font-size:15px;font-weight:600;text-decoration:none}
   .done-ring{background:var(--acc);border-color:var(--acc);display:flex;align-items:center;justify-content:center}
   svg{flex:none}
-  .aibar{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:13px;color:var(--mute)}
-  .aibar select{max-width:65%;min-height:36px;padding:5px 10px;border:1px solid var(--sep);border-radius:9px;background:var(--card);color:var(--fg);font:inherit}
   #aiHandoff{width:min(440px,calc(100% - 24px));max-height:85dvh;overflow:auto;border:1px solid var(--sep);border-radius:18px;padding:20px;background:var(--bg);color:var(--fg);box-shadow:0 12px 40px #0004}
   #aiHandoff::backdrop{background:#0006}
   .aihead{display:flex;align-items:center;gap:12px}.aihead h2{margin:0;flex:1;font-size:19px}
@@ -434,8 +442,7 @@
       <button data-v="cloud">クラウドで<span class="n" id="n-cloud"></span></button>
     </div>
   </div>
-  <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・一緒にいる人・時間帯）。タップで変更"></button></div>
-  <div class="aibar"><label for="aiProvider">任せるAI</label><select id="aiProvider"><option value="claude">Claude</option><option value="chatgpt">ChatGPT</option><option value="antigravity">Antigravity</option></select></div>
+  <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・一緒にいる人・時間帯）。タップで変更"></button><button id="fltChip" type="button" title="ラベル・コンテキスト・種類で絞り込む"></button></div>
   <form class="srch" id="srch" hidden>
     <label for="srchQ" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">検索語</label>
     <input id="srchQ" type="search" placeholder="名前・説明で検索（スペースで AND）" autocomplete="off" enterkeyhint="search">
@@ -526,6 +533,28 @@
   { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated"].includes(requested)) view = requested; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
+  const allTasks = () => tasks; // render は絞った後の行を同名の tasks で持つので、元の一覧はこれで読む
+  // ---- 絞り込み (pure helpers; tests read this block) ----
+  // 🔍 ラベル・コンテキスト (実行環境)・種類 で一覧を絞る (2026-11-03)。各軸は単一選択、軸どうしは AND。
+  // 役割・決める などの一覧でないタブには効かせない。🤖 処理中の行は絞り込み中も出す (どのタブにも出す既存ルール)
+  const FILTER_AXES = [["label", "🏷", "ラベル", (t) => t.labels || []], ["env", "📍", "コンテキスト", (t) => t.env || []], ["kind", "🧩", "種類", (t) => (t.kind ? [t.kind] : [])]];
+  const FILTER_VIEWS = ["today", "can", "phone", "doing", "project", "delegated", "cloud", "search"];
+  const filterOn = (f) => FILTER_AXES.some(([k]) => f && f[k]);
+  function cleanFilter(f) { const o = {}; for (const [k] of FILTER_AXES) if (f && typeof f[k] === "string" && f[k]) o[k] = f[k]; return o; }
+  // skip に軸名を渡すと、その軸だけ見ない (シートの件数は「この値を選んだら何件になるか」を出すため)
+  function filterMatch(t, f, skip) { return FILTER_AXES.every(([k, , , get]) => k === skip || !f[k] || get(t).includes(f[k])); }
+  function applyFilter(ts, f, v) { return FILTER_VIEWS.includes(v) && filterOn(f) ? ts.filter((t) => t.aiActive || filterMatch(t, f)) : ts; }
+  // 軸ごとの選択肢と件数。今のタブにある値だけ出し、選択中の値は 0 件でも残す。並びは件数の多い順
+  function filterOptions(ts, f, k) {
+    const get = FILTER_AXES.find((a) => a[0] === k)[3], base = ts.filter((t) => filterMatch(t, f, k)), n = new Map();
+    for (const t of ts) for (const x of get(t)) if (!n.has(x)) n.set(x, 0);
+    for (const t of base) for (const x of get(t)) n.set(x, n.get(x) + 1);
+    if (f[k] && !n.has(f[k])) n.set(f[k], 0);
+    return { all: base.length, opts: [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")) };
+  }
+  // ---- end 絞り込み ----
+  let filt = {}; try { filt = cleanFilter(JSON.parse(localStorage.getItem("filter") || "{}")); } catch (e) {} // 端末ごとに覚える。取れなければ「すべて」
+  const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} };
   let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
   let undoTask = null, undoTimer = null;
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -590,12 +619,12 @@
   const aiName = () => AI_APPS[aiProvider];
   // ☁️ クラウド (2026-10-29): 実行環境に「クラウド」を含むタスクの 🤖 は Claude Code のクラウド側 (claude.ai/code) へ。
   // 飛び先は https://claude.ai/code/new?q=<文面>&repo=<owner/name> (Claude ヘルプ「Open the Claude mobile app with a link」に載っている形。q は入力欄に入るだけで送信はしない)。
-  // 文面が入らなかったときのために押した瞬間にクリップボードにも入れる (copyCloudLink)。接続先は名前・PJ に Kairos／tasks-pwa があれば masakiplus/kairos (2026-10-08 に移管)、saito-workers があれば masakiplus/saito-workers、それ以外は masakiplus/saito-tools
+  // 文面が入らなかったときのために押した瞬間にクリップボードにも入れる (copyCloudLink)。接続先は名前・PJ に Kairos／カイロス／tasks-pwa があれば masakiplus/kairos (2026-10-08 に移管)、saito-workers があれば masakiplus/saito-workers、それ以外は masakiplus/saito-tools
   const CLOUD_ENV = "クラウド";
   const isCloudTask = (t) => !!t && Array.isArray(t.env) && t.env.includes(CLOUD_ENV);
   function cloudRepo(t) {
     const s = (t.name || "") + " " + (t.project || "");
-    return /kairos|tasks-pwa/i.test(s) ? "masakiplus/kairos" : /saito-workers/i.test(s) ? "masakiplus/saito-workers" : "masakiplus/saito-tools";
+    return /kairos|カイロス|tasks-pwa/i.test(s) ? "masakiplus/kairos" : /saito-workers/i.test(s) ? "masakiplus/saito-workers" : "masakiplus/saito-tools";
   }
   function cloudPrompt(t, mode, chain) {
     const page = t.url || (location.origin + "/?page=" + t.id.replace(/-/g, ""));
@@ -760,9 +789,10 @@
       dialog.showModal();
     }
   }
-  $("#aiProvider").value = aiProvider;
-  $("#aiProvider").onchange = () => {
-    const selected = $("#aiProvider").value;
+  // 任せるAI (2026-11-03): ヘッダーから外し、タスクのシートの「🤖 … に任せる」の横へ移した。シートは描き直すので change は document で拾う
+  const aiSelectHtml = () => `<select id="aiProvider" aria-label="任せるAI">${Object.entries(AI_APPS).map(([k, n]) => `<option value="${k}"${k === aiProvider ? " selected" : ""}>${n}</option>`).join("")}</select>`;
+  document.addEventListener("change", (e) => { if (e.target && e.target.id === "aiProvider") setAiProvider(e.target.value); });
+  function setAiProvider(selected) {
     if (!Object.hasOwn(AI_APPS, selected)) return;
     aiProvider = selected;
     try { localStorage.setItem("kairos_ai_app", selected); } catch (e) {}
@@ -772,7 +802,7 @@
       if ($("#claudeRun") && sheetTask) openSheet(sheetTask, todayStr);
       else closeSheet();
     }
-  };
+  }
   document.addEventListener("click", (e) => {
     const a = e.target.closest('a[href^="#ai-handoff="]');
     if (!a) return;
@@ -888,18 +918,21 @@
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
     $("#add").hidden = view === "roles" || view === "review";
-    $("#sitbar").hidden = !(view === "today" || view === "can" || view === "phone"); if (!$("#sitbar").hidden) pollWhere(); renderSit();
+    const sitOn = view === "today" || view === "can" || view === "phone", fltOn = FILTER_VIEWS.includes(view);
+    $("#sitChip").hidden = !sitOn; $("#fltChip").hidden = !fltOn; $("#sitbar").hidden = !sitOn && !fltOn;
+    if (sitOn) pollWhere(); renderSit(); renderFilt();
     if (view === "roles") { renderRoles(today); return; }
     if (view === "review") { renderReview(today); return; }
     if (view === "deps") { $("#add").hidden = true; renderDeps(today); return; }
     if (view === "graph") { $("#add").hidden = true; renderGraph(today); return; }
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
-    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, sigOf(tasks)].join("\u0001");
+    const tasks = applyFilter(allTasks(), filt, view); // 🔍 絞り込み (2026-11-03)。ここから下は絞った後の行だけを見る
+    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
-    if (!tasks.length && !(view === "project" && (projInfo || []).some((p) => p.closable || p.stalled))) { list.innerHTML = `<div class="empty">${view === "search" ? "見つかりません" : "なし"}</div>`; return; }
+    if (!tasks.length && !(view === "project" && (projInfo || []).some((p) => p.closable || p.stalled))) { list.innerHTML = `<div class="empty">${filterOn(filt) ? "絞り込みに合うタスクはありません" : view === "search" ? "見つかりません" : "なし"}</div>`; return; }
     // 今日やる は 期限切れ／今日 で区切る。他は 期日あり／なし
     let secs;
     if (view === "search") {
@@ -1033,6 +1066,35 @@
     const S = currentSit(), b = $("#sitChip"); if (!b) return;
     b.className = S.manual ? "manual" : "";
     b.innerHTML = `📍 ${S.place} · ${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${(S.withs || []).length ? " · 👥 " + S.withs.map(esc).join("・") : ""}${S.morning ? " · 🌅 早朝" : ""} <small>${S.manual ? "手動" : "自動（" + S.src + "）"}</small>`;
+  }
+  function renderFilt() {
+    const b = $("#fltChip"); if (!b) return;
+    const on = filterOn(filt);
+    b.className = on ? "on" : "";
+    b.innerHTML = on ? FILTER_AXES.filter(([k]) => filt[k]).map(([k, ic]) => `${ic} ${esc(filt[k])}`).join(" · ") + ` <span class="x" data-fx aria-label="絞り込みを解除">✕</span>` : "🔍 絞り込み";
+  }
+  function openFilterPick() {
+    const draw = () => {
+      const ts = allTasks().filter((t) => !t.done || view === "search");
+      $("#sheet").innerHTML = `<div class="grab"></div><div class="head"><h3>🔍 絞り込み</h3><button class="close" aria-label="閉じる">✕</button></div>
+      <div class="sub">各区画で 1 つずつ選べます。区画どうしは「かつ」。件数はその値を選んだときの件数で、0 件は薄く出します。🤖 処理中のタスクは絞り込み中も出ます</div>
+      ${FILTER_AXES.map(([k, ic, nm]) => {
+        const { all, opts } = filterOptions(ts, filt, k);
+        if (!opts.length) return "";
+        return `<div class="sect">${ic} ${nm}</div><div class="grid flt"><button data-fk="${k}" data-fv="" class="${filt[k] ? "" : "on"}">すべて <small>${all}</small></button>${opts.map(([v, n]) => `<button data-fk="${k}" data-fv="${esc(v)}" class="${filt[k] === v ? "on" : n ? "" : "later"}">${esc(v)} <small>${n}</small></button>`).join("")}</div>`;
+      }).join("")}
+      <div class="grid"><button class="pri" id="fltOk">閉じる</button><button class="skip" id="fltClear" ${filterOn(filt) ? "" : "disabled"}>すべて解除</button></div>`;
+      $("#sheet").querySelector(".close").onclick = closeSheet;
+      $("#fltOk").onclick = closeSheet;
+      $("#fltClear").onclick = () => { filt = {}; saveFilt(); lastSig = ""; render(todayStr); draw(); };
+      $("#sheet").querySelectorAll("[data-fk]").forEach((b) => b.onclick = () => {
+        const k = b.dataset.fk, v = b.dataset.fv;
+        if (v && filt[k] !== v) filt[k] = v; else delete filt[k]; // 選択中をもう一度押したら外す
+        saveFilt(); lastSig = ""; render(todayStr); draw(); // 一覧も裏で絞り直す
+      });
+    };
+    draw();
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
   }
   function openSitPick() {
     const S = currentSit(); let place = S.place; const tools = new Set(S.tools); const withs = new Set(S.withs || []);
@@ -1758,7 +1820,7 @@
       ${COMPANIONS.length ? `<div class="grid sit" style="grid-template-columns:repeat(${Math.min(COMPANIONS.length, 3)},1fr);margin-top:6px">${COMPANIONS.map((x) => `<button data-env="${esc(x)}" class="${t.env.includes(x) ? "on" : ""}">👥 ${esc(x)}</button>`).join("")}</div>` : ""}
       <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="早朝" class="${t.env.includes("早朝") ? "on" : ""}">🌅 早朝向き<small style="font-weight:400;color:${t.env.includes("早朝") ? "rgba(255,255,255,.8)" : "var(--mute)"}">　家で静かに・時間をかけて</small></button></div>
       <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="${CLOUD_ENV}" class="${t.env.includes(CLOUD_ENV) ? "on" : ""}">☁️ クラウドで<small style="font-weight:400;color:${t.env.includes(CLOUD_ENV) ? "rgba(255,255,255,.8)" : "var(--mute)"}">　Claude Code のクラウドで・Mac 不要</small></button></div>`}
-      <div class="sect">🤖 ${aiName()} に任せる</div>
+      <div class="sect">🤖 ${aiName()} に任せる ${aiSelectHtml()}</div>
       <div class="list">
         ${sessionProvider(t.aiSession) ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `AI のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の AI セッションを開く（続きを任せる）"}</a>` : ""}
         <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${aiIcon()}</span><span id="claudeRunLabel">進めてもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : aiProvider === "claude" && isCloudTask(t) ? "（Claude Code クラウドで）" : ""}</span></a>
@@ -2140,6 +2202,7 @@
   const _render = render; render = (today) => { todayStr = today; _render(today); };
   $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) load(b.dataset.v); };
   $("#sitChip").onclick = openSitPick;
+  $("#fltChip").onclick = (e) => { if (e.target.closest("[data-fx]")) { filt = {}; saveFilt(); lastSig = ""; render(todayStr); return; } openFilterPick(); };
   // 検索 (2026-10-04): 🔍 で検索欄を出し、入力が止まって 350ms で引く。✕ か空 Esc で元のタブへ
   function openSearch() {
     if (view !== "search") { searchBack = view; view = "search"; }

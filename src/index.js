@@ -223,6 +223,7 @@ function pageToTask(page) {
     area: p["エリア"]?.select?.name ?? null,
     kind: p["種類"]?.select?.name ?? null, // 入口の切り分け (launches.js) が見る (2026-10-29)
     env: (p["実行環境"]?.multi_select ?? []).map((o) => o.name),
+    labels: (p["ラベル"]?.multi_select ?? []).map((o) => o.name), // 🔍 絞り込みシートが見る (2026-11-03)。読むだけ
     owner: p["担当"]?.select?.name ?? null, // 委任先 (2026-10-01)。空＝自分
     icon: page.icon?.type === "emoji" ? page.icon.emoji : null,
     url: page.url,
