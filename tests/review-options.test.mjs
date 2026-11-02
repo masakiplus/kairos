@@ -60,3 +60,18 @@ test('答え合わせも [案 当たり|部分的|外れ] 行で選択肢にな�
   assert.equal(p.学び.rich_text.map(t=>t.plain_text??t.text?.content).join(''),'続いた — 4週とも週3');
  }finally{await mf.dispose();}
 });
+
+test('D1 の query は created_time の新しい順に並べられる（移行した行と後から書いた行が混ざっても）',async()=>{
+ const ds='f'.repeat(32);
+ const source=src('lab.js')+'\n'+src('d1.js').replace(/^import .*;$/gm,'')+'\n'+src('knowledge.js').replace(/^import .*;$/gm,'').replace(/^export /gm,'')+'\n'+src('icons.js').replaceAll('export const ', 'const ')+'\n'+['APP_HTML','SW_JS','MANIFEST'].map((name,i)=>'const '+name+'='+JSON.stringify(src(['app.html','sw.txt','manifest.webmanifest'][i]))+';').join('\n')+'\nconst {isMcpPath,mcpRoute}=(()=>{'+src('mcp.js').replace(/^export /gm,'')+'\nreturn {isMcpPath,mcpRoute};})();\n'+src('index.js').replace(/^import .*\n/gm,'');
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-09-01',d1Databases:['DB'],bindings:{APP_TOKEN:'test-only-token',DATA_BACKEND:'d1'},outboundService:()=>new Response('blocked',{status:500}),script:source}));
+ try{
+  const db=await mf.getD1Database('DB');await initD1({DB:db});
+  await db.prepare('INSERT INTO entity_schemas VALUES(?,?,?)').bind(ds,'sessions',JSON.stringify({properties:{名前:{type:'title'}}})).run();
+  const row=(id,name,at)=>db.prepare('INSERT INTO entities(id,ds,collection,payload) VALUES(?,?,?,?)').bind(id,ds,'sessions',JSON.stringify({id,created_time:at,properties:{名前:{type:'title',title:[{plain_text:name}]}}})).run();
+  await row('1'.repeat(32),'移行 10/19','2026-10-19T11:00:00.000Z');await row('2'.repeat(32),'移行 9/1','2026-09-01T00:00:00.000Z');await row('3'.repeat(32),'Kairos 11/2','2026-11-02T07:00:00.000Z');
+  const r=await mf.dispatchFetch('https://kairos.test/api/data/data_sources/'+ds+'/query',{method:'POST',headers:{Authorization:'Bearer test-only-token','Content-Type':'application/json'},body:JSON.stringify({page_size:2,sorts:[{timestamp:'created_time',direction:'descending'}]})});
+  const j=await r.json();assert.equal(r.status,200,JSON.stringify(j));
+  assert.deepEqual(j.results.map(p=>p.properties.名前.title[0].plain_text),['Kairos 11/2','移行 10/19']);
+ }finally{await mf.dispose();}
+});
