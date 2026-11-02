@@ -382,16 +382,44 @@ async function bodyMd(ctx, id, depth = 0) {
   return lines;
 }
 
-async function queryAll(ctx, ds, maxRows = 1000) {
+// 2026-11-03: 以前は先頭 1,000 行だけ読んでから where・open_only で絞っていたため、tasks（完了済みを含め 1,000 行超）の後ろの行を取りこぼしていた。
+// いまは filter を D1 側に渡して必要な行だけ受け取り、keep に合う行が want 件たまるか最後のページまで読む（上限を設けない）。
+async function queryAll(ctx, ds, { filter, keep = () => true, want = Infinity } = {}) {
   const out = [];
   let cursor = null;
-  for (let guard = 0; guard < 20 && out.length < maxRows; guard++) {
-    const r = await api(ctx, "POST", `/api/data/data_sources/${ds}/query`, { page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) });
-    out.push(...(r.results ?? []));
-    if (!r.has_more) break;
+  for (;;) {
+    const r = await api(ctx, "POST", `/api/data/data_sources/${ds}/query`, { page_size: 100, ...(filter ? { filter } : {}), ...(cursor ? { start_cursor: cursor } : {}) });
+    for (const p of r.results ?? []) if (keep(p)) out.push(p);
+    if (out.length >= want || !r.has_more || !r.next_cursor || r.next_cursor === cursor) break;
     cursor = r.next_cursor;
   }
   return out;
+}
+
+// kairos_query の where・open_only を Notion 形の filter にする。D1 の matches() と同じ意味になる型だけを渡し、残りは手元の matchWhere で絞る
+function whereFilter(schema, where, openOnly) {
+  const and = [];
+  for (const [k, v] of Object.entries(where ?? {})) {
+    const t = schema[k]?.type;
+    if (t === "select" || t === "status") and.push({ property: k, [t]: { equals: v } });
+    else if (t === "multi_select") and.push({ property: k, multi_select: { contains: v } });
+    else if (t === "relation") and.push({ property: k, relation: { contains: clean(v) } });
+    else if (t === "checkbox" && (v === "true" || v === "false")) and.push({ property: k, checkbox: v === "true" ? { equals: true } : { does_not_equal: true } });
+  }
+  // 完了 が無い行（未設定）も未完了として残すため does_not_equal: true にする
+  if (openOnly && schema["完了"]?.type === "checkbox") and.push({ property: "完了", checkbox: { does_not_equal: true } });
+  return and.length ? (and.length === 1 ? and[0] : { and }) : undefined;
+}
+
+// 手元での最終確認。flat() は false・空を落とすので checkbox の "false" は「値が無い」で合う。リレーションは ID のハイフン有無を問わない
+function matchWhere(row, where) {
+  for (const [k, v] of Object.entries(where ?? {})) {
+    const x = row[k];
+    if (Array.isArray(x)) { if (!x.some((e) => e === v || (clean(e) && clean(e) === clean(v)))) return false; }
+    else if (v === "false" && (x === undefined || x === false)) continue;
+    else if (String(x) !== v) return false;
+  }
+  return true;
 }
 
 const isOpen = (row) => {
@@ -489,11 +517,12 @@ const TOOLS = [
     },
     annotations: READ,
     run: async (a, ctx) => {
-      const ds = await dsOf(ctx, a.database), cols = a.columns?.length ? a.columns : undefined;
-      let rows = (await queryAll(ctx, ds)).map((p) => flat(p, { cols, truncate: cols ? 0 : 600 }));
-      for (const [k, v] of Object.entries(a.where ?? {})) rows = rows.filter((r) => (Array.isArray(r[k]) ? r[k].includes(v) : String(r[k]) === v));
-      if (a.open_only) rows = rows.filter(isOpen);
-      return rows.slice(0, a.limit ?? 100);
+      const ds = await dsOf(ctx, a.database), cols = a.columns?.length ? a.columns : undefined, limit = a.limit ?? 100;
+      const filter = a.where || a.open_only ? whereFilter(await schemaOf(ctx, ds), a.where, a.open_only) : undefined;
+      // 絞り込みは列を落とす前の全列で行う（columns に where の列が無くても効くように）
+      const keep = (p) => { const r = flat(p); return matchWhere(r, a.where) && (!a.open_only || isOpen(r)); };
+      const pages = await queryAll(ctx, ds, { filter, keep, want: limit });
+      return pages.slice(0, limit).map((p) => flat(p, { cols, truncate: cols ? 0 : 600 }));
     },
   },
   {
