@@ -30,12 +30,12 @@
   .ttl{display:flex;align-items:center;gap:10px}
   .ttl h1{margin:0;font-size:28px;font-weight:700;letter-spacing:-.4px}
   .ttl .date{margin-left:auto;font-size:15px;color:var(--mute)}
-  /* タブは 2 段 (2026-10-08): 上段「やる」(今日やる・今日できる・スマホで・着手中)、下段「整える」(PJ別・役割・見直し・委任)。横スクロールはやめた */
+  /* タブは 2 段 (2026-10-08): 上段「やる」(今日やる・今日できる・着手中。スマホで は 2026-11-03 に 🔍 絞り込みの 📍 スマホ へ)、下段「整える」(PJ別・役割・見直し・委任)。横スクロールはやめた */
   .tabs{display:flex;flex-direction:column;gap:4px}
   .trow{display:flex;gap:4px;background:var(--seg);padding:3px;border-radius:10px}
   .trow button{flex:1 1 0;min-width:0;padding:7px 4px;border:0;border-radius:8px;background:transparent;color:var(--mute);font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .trow.sub{background:transparent;padding:0 3px}
-  .trow.sub button{flex:1 1 auto;font-size:12px;padding:4px 4px;color:var(--mute2)} /* 下段は文字幅なり (2026-10-29「クラウドで」を足して 5 つ。上段に入れると 400px で「今日できる」が切れる) */
+  .trow.sub button{flex:1 1 auto;font-size:12px;padding:4px 4px;color:var(--mute2)} /* 下段は文字幅なり (2026-10-29「クラウドで」を足して 5 つ → 2026-11-03 クラウドで は 🔍 絞り込みの 📍 クラウド に移し、買い物を足して 5 つ) */
   .trow button.on{background:var(--segon);color:var(--fg);box-shadow:var(--shadow)}
   .trow.sub button.on{background:var(--seg);box-shadow:none;color:var(--fg)}
   .trow button .n{margin-left:3px;font-weight:600;color:var(--mute);font-size:11px}
@@ -449,7 +449,6 @@
     <div class="trow">
       <button data-v="today">今日やる<span class="n" id="n-today"></span></button>
       <button data-v="can">今日できる<span class="n" id="n-can"></span></button>
-      <button data-v="phone">スマホで<span class="n" id="n-phone"></span></button>
       <button data-v="doing">着手中<span class="n" id="n-doing"></span></button>
     </div>
     <div class="trow sub">
@@ -457,7 +456,6 @@
       <button data-v="roles">役割</button>
       <button data-v="review">決める<span class="n" id="n-review"></span></button>
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
-      <button data-v="cloud">クラウドで<span class="n" id="n-cloud"></span></button>
       <button data-v="shop">買い物<span class="n" id="n-shop"></span></button>
     </div>
   </div>
@@ -495,7 +493,7 @@
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
-  const views = ["today", "can", "phone", "cloud", "doing", "project", "delegated"];
+  const views = ["today", "can", "doing", "project", "delegated"];
   const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", cloud: "クラウドで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", shop: "買い物", deps: "つながり", graph: "つながり", quad: "象限" };
   let reviewData = null, reviewPos = 0, reviewSkipped = new Set(), reviewShowAll = false; // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
@@ -549,8 +547,11 @@
   mq.addEventListener("change", applyTheme);
   applyTheme();
 
-  let view = localStorage.getItem("view") || "today";
-  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated", "shop"].includes(requested)) view = requested; }
+  // 旧「スマホで」「クラウドで」タブ (2026-11-03 廃止。コンテキストの一種なので 🔍 絞り込みの 📍 へ移した): 最後に開いていた・?view= で来たら 今日できる ＋ 📍 その値 で開く
+  const LEGACY_ENV_VIEWS = { phone: () => PHONE_ENV, cloud: () => "クラウド" };
+  let view = localStorage.getItem("view") || "today", legacyEnv = null;
+  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "doing", "project", "roles", "review", "delegated", "shop"].includes(requested)) view = requested; else if (LEGACY_ENV_VIEWS[requested]) view = requested; }
+  if (LEGACY_ENV_VIEWS[view]) { legacyEnv = LEGACY_ENV_VIEWS[view](); view = "can"; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
   const allTasks = () => tasks; // render は絞った後の行を同名の tasks で持つので、元の一覧はこれで読む
@@ -558,23 +559,28 @@
   // 🔍 ラベル・コンテキスト (実行環境)・種類 で一覧を絞る (2026-11-03)。各軸は単一選択、軸どうしは AND。
   // 役割・決める などの一覧でないタブには効かせない。🤖 処理中の行は絞り込み中も出す (どのタブにも出す既存ルール)
   const FILTER_AXES = [["label", "🏷", "ラベル", (t) => t.labels || []], ["env", "📍", "コンテキスト", (t) => t.env || []], ["kind", "🧩", "種類", (t) => (t.kind ? [t.kind] : [])]];
-  const FILTER_VIEWS = ["today", "can", "phone", "doing", "project", "delegated", "cloud", "search"];
+  const FILTER_VIEWS = ["today", "can", "doing", "project", "delegated", "search"];
+  // 📍 スマホ は 電話 も含む (旧「スマホで」タブと同じ。電話はスマホでかける)。📍 電話 は電話だけ
+  const ENV_ALSO = { "スマホ": ["電話"], "iPhone": ["電話"] };
   const filterOn = (f) => FILTER_AXES.some(([k]) => f && f[k]);
   function cleanFilter(f) { const o = {}; for (const [k] of FILTER_AXES) if (f && typeof f[k] === "string" && f[k]) o[k] = f[k]; return o; }
   // skip に軸名を渡すと、その軸だけ見ない (シートの件数は「この値を選んだら何件になるか」を出すため)
-  function filterMatch(t, f, skip) { return FILTER_AXES.every(([k, , , get]) => k === skip || !f[k] || get(t).includes(f[k])); }
-  function applyFilter(ts, f, v) { return FILTER_VIEWS.includes(v) && filterOn(f) ? ts.filter((t) => t.aiActive || filterMatch(t, f)) : ts; }
+  function axisHas(k, t, v) { const xs = FILTER_AXES.find((a) => a[0] === k)[3](t); return xs.includes(v) || (k === "env" && (ENV_ALSO[v] || []).some((x) => xs.includes(x))); }
+  function filterMatch(t, f, skip) { return FILTER_AXES.every(([k]) => k === skip || !f[k] || axisHas(k, t, f[k])); }
+  // 🤖 処理中はラベル・種類では落とさないが、📍 コンテキストが合わなければ落とす (旧「クラウドで」タブの 2026-10-29 の決め: 紙・早朝の 🤖 をクラウドに混ぜない)
+  function applyFilter(ts, f, v) { return FILTER_VIEWS.includes(v) && filterOn(f) ? ts.filter((t) => filterMatch(t, f) || (t.aiActive && (!f.env || axisHas("env", t, f.env)))) : ts; }
   // 軸ごとの選択肢と件数。今のタブにある値だけ出し、選択中の値は 0 件でも残す。並びは件数の多い順
   function filterOptions(ts, f, k) {
     const get = FILTER_AXES.find((a) => a[0] === k)[3], base = ts.filter((t) => filterMatch(t, f, k)), n = new Map();
     for (const t of ts) for (const x of get(t)) if (!n.has(x)) n.set(x, 0);
-    for (const t of base) for (const x of get(t)) n.set(x, n.get(x) + 1);
+    for (const x of n.keys()) n.set(x, base.filter((t) => axisHas(k, t, x)).length);
     if (f[k] && !n.has(f[k])) n.set(f[k], 0);
     return { all: base.length, opts: [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")) };
   }
   // ---- end 絞り込み ----
   let filt = {}; try { filt = cleanFilter(JSON.parse(localStorage.getItem("filter") || "{}")); } catch (e) {} // 端末ごとに覚える。取れなければ「すべて」
   const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} };
+  if (legacyEnv) { filt = { env: legacyEnv }; saveFilt(); }
   let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
   let undoTask = null, undoTimer = null;
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -934,11 +940,11 @@
     const viewChanged = lastView !== view; lastView = view;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
-    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "cloud" ? "☁️" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
+    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
     $("#add").hidden = view === "roles" || view === "review" || view === "shop";
-    const sitOn = view === "today" || view === "can" || view === "phone", fltOn = FILTER_VIEWS.includes(view);
+    const sitOn = view === "today" || view === "can", fltOn = FILTER_VIEWS.includes(view);
     $("#sitChip").hidden = !sitOn; $("#fltChip").hidden = !fltOn; $("#sitbar").hidden = !sitOn && !fltOn;
     if (sitOn) pollWhere(); renderSit(); renderFilt();
     if (view === "roles") { renderRoles(today); return; }
@@ -989,9 +995,6 @@
         [`今週中 <small style="font-weight:400;color:var(--mute)">期日まで 4〜7 日</small>`, "", tasks.filter((t) => !far(t) && t.due && dd(t) > 3)],
         [`日付なし <small style="font-weight:400;color:var(--mute)">着手できる・いつでも</small>`, "", tasks.filter((t) => !t.due)],
       ];
-    } else if (view === "phone") {
-      // スマホで (2026-10-15): 📞 電話する と 📱 スマホで片付ける に分ける
-      secs = [["📞 電話する", "", tasks.filter((t) => t.env.includes("電話"))], ["📱 スマホで片付ける", "", tasks.filter((t) => !t.env.includes("電話"))]];
     } else {
       secs = [["期日あり", "", tasks.filter((t) => t.due)], ["日付なし", "", tasks.filter((t) => !t.due)]];
     }
@@ -1011,8 +1014,8 @@
       const mr = tasks.filter((t) => !t.done && !t.blocked && !t.aiActive && t.status !== "人対応" && t.env.includes("早朝")).sort((a, b) => (a.priority || "p9").localeCompare(b.priority || "p9") || (b.mit ? 1 : 0) - (a.mit ? 1 : 0) || (a.due || "9999").localeCompare(b.due || "9999"));
       if (mr.length) secs = [[`🌅 早朝にゆっくり <small style="font-weight:400;color:var(--mute)">相談が要るものは準備まで</small>`, "mrh", mr], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !mr.includes(t))])];
     }
-    // 状況に合わないものは末尾に沈める (隠さない。期限切れを見失わないため, 2026-10-12)。今日やる・今日できる・スマホで だけ
-    if (view === "today" || view === "can" || view === "phone") {
+    // 状況に合わないものは末尾に沈める (隠さない。期限切れを見失わないため, 2026-10-12)。今日やる・今日できる だけ
+    if (view === "today" || view === "can") {
       const un = tasks.filter((t) => !t.done && !t.aiActive && !t.blocked && unavailWhy(t)); // 🧔 人対応 も沈める (2026-10-12: 本人の手番でも、その場でできなければ同じ)
       if (un.length) {
         const why = [...new Set(un.map(unavailWhy))].slice(0, 3).join("・");
@@ -1154,10 +1157,6 @@
       if (!ts.length) return "";
       label = aiName() + " と前倒しを選ぶ"; sub = "今日に引き上げるものを決める";
       q = `今日できる（前倒し候補）${ts.length} 件から、今日に引き上げるものを決めたいです: ${taskLines(ts)}。空き時間と重要度を聞いて 1〜3 件に絞り、選んだものは 開始日 を今日にし、残りはそのままで構いません。${META_TAIL}`;
-    } else if (v === "phone") {
-      if (!ts.length) return "";
-      label = aiName() + " とまとめて片付ける"; sub = "電話・スマホ作業を順に";
-      q = `スマホ・電話でできるタスク ${ts.length} 件をまとめて片付けたいです: ${taskLines(ts)}。かける順番と、電話なら要件を 2 行ずつ用意し、1 件ずつ「済んだ／相手待ち（待ち）／後で」を聞いて進めてください。${META_TAIL}`;
     } else if (v === "doing") {
       if (!ts.length) return "";
       label = aiName() + " と WIP を整理する"; sub = "本当に進行中か、戻すか、任せるか";
@@ -2168,7 +2167,7 @@
   // タップ → メニュー、🤖 → Claude、スワイプ → 完了/明日へ
   let sx = 0, sy = 0, card = null, dx = 0, swiping = false, todayStr = "";
   // タスク行の外 (見出し・PJ カード・役割カード・余白) を横にスワイプしたら隣のタブへ (2026-10-10 利用者の提案)。横スクロールする部品 (ガント) と入力欄の上では無効
-  const TAB_ORDER = ["today", "can", "phone", "doing", "project", "roles", "review", "delegated", "cloud"];
+  const TAB_ORDER = ["today", "can", "doing", "project", "roles", "review", "delegated"];
   let pgSwipe = false, pgX = 0, pgY = 0;
   function pageSwipeStart(e) {
     pgSwipe = false;
