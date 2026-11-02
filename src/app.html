@@ -414,6 +414,16 @@
   .sheet .notion{display:flex;justify-content:center;padding:13px 10px;color:var(--acc);font-size:15px;font-weight:600;text-decoration:none}
   .done-ring{background:var(--acc);border-color:var(--acc);display:flex;align-items:center;justify-content:center}
   svg{flex:none}
+  /* 右クリックメニュー (2026-11-03): 一覧の行を右クリック／長押しで、シートを開かずに主な操作 */
+  .cmenu{position:fixed;z-index:30;min-width:220px;max-width:calc(100vw - 16px);padding:6px;border-radius:14px;background:var(--card);color:var(--fg);border:1px solid var(--sep);box-shadow:0 10px 32px #0003;display:flex;flex-direction:column}
+  .cmenu .cmh{padding:6px 10px 8px;font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line);margin-bottom:4px}
+  .cmenu button{display:flex;align-items:center;gap:10px;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--fg);font-size:15px;text-align:left;white-space:nowrap}
+  .cmenu button .ci{width:22px;text-align:center;flex:none}
+  .cmenu button.mute{color:var(--mute)}
+  .cmenu button:hover:not(:disabled),.cmenu button:focus-visible{background:var(--accbg);outline:none}
+  .cmenu button:disabled{opacity:.35}
+  .row .card,.srow{-webkit-touch-callout:none} /* iOS の長押しメニュー (リンクのプレビュー) を出さず、右クリックメニューに任せる */
+  .cmenu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
   #aiHandoff{width:min(440px,calc(100% - 24px));max-height:85dvh;overflow:auto;border:1px solid var(--sep);border-radius:18px;padding:20px;background:var(--bg);color:var(--fg);box-shadow:0 12px 40px #0004}
   #aiHandoff::backdrop{background:#0006}
   .aihead{display:flex;align-items:center;gap:12px}.aihead h2{margin:0;flex:1;font-size:19px}
@@ -477,6 +487,7 @@
   <input id="addName" placeholder="タイトルだけで追加" autocomplete="off">
   <button type="submit" aria-label="追加"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
 </form>
+<div id="cmenu" class="cmenu" role="menu" hidden></div>
 <div id="toast" class="toast" hidden><span id="toastMsg"></span><button id="undo">元に戻す</button></div>
 <div id="sheetWrap" hidden><div class="veil" id="veil"></div><div class="sheet" id="sheet"></div></div>
 <dialog id="aiHandoff" aria-labelledby="aiHandoffTitle">
@@ -609,6 +620,7 @@
       if (b.matches("a[data-ai]")) return "sheet:ai:" + (b.dataset.mode || "run");
       return "";
     }
+    if (b.closest("#cmenu")) return b.dataset.m ? "menu:" + (b.dataset.m.startsWith("delegate") ? "delegate" : b.dataset.m) : ""; // 右クリックメニュー (2026-11-03)。シートと同じ操作名で数え、並びの見直しに使う
     if (b.matches("button.ring[data-done]")) return "row:done";
     if (b.matches("button.go[data-claude]")) return "row:claude";
     return "";
@@ -1031,7 +1043,7 @@
       }
       return `<section class="sec"><h2 class="${cls}">${cls === "prjh" ? esc(h) + `<span class="n">${ts.length}</span>` : h}</h2><div class="group">${ts.map((t) => rowHtml(t, today)).join("")}</div></section>`;
     }).join("") +
-      `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー</div>` + metaHtml(view);
+      `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー ／ 右クリック・長押し＝すぐ操作</div>` + metaHtml(view);
   }
   // 各タブの一番下: そのタブ全体を Claude と見返すメタ操作 (2026-10-10)。1 件ずつの 🤖 とは別に「一覧ごと」渡す。文面は URL に乗せるので 12 件まで
   function taskLines(ts, n = 12) {
@@ -2310,6 +2322,76 @@
     }
     openSheet(t, todayStr);
   });
+  // ---- 右クリックメニュー (2026-11-03) ----
+  // 一覧の行を右クリック (Mac)・長押し (Android) で、シートを開かずに主な操作を選ぶ。項目はシートの操作のうち使われているものだけ
+  // (選定の根拠は docs/design-notes.md)。中身は data-m のキー列。シートと同じ act() を通すので ↩ 取り消しもそのまま効く
+  // dg = 委任先の先頭 (担当 の選択肢の 1 番目。委任の 9 割がここ)
+  function cmenuItems(t, dg) {
+    if (t.done) return [{ m: "reopen", ic: "↩", t: "未完了に戻す" }, "-", { m: "open", ic: "☰", t: "詳細を開く" }];
+    const b = !!t.blocked;
+    return [
+      { m: "done", ic: "✓", t: "完了", off: b },
+      { m: "ai", ic: "🤖", t: "AI に進めてもらう" },
+      { m: "ai-update", ic: "✎", t: "AI にタスク内容を更新してもらう" }, // シートの「タスク内容を更新してもらう」(AI処理種別=更新)。先行待ちでも押せる
+      "-",
+      t.mit ? { m: "mit-clear", ic: "⭐", t: "今日の3つから外す" } : { m: "mit", ic: "⭐", t: "今日の3つに入れる", off: b },
+      { m: "defer?days=1", ic: "→", t: "明日へ", off: b },
+      { m: "defer?to=weekend", ic: "📅", t: "週末に", off: b },
+      { m: "defer?to=nextweek", ic: "📅", t: "来週に", off: b },
+      "-",
+      t.owner ? { m: "delegate?to=", ic: "👥", t: "自分に戻す" } : dg ? { m: "delegate?to=" + encodeURIComponent(dg), ic: "👥", t: dg + " に委任" } : null,
+      { m: "skip", ic: "⤼", t: "見送りで完了", off: b, mute: true },
+      { m: "open", ic: "☰", t: "詳細を開く" },
+    ].filter(Boolean);
+  }
+  // ---- end 右クリックメニュー ----
+  let cmTask = null;
+  function closeCmenu() { const m = $("#cmenu"); if (m.hidden) return; m.hidden = true; cmTask = null; }
+  function openCmenu(t, x, y) {
+    cmTask = t;
+    const m = $("#cmenu");
+    m.innerHTML = `<div class="cmh">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>` + cmenuItems(t, DELEGATES[0]).map((it) => it === "-" ? "<hr>"
+      : `<button type="button" role="menuitem" data-m="${it.m}"${it.mute ? ' class="mute"' : ""}${it.off ? " disabled" : ""}><span class="ci">${it.ic}</span>${it.m === "ai" ? `${esc(aiName())} に進めてもらう` : it.m === "ai-update" ? `${esc(aiName())} にタスク内容を更新してもらう` : it.t}</button>`).join("");
+    m.hidden = false;
+    // 画面からはみ出さないように寄せる (幅 400px の端末でも収まる)
+    const W = innerWidth, H = innerHeight, r = m.getBoundingClientRect();
+    m.style.left = Math.max(8, Math.min(x, W - r.width - 8)) + "px";
+    m.style.top = Math.max(8, Math.min(y, H - r.height - 8)) + "px";
+    const first = m.querySelector("button:not(:disabled)"); if (first) first.focus({ preventScroll: true });
+  }
+  $("#list").addEventListener("contextmenu", (e) => {
+    const row = e.target.closest(".row[data-id], .srow[data-id]"); if (!row) return;
+    if (e.target.closest("a[href]") && !e.target.closest(".card")) return; // リンクの右クリックはブラウザ既定 (新しいタブで開く 等) を残す
+    const t = tasks.find((x) => x.id === row.dataset.id); if (!t) return;
+    e.preventDefault();
+    if (card) { card.style.transform = ""; card = null; } // 長押しの最中に始まっていたスワイプは捨てる
+    let x = e.clientX, y = e.clientY;
+    if (!x && !y) { const r = row.getBoundingClientRect(); x = r.left + 24; y = r.bottom - 4; } // キーボード (Shift+F10・メニューキー) から
+    openCmenu(t, x, y);
+  });
+  $("#cmenu").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-m]"); if (!b || b.disabled || !cmTask) return;
+    const t = cmTask, m = b.dataset.m; closeCmenu();
+    if (m === "open") { openSheet(t, todayStr); return; }
+    if (m === "ai-update") { goClaude(t, aiHref(t, "update"), "update"); return; } // 期日・実行環境・説明・サブタスク分割の見直しを AI に頼む
+    if (m === "ai") { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでシートへ (行の 🤖 と同じ)
+    if ((m === "done" || m === "skip") && t.aiActive && !confirm("AI が処理中です。それでも完了にしますか？")) return;
+    const it = cmenuItems(t, DELEGATES[0]).find((x) => x.m === m);
+    act(t, m, it ? it.t : m, m === "mit" || m === "mit-clear"); // ⭐ は一覧に残したまま節を移す。委任は行を消して取り直しで正しいタブへ (シートと同じ)
+  });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#cmenu")) closeCmenu(); }, true);
+  document.addEventListener("keydown", (e) => {
+    const m = $("#cmenu"); if (m.hidden) return;
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeCmenu(); return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { // ↑↓ で項目を移る
+      e.preventDefault();
+      const bs = [...m.querySelectorAll("button:not(:disabled)")], i = bs.indexOf(document.activeElement);
+      const n = bs[(i + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length]; if (n) n.focus();
+    }
+  }, true);
+  window.addEventListener("scroll", closeCmenu, { passive: true });
+  window.addEventListener("resize", closeCmenu);
+  window.addEventListener("blur", closeCmenu);
   const _render = render; render = (today) => { todayStr = today; _render(today); };
   $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) load(b.dataset.v); };
   $("#sitChip").onclick = openSitPick;
