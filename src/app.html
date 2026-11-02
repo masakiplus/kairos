@@ -1352,6 +1352,7 @@
     "私に聞くのは本人にしか決められないものだけ。1 問ずつ、短い問い＋選択肢 2〜4 個（推奨を先頭に、各 1 行の理由）で出し、番号で答えられるようにする。",
     "決まったら操作規約どおり Kairos を更新し、作業記録は関連タスクの本文に追記する。",
   ];
+  const VERIFY_FORMAT = "[案 当たり|部分的|外れ|検証不要] 短い名前 — 根拠の実績 1 行（推奨 1 つは [案 当たり 推奨] の形）";
   const OPT_FORMAT = "[案 着手|棚上げ|やめる] 案の短い名前 — 1 行の理由（推奨 1 つは [案 着手 推奨]）";
   const numbered = (a) => a.map((x, i) => `${i + 1}. ${x}`).join("\n");
   function reviewItems(qs, n = 10) {
@@ -1359,25 +1360,33 @@
     return a.join("\n") + (qs.length > n ? `\n…ほか ${qs.length - n} 件（Kairos の決めるタブにあります）` : "");
   }
   function reviewPrepPrompt(ps) {
-    return `Kairos の未決 ${ps.length} 件を、私が選ぶだけの形に下ごしらえしてください。
-
-やること
+    const dec = ps.filter((x) => x.kind !== "verify"), ver = ps.filter((x) => x.kind === "verify");
+    const parts = [`Kairos の「決める」にある ${ps.length} 件を、AI が先に進めてください。調べてわかることは私に聞かず、私には選ぶだけの形で残してください。`];
+    if (dec.length) parts.push(`■ 未決 ${dec.length} 件（まだ決着させない）
 ${numbered([
   "各件を自分で調べる（Kairos のタスク・本文・関連 PJ、メール・カレンダー・会計など手元で見られるもの）。わかった事実は Decisions の 問い に追記する。",
   "調べた結果、答えが機械的に出るもの（もう済んでいる・前提が消えた・期限が過ぎた）は、理由を結論に書いて決着させてよい。削除・見送り・支払い・送信など戻しにくい操作はしない。",
   `本人にしか決められないものは、問い の末尾に選択肢を 2〜4 行で書く: ${OPT_FORMAT}`,
   "名前が問いの形でなければ「〜するか」に直す。",
-  "最後に、各件の問い・選択肢・推奨をこのチャットに一覧で見せる（私はここでも Kairos の決めるタブでも選べる）。",
 ])}
 
-対象
-${reviewItems(ps, 12)}`;
+${reviewItems(dec, 12)}`);
+    if (ver.length) parts.push(`■ 答え合わせ ${ver.length} 件（検証日が来た決定）
+${numbered([
+  "決めたこと（結論）と期待した結果を、実績と照らす。見るもの: 関連タスクの完了と本文、家計・口座・freee の数字、メール・カレンダー、Kairos の Habit Log。",
+  "実績から結果が明らかなら、検証結果（当たり／部分的／外れ／検証不要）と 学び（根拠を 1 行）を自分で書いて閉じてよい。",
+  `判断が要るものだけ、問い の末尾に調べた実績を書き、選択肢を 2〜3 行で書いて残す: ${VERIFY_FORMAT}`,
+])}
+
+${reviewItems(ver, 12)}`);
+    parts.push("最後に、自分で閉じたもの（理由つき）と、私に残したもの（問い・選択肢・推奨）をこのチャットに一覧で見せてください。");
+    return parts.join("\n\n");
   }
   function reviewPrepHtml() {
     const ps = reviewPrep(); if (!ps.length) return "";
     return `<div class="rvn"><h2>🔎 AI が先に調べる<small>${ps.length} 件 · 選択肢ができたらカードになる</small></h2>
-      <div class="meta" style="margin:0 0 8px"><a href="${claudeLink(reviewPrepPrompt(ps))}" data-ext>${aiIcon()} ${aiName()} にまとめて下ごしらえを頼む</a><small>調べてわかることは聞かず、選択肢と推奨だけ用意してもらう</small></div>
-      <div class="group">${ps.slice(0, reviewShowAll ? 40 : 6).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span>${esc(n.name || n.q)}</span><small style="flex:none;color:var(--mute)">今決める ›</small></div>`).join("")}</div></div>`;
+      <div class="meta" style="margin:0 0 8px"><a href="${claudeLink(reviewPrepPrompt(ps))}" data-ext>${aiIcon()} ${aiName()} にまとめて下ごしらえを頼む</a><small>調べてわかることは聞かず、明らかな答え合わせは閉じ、残りは選択肢と推奨だけ用意してもらう</small></div>
+      <div class="group">${ps.slice(0, reviewShowAll ? 40 : 6).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span>${esc(n.name || n.q)}</span><small style="flex:none;color:var(--mute)">${n.kind === "verify" ? "🔍 " : ""}今決める ›</small></div>`).join("")}</div></div>`;
   }
   function reviewWhy(q) {
     const m = q.meta || {};
@@ -1454,7 +1463,7 @@ ${reviewItems(ps, 12)}`;
         <div class="kb ${q.kind}"><span>${K.ic} ${K.t}</span><small>${esc(q.db)}${q.label && q.label !== K.t ? " · " + esc(q.label) : ""}</small><a href="${q.url}" target="_blank" rel="noopener" style="color:rgba(255,255,255,.85);text-decoration:none;font-weight:500">開く ↗</a></div>
         <div class="rq">${reviewAsk(q)}</div>
         <div class="why">${esc(reviewWhy(q))}</div>
-        ${q.body && q.kind === "decision" ? `<div class="rb">${esc(q.body)}</div>` : ""}
+        ${q.body && (q.kind === "decision" || q.kind === "verify") ? `<div class="rb">${esc(q.body)}</div>` : ""}
         ${fig}${ctx ? `<div class="ctx">${ctx}</div>` : ""}
         ${needNote ? `<input class="rnote" id="rvNote" placeholder="理由・学びを1行（任意）" autocomplete="off">` : ""}
         <div class="opts">${reviewOptions(q)}</div>
@@ -1466,7 +1475,7 @@ ${reviewItems(ps, 12)}`;
   }
   function reviewClaudeHref(q) {
     const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : q.db === "Habits" ? "🔁 Habits の習慣" : "🧠 Decisions の決定";
-    const goal = q.kind === "verify" ? "検証結果（当たり／外れ／部分的）と学びを書く。"
+    const goal = q.kind === "verify" ? `決めたことと期待した結果を実績と照らす。明らかなら検証結果と学びを自分で書いて閉じ、迷うものは問い の末尾に選択肢を書いて残す: ${VERIFY_FORMAT}`
       : q.kind === "project-close" ? "クローズするか、次のアクションを 1 件足すかを決め、Projects と Decisions を更新する。"
       : q.kind === "decision" ? `決めきれなければ、Decisions の 問い の末尾に選択肢を書いて残す: ${OPT_FORMAT}`
       : "決まったら Kairos を更新する。";

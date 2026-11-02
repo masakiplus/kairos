@@ -631,9 +631,11 @@ function parseDatesRow(p) {
 }
 // 問いごとの選択肢 (2026-11-02): Decisions の 問い に「[案 着手 推奨] 続ける：体重計を洗面所へ — 理由」の行で書く。
 // 効き目は 着手（既定）／棚上げ／やめる。推奨は 1 つ。案の行が無い未決は、人に聞く前に AI が調べて案を書く「下ごしらえ待ち」に回す
-const OPT_RE = /^\s*[-・*]?\s*\[案(?:\s+(着手|棚上げ|やめる))?(\s+推奨)?\]\s*(.+?)\s*$/;
+// 答え合わせ (検証待ち) も同じ行で書く (2026-11-03): 効き目は 当たり／部分的／外れ／検証不要。案の行が無ければ AI が先に実績を調べる
+const OPT_RE = /^\s*[-・*]?\s*\[案(?:\s+(着手|棚上げ|やめる|当たり|部分的|外れ|検証不要))?(\s+推奨)?\]\s*(.+?)\s*$/;
 const OPT_EFFECT = { "着手": "着手する", "棚上げ": "棚上げ", "やめる": "削除" };
-function parseDecisionOpts(text) {
+const VERIFY_EFFECTS = ["当たり", "部分的", "外れ", "検証不要"];
+function parseDecisionOpts(text, kind = "decision") {
   const opts = [], rest = [];
   for (const line of String(text || "").split("\n")) {
     const m = line.match(OPT_RE);
@@ -641,7 +643,8 @@ function parseDecisionOpts(text) {
     const [t, ...why] = m[3].split(/\s+[—–]\s+/);
     opts.push({ effect: m[1] || "着手", pri: !!m[2], t: t.trim().slice(0, 60), s: why.join(" — ").trim().slice(0, 80) });
   }
-  return { opts: opts.slice(0, 5), body: rest.join("\n").trim() };
+  const fit = (o) => kind === "verify" ? VERIFY_EFFECTS.includes(o.effect) : !VERIFY_EFFECTS.includes(o.effect);
+  return { opts: opts.filter(fit).slice(0, 5), body: rest.join("\n").trim() };
 }
 async function reviewQuestions(env) {
   const today = todayJst();
@@ -706,7 +709,7 @@ async function reviewQuestions(env) {
       });
       continue;
     }
-    const { opts, body } = parseDecisionOpts(DEC_RT(p["問い"]));
+    const { opts, body } = parseDecisionOpts(DEC_RT(p["問い"]), "decision");
     const EFF_S = { "着手": "決着・タスクを進める", "棚上げ": "決着・今は動かない", "やめる": "決着・やめる" };
     out.push({
       kind: "decision", db: "Decisions", label: p["状態"]?.select?.name === "提示済み" ? "提示済みの未決" : "提案中", id: pg.id, url: pg.url,
@@ -748,12 +751,18 @@ async function reviewQuestions(env) {
   for (const pg of verif.results ?? []) {
     const p = pg.properties ?? {};
     const name = (p["名前"]?.title ?? []).map((t) => t.plain_text).join("");
+    const vo = parseDecisionOpts(DEC_RT(p["問い"]), "verify");
+    const V_S = { "当たり": "期待どおりだった", "部分的": "一部だけ", "外れ": "期待と違った", "検証不要": "見なくてよい" };
     out.push({
       kind: "verify", db: "Decisions", label: "検証待ち", id: pg.id, url: pg.url,
+      prep: !vo.opts.length, // 実績を照らした案が無い＝AI が先に調べる
+      body: vo.opts.length ? vo.body.slice(-400) || null : null, // AI が書いた実績 (問い の末尾側) をカードに出す
       meta: { decided: (p["決定日"]?.date?.start ?? "").slice(0, 10), verifyAt: (p["検証日"]?.date?.start ?? "").slice(0, 10), conclusion: DEC_RT(p["結論"]).slice(0, 160), expect: DEC_RT(p["期待する結果"]).slice(0, 160) },
       q: `「${name}」は決めてから検証日を迎えました。結果は？`,
       ctx: [["結論", DEC_RT(p["結論"]).slice(0, 120)], ["期待する結果", DEC_RT(p["期待する結果"]).slice(0, 120)], ["検証日", (p["検証日"]?.date?.start ?? "").slice(0, 10)]].filter((x) => x[1]),
-      options: [{ a: "当たり", t: "当たり", s: "期待どおりだった", pri: true }, { a: "部分的", t: "部分的", s: "一部だけ" }, { a: "外れ", t: "外れ", s: "期待と違った" }, { a: "検証不要", t: "検証不要", s: "見なくてよい" }],
+      options: vo.opts.length
+        ? vo.opts.map((o, i) => ({ a: "opt:" + i, t: o.effect === o.t ? o.t : `${o.effect}：${o.t}`, s: o.s || V_S[o.effect], pri: o.pri }))
+        : [{ a: "当たり", t: "当たり", s: "期待どおりだった", pri: true }, { a: "部分的", t: "部分的", s: "一部だけ" }, { a: "外れ", t: "外れ", s: "期待と違った" }, { a: "検証不要", t: "検証不要", s: "見なくてよい" }],
       name,
     });
   }
@@ -771,7 +780,7 @@ async function reviewAnswer(env, kind, id, answer, note) {
     let label = answer;
     if (answer.startsWith("opt:")) { // 問いごとの案: 選んだ案の文を結論に、効き目を 決定 に
       const pg = await notion(env, `/pages/${id}`);
-      const o = parseDecisionOpts(DEC_RT(pg.properties?.["問い"])).opts[Number(answer.slice(4))];
+      const o = parseDecisionOpts(DEC_RT(pg.properties?.["問い"]), "decision").opts[Number(answer.slice(4))];
       if (!o) throw new Error("bad answer");
       answer = OPT_EFFECT[o.effect]; label = o.t;
     }
@@ -828,9 +837,16 @@ async function reviewAnswer(env, kind, id, answer, note) {
     return { ok: true, state: "決着" };
   }
   if (kind === "verify") {
-    if (!["当たり", "外れ", "部分的", "検証不要"].includes(answer)) throw new Error("bad answer");
+    let learn = memo;
+    if (answer.startsWith("opt:")) { // AI が実績を照らして書いた案: 効き目を 検証結果 に、メモが無ければ案の文と理由を 学び に
+      const pg = await notion(env, `/pages/${id}`);
+      const o = parseDecisionOpts(DEC_RT(pg.properties?.["問い"]), "verify").opts[Number(answer.slice(4))];
+      if (!o) throw new Error("bad answer");
+      answer = o.effect; if (!learn) learn = [o.t !== o.effect ? o.t : "", o.s].filter(Boolean).join(" — ").slice(0, 300);
+    }
+    if (!VERIFY_EFFECTS.includes(answer)) throw new Error("bad answer");
     const props = { "検証結果": { select: { name: answer } } };
-    if (memo) props["学び"] = { rich_text: [{ text: { content: memo } }] };
+    if (learn) props["学び"] = { rich_text: [{ text: { content: learn } }] };
     await notion(env, `/pages/${id}`, { method: "PATCH", body: JSON.stringify({ properties: props }) });
     return { ok: true };
   }
