@@ -422,6 +422,24 @@
   #aiHandoff button,#aiOpen{min-height:44px;padding:10px 14px;border:0;border-radius:10px;background:var(--acc);color:white;font-size:15px;text-align:center;text-decoration:none}
   #aiShare[hidden]{display:none}
   #aiCopy,#aiShare,#aiOpen{display:block;width:100%;margin-top:10px}#aiHandoffClose{background:var(--seg)!important;color:var(--fg)!important}
+  /* 🛒 買い物 (2026-11-02) */
+  .scard{background:var(--card);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow)}
+  .scard h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--fg)} .scard h3 small{font-weight:400;color:var(--mute);margin-left:4px}
+  .scard svg{display:block;width:100%;height:auto;overflow:visible}
+  .scard .sl{font-size:11px;fill:var(--mute)} .scard .sv{font-size:12px;font-weight:600;fill:var(--fg)} .scard .sm{font-size:10px;fill:var(--mute2);font-weight:400}
+  .scard .sb{fill:var(--acc)} .scard .sb.none{fill:var(--mute2)} .scard .sb.soft{fill:var(--accbg);stroke:var(--acc);stroke-width:1}
+  .scard .sp{stroke:var(--over);stroke-width:2;stroke-dasharray:4 3} .scard .sx{stroke:var(--sep);stroke-width:1}
+  .scard .sc{fill:none;stroke:var(--today);stroke-width:2} .scard .sd{fill:var(--today)}
+  .schart-empty{font-size:12.5px;color:var(--mute);line-height:1.5}
+  .sec h2 .cnt{font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px}
+  .srow{background:var(--card);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow);cursor:pointer}
+  .srow:active{transform:scale(.99)}
+  .srow .st{font-size:15px;line-height:1.35;color:var(--fg);word-break:break-word}
+  .srow .sc2{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px;font-size:12px;color:var(--mute)}
+  .srow .sc2 b{color:var(--fg)} .srow .sc2 .warn{color:var(--over)} .srow .sc2 .mute{color:var(--mute2)}
+  .sneed{border-radius:6px;padding:0 6px;font-weight:600} .sneed.nA{background:#fde8e7;color:#c0352b} .sneed.nB{background:#fff4d6;color:#8a6200} .sneed.nC{background:var(--seg);color:var(--mute)} .sneed.n0{color:var(--mute2);font-weight:400;padding:0}
+  :root[data-theme="dark"] .sneed.nA,:root:not([data-theme="light"]).sys-dark .sneed.nA{background:#4a2321;color:#ff8a80} :root[data-theme="dark"] .sneed.nB,:root:not([data-theme="light"]).sys-dark .sneed.nB{background:#43381a;color:#f7c948}
+  .scool{color:#5e5ce6;font-weight:600}
 </style>
 </head>
 <body>
@@ -440,6 +458,7 @@
       <button data-v="review">決める<span class="n" id="n-review"></span></button>
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
       <button data-v="cloud">クラウドで<span class="n" id="n-cloud"></span></button>
+      <button data-v="shop">買い物<span class="n" id="n-shop"></span></button>
     </div>
   </div>
   <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・一緒にいる人・時間帯）。タップで変更"></button><button id="fltChip" type="button" title="ラベル・コンテキスト・種類で絞り込む"></button></div>
@@ -477,7 +496,7 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const views = ["today", "can", "phone", "cloud", "doing", "project", "delegated"];
-  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", cloud: "クラウドで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", deps: "つながり", graph: "つながり", quad: "象限" };
+  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", cloud: "クラウドで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", shop: "買い物", deps: "つながり", graph: "つながり", quad: "象限" };
   let reviewData = null, reviewPos = 0, reviewSkipped = new Set(), reviewShowAll = false; // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
   let graphData = null, quadData = null; // 1 タスク 3 列 (C-11a)・象限 (C-10)
@@ -486,6 +505,7 @@
   wideMq.addEventListener("change", () => { if (view === "deps") render(todayStr); });
   // Phase B (2026-10-06): PJ別の見出し情報 (/api/projects) と 役割タブ (/api/roles)。追加欄の PJ 紐づけ
   let projInfo = null, projInfoAt = 0, rolesData = null, addProject = null;
+  let shopData = null; // 🛒 買い物 (2026-11-02)
   let COMPANIONS = []; try { COMPANIONS = JSON.parse(localStorage.getItem("companions") || "[]"); } catch (e) {} // 👥 実行環境 の「〜と」タグ。Worker がスキーマから読む (2026-10-12)
   let PHONE_ENV = "スマホ"; try { PHONE_ENV = localStorage.getItem("phoneEnv") || PHONE_ENV; } catch (e) {} // 📱 スマホの選択肢名 (2026-10-15 に iPhone からリネーム)。Worker がスキーマに実在する方を /api/tasks に添える
   let DELEGATES = JSON.parse(localStorage.getItem("delegates") || "[]"); // 担当 の選択肢。Worker が Notion のスキーマから読んで /api/tasks に添える
@@ -530,7 +550,7 @@
   applyTheme();
 
   let view = localStorage.getItem("view") || "today";
-  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated"].includes(requested)) view = requested; }
+  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated", "shop"].includes(requested)) view = requested; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
   const allTasks = () => tasks; // render は絞った後の行を同名の tasks で持つので、元の一覧はこれで読む
@@ -914,15 +934,16 @@
     const viewChanged = lastView !== view; lastView = view;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
-    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "cloud" ? "☁️" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
+    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "cloud" ? "☁️" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
-    $("#add").hidden = view === "roles" || view === "review";
+    $("#add").hidden = view === "roles" || view === "review" || view === "shop";
     const sitOn = view === "today" || view === "can" || view === "phone", fltOn = FILTER_VIEWS.includes(view);
     $("#sitChip").hidden = !sitOn; $("#fltChip").hidden = !fltOn; $("#sitbar").hidden = !sitOn && !fltOn;
     if (sitOn) pollWhere(); renderSit(); renderFilt();
     if (view === "roles") { renderRoles(today); return; }
     if (view === "review") { renderReview(today); return; }
+    if (view === "shop") { renderShop(today); return; }
     if (view === "deps") { $("#add").hidden = true; renderDeps(today); return; }
     if (view === "graph") { $("#add").hidden = true; renderGraph(today); return; }
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
@@ -1208,6 +1229,81 @@
         ${stoneHtml(r)}
       </div>`).join("") +
       '<div class="hint">編集は選んだAIで。ここで動かせるのは「今週の石」の置き換えだけ</div>' + metaHtml("roles");
+  }
+  // 🛒 買い物 (2026-11-02): 種類=購入 の未完了を「買ったつもり」と「その他の購入」に分け、グラフ 3 種を上に置く。
+  // 集計は Worker (/api/shopping, src/shopping.js)。ここは描くだけ。行をタップするといつものシート
+  const yen = (n) => "¥" + Math.round(n || 0).toLocaleString("ja-JP");
+  const yenK = (n) => (Math.abs(n) >= 10000 ? (Math.round(n / 1000) / 10).toLocaleString("ja-JP") + "万" : Math.round(n || 0).toLocaleString("ja-JP"));
+  const smd = (d) => d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : "";
+  const sym = (m) => `${+m.slice(5, 7)}月`;
+  function shopWinLabel(w) { return w ? `${esc(w.name)}${w.start ? ` ${smd(w.start)}${w.end ? "〜" + smd(w.end) : ""}` : ""}${w.certainty === "予想" ? "（予想）" : ""}` : ""; }
+  function shopWindowsChart(ws) {
+    if (!ws.length) return '<div class="schart-empty">セール窓がまだありません</div>';
+    const max = Math.max(1, ...ws.map((w) => w.total)), rowH = 34, W = 360, L = 0;
+    const rows = ws.map((w, i) => {
+      const y = i * rowH, bw = Math.max(w.total ? 3 : 0, Math.round((W - 120) * w.total / max));
+      return `<g transform="translate(0,${y})"><text x="${L}" y="11" class="sl">${esc(w.name)}${w.start ? ` ${smd(w.start)}〜${smd(w.end)}` : ""}${w.certainty === "予想" ? " 予想" : ""}</text>
+        <rect x="${L}" y="16" width="${bw}" height="12" rx="3" class="${w.id ? "sb" : "sb none"}"/>
+        <text x="${L + bw + 6}" y="26" class="sv">${yen(w.total)}<tspan class="sm"> ${w.count}件${w.unpriced ? `・未記入${w.unpriced}` : ""}</tspan></text></g>`;
+    }).join("");
+    return `<svg viewBox="0 0 ${W} ${ws.length * rowH}" role="img" aria-label="セール窓ごとの予定額">${rows}</svg>`;
+  }
+  function shopDebitChart(ds) {
+    if (!ds.length) return "";
+    const W = 360, H = 150, top = 16, base = H - 34, n = ds.length, slot = W / n, bw = Math.min(46, slot * 0.5);
+    const max = Math.max(1, ...ds.map((d) => Math.max(d.total, d.pool || 0)));
+    const y = (v) => base - (base - top) * v / max;
+    const cols = ds.map((d, i) => {
+      const cx = slot * i + slot / 2, h = base - y(d.total);
+      const pool = d.pool != null ? `<line x1="${cx - slot * 0.42}" x2="${cx + slot * 0.42}" y1="${y(d.pool)}" y2="${y(d.pool)}" class="sp"/><text x="${cx + slot * 0.42}" y="${y(d.pool) - 4}" class="sm" text-anchor="end">枠 ${yenK(d.pool)}${d.poolProvisional ? "（前月値）" : ""}</text>` : "";
+      return `${pool}<rect x="${cx - bw / 2}" y="${base - h}" width="${bw}" height="${Math.max(h, d.total ? 2 : 0)}" rx="3" class="sb"/>
+        <text x="${cx}" y="${base - h - 4}" class="sv" text-anchor="middle">${d.total ? yenK(d.total) : ""}</text>
+        <text x="${cx}" y="${base + 14}" class="sl" text-anchor="middle">${sym(d.month)}27日</text>
+        <text x="${cx}" y="${base + 28}" class="sm" text-anchor="middle">${d.left != null ? `残り ${yenK(d.left)}` : "枠不明"}</text>`;
+    }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="引落し月ごとの予定額と裁量枠"><line x1="0" x2="${W}" y1="${base}" y2="${base}" class="sx"/>${cols}</svg>`;
+  }
+  function shopSavingsChart(ss) {
+    if (!ss.length) return '<div class="schart-empty">まだありません。「買ったつもり」のタスクを 見送り で閉じると、その金額がここに貯まります</div>';
+    const W = 360, H = 130, top = 18, base = H - 22, n = ss.length, slot = W / n, bw = Math.min(30, slot * 0.5);
+    const max = Math.max(1, ...ss.map((s) => s.cum));
+    const y = (v) => base - (base - top) * v / max;
+    const pts = ss.map((s, i) => `${slot * i + slot / 2},${y(s.cum)}`).join(" ");
+    const cols = ss.map((s, i) => {
+      const cx = slot * i + slot / 2, h = base - y(s.amount);
+      return `<rect x="${cx - bw / 2}" y="${base - h}" width="${bw}" height="${h}" rx="2" class="sb soft"/><text x="${cx}" y="${base + 14}" class="sl" text-anchor="middle">${sym(s.month)}</text>`;
+    }).join("");
+    const last = ss[ss.length - 1];
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="買ったつもり貯金の推移"><line x1="0" x2="${W}" y1="${base}" y2="${base}" class="sx"/>${cols}<polyline points="${pts}" class="sc"/>${ss.map((s, i) => `<circle cx="${slot * i + slot / 2}" cy="${y(s.cum)}" r="3" class="sd"/>`).join("")}<text x="${W - 2}" y="${Math.max(12, y(last.cum) - 6)}" class="sv" text-anchor="end">累計 ${yen(last.cum)}</text></svg>`;
+  }
+  function shopRowHtml(t) {
+    const need = t.need ? `<span class="sneed n${esc(t.need.slice(0, 1))}">${esc(t.need)}</span>` : `<span class="sneed n0">必要度 未設定</span>`;
+    const chips = [
+      t.amount != null ? `<b>${yen(t.amount)}</b>` : `<span class="warn">金額未記入</span>`,
+      need,
+      t.cooling ? `<span class="scool">冷却中（残り ${t.cooling} 日）</span>` : "",
+      `<span>${t.owner ? "担当 " + esc(t.owner) : "本人"}</span>`,
+      t.window ? `<span>🏷️ ${shopWinLabel(t.window)}</span>` : `<span class="mute">窓なし</span>`,
+      t.start ? `<span>開始 ${smd(t.start)}</span>` : "",
+    ].filter(Boolean).join("");
+    return `<div class="srow" data-id="${t.id}" role="button" tabindex="0"><div class="st">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div><div class="sc2">${chips}</div></div>`;
+  }
+  function renderShop(today) {
+    const list = $("#list");
+    if (!shopData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
+    const d = shopData, T = d.totals;
+    const temp = d.items.filter((x) => x.tempBuy), other = d.items.filter((x) => !x.tempBuy);
+    const sig = JSON.stringify([today, d.items.map((x) => [x.id, x.name, x.amount, x.need, x.owner, x.start, x.window && x.window.id, x.cooling]), d.windows, d.debit, d.savings]);
+    if (sig === lastSig && list.children.length) return;
+    lastSig = sig;
+    const sec = (title, arr, sum) => `<section class="sec"><h2>${title} <span class="cnt">${arr.length} 件 · ${yen(sum)}</span></h2>${arr.length ? arr.map(shopRowHtml).join("") : '<div class="hint">なし</div>'}</section>`;
+    const poolNote = d.poolsOk ? "線＝購入月の裁量枠（discretionary_pool）。残り＝枠 − 予定額" : "裁量枠を読めませんでした（裁量日割りパラメータの本文）";
+    list.innerHTML = `<div class="rsum"><span>未完了 ${T.count} 件 · 予定 ${yen(T.amount)}${T.unpriced ? ` · 金額未記入 ${T.unpriced} 件` : ""}</span><b>買ったつもり貯金 ${yen(T.savedAmount)}</b></div>
+      <div class="scard"><h3>セール窓ごとの予定額</h3>${shopWindowsChart(d.windows)}</div>
+      <div class="scard"><h3>引落し月ごとの予定額 <small>購入月の翌月27日</small></h3>${shopDebitChart(d.debit)}<div class="hint">${poolNote}</div></div>
+      <div class="scard"><h3>買ったつもり貯金 <small>見送りで閉じた金額・月別と累計</small></h3>${shopSavingsChart(d.savings)}</div>
+      ${sec("買ったつもり", temp, T.tempAmount)}${sec("その他の購入", other, T.otherAmount)}
+      <div class="hint">並びはセール窓の開始日順（窓なしは末尾）。必要度Cは起票から30日は冷却中。値の変更はシートの🤖から</div>`;
   }
   // 🗂 見直し (Phase C-9): 1 問ずつ。答えは Worker が Notion に書く。「今は決めない」は端末内で飛ばす (Decisions は 提示済み にする)
   // 決めるタブ (2026-10-15 改修 A〜F): 種類の帯＋なぜ今か＋定型の問い＋種類チップ＋依存・日程は図
@@ -1646,6 +1742,17 @@
       catch (e) { setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
       return;
     }
+    if (v === "shop") { // 🛒 買い物 (2026-11-02): /api/shopping。キャッシュは直近の応答だけ。行はシート・ページャ用に tasks にも入れる
+      const switching = v !== view; view = v; localStorage.setItem("view", v);
+      if (!shopData) { try { shopData = JSON.parse(localStorage.getItem("shop:data") || "null"); } catch (e) { shopData = null; } }
+      if (shopData) tasks = shopData.items;
+      if (switching) lastSig = "";
+      render(todayStr || (shopData && shopData.today) || "");
+      if (!silent || !shopData) setBusy(true);
+      try { const j = await api("/api/shopping"); if (view !== "shop") { setBusy(false); return; } shopData = j; tasks = j.items; try { localStorage.setItem("shop:data", JSON.stringify(j)); } catch (e) {} render(j.today); $("#stale").hidden = true; setBusy(false); $("#n-shop").textContent = j.totals.count || ""; }
+      catch (e) { setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
+      return;
+    }
     if (v === "review") { // 見直し (Phase C-9): 問いは Worker が作る。キャッシュしない
       view = v; localStorage.setItem("view", v);
       if (!silent || !reviewData) { $("#stale").hidden = false; $("#stale").textContent = "問いを集めています…"; }
@@ -1723,6 +1830,7 @@
   function removeRow(id) {
     markPending(id, { hide: true });
     tasks = tasks.filter((t) => t.id !== id);
+    if (view === "shop") { const sr = document.querySelector(`.srow[data-id="${id}"]`); if (sr) sr.remove(); lastSig = ""; return; } // 🛒 は節と図を残したまま行だけ消す。取り直しで必ず描き直す
     const el = document.querySelector(`.row[data-id="${id}"]`);
     if (el) { const g = el.parentElement, s = g.parentElement; el.remove(); if (!g.children.length) s.remove(); }
     $("#n-" + view).textContent = tasks.length;
@@ -1792,7 +1900,7 @@
     const N = 3, rest = chips.length - N;
     return `<div class="rel">${chips.map((c, i) => i < N ? c : c.replace(/^<a /, '<a class="relx" ')).join("")}${rest > 0 ? `<button type="button" data-relmore>他 ${rest} 件 ▾</button>` : ""}</div>`;
   }
-  function sheetOrder() { return [...document.querySelectorAll("#list .row[data-id]")].map((r) => r.dataset.id); }
+  function sheetOrder() { return [...document.querySelectorAll("#list .row[data-id], #list .srow[data-id]")].map((r) => r.dataset.id); }
   function openSheet(t, today) {
     sheetTask = t;
     const sub =[t.due ? (t.due === today ? "今日" : fmtDate(t.due)) : null, t.priority, t.env.join("・") || null, t.project ? "📁 " + esc(t.project) : null].filter(Boolean).join(" · ");
@@ -2149,6 +2257,10 @@
       const gd = e.target.closest("[data-gdeps]"); if (gd) { openDeps(gd.dataset.gdeps); return; }
       if (e.target.closest("a")) return;
       const nd = e.target.closest("[data-gid]"); if (nd) { const t = tasks.find((x) => x.id === nd.dataset.gid); if (t) { if (t.id === graphData.task.id) openSheet(t, todayStr); else openGraph(t.id); } }
+      return;
+    }
+    if (view === "shop") { // 🛒 行をタップでシート
+      const sr = e.target.closest(".srow[data-id]"); if (sr) { const t = tasks.find((x) => x.id === sr.dataset.id); if (t) openSheet(t, todayStr); }
       return;
     }
     if (view === "quad") {

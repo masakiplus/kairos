@@ -40,6 +40,7 @@
 | `GET /api/projects` ／ `POST /api/projects/:id/close {note}` ／ `GET /api/projects/:id/deps` | PJ 見出し・クローズ・つながり |
 | `GET /api/roles` ／ `POST /api/roles/:id/goal {taskId}` | 役割タブ・今週の石 |
 | `GET /api/review` ／ `POST /api/review/(decision\|verify\|task-carry\|habit\|deps\|dates)/:id {answer, note, until}` ／ `POST /api/review/decision/:id/undo` | 見直しカード。未決の決着はタスクまで動かす（`docs/rules.md` §9） |
+| `GET /api/shopping` | 🛒 買い物タブ。種類=購入（＋ラベル「買ったつもり」）の未完了・セール窓ごと／引落し月ごと（購入月の翌月27日、線は裁量日割りパラメータの `discretionary_pool`）の予定額・買ったつもり貯金（見送りで閉じた同ラベルの金額）。集計は `src/shopping.js`、列・選択肢・セール窓マスター（追加コレクション `sale_windows`）の追加は `src/d1.js` の `ensureShopping`（起動時に無いときだけ） |
 | `GET /api/quadrant` ／ `GET /api/habits/due` ／ `POST /api/habits/:id/log` | 象限・習慣 |
 | `GET /api/tasks/:id/(graph\|chain\|detail)` | 3 列グラフ・先行チェーン・詳細 |
 | `POST /api/tasks/:id/preds {ids}` | 先行タスクの置き換え（循環は 400） |
@@ -53,6 +54,7 @@ MCP コネクタ（`src/mcp.js`、`/mcp` `/authorize` `/oauth/*` `/.well-known/o
 ## 画面（`src/app.html`）の構成
 
 - `render()` が一覧。中身の署名が前回と同じなら DOM を触らない（スクロール位置を保つ）
+- `renderShop()` が 🛒 買い物タブ（グラフ 3 種は素の SVG。行のタップでいつものシート）
 - `openSheet()` がタスクのシート、`openPredPick()` 先行ピッカー、`openPjPick()` PJ 付け替え、`openDeps()` つながり（`matchMedia("(min-width:700px)")` でガント／依存順）、`openGraph()` 3 列、`openQuad()` 象限、`renderRoles()` `renderReview()`
 - 状態は変数。`localStorage` は一覧のキャッシュ、取り消しの控え、AIアプリの選択だけ。受け渡しの依頼文は保存しない
 - 🤖 への遷移（`intent://`）の前に `await` を挟まない（Android Chrome が Web 版に落ちる）

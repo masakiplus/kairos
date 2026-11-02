@@ -430,7 +430,7 @@ const INSTRUCTIONS =
   "規約:\n- " + RULES.join("\n- ");
 
 const ID_PROP = { type: "string", description: "ページ ID（32 桁の 16 進、ハイフン可）" };
-const DB_PROP = { type: "string", description: "中核は tasks / projects / roles / decisions / habits / habitlog。追加の DB（sessions, daily, dreamtime, proposals, blog_neta など）は DB 名で指定。対象の DB" };
+const DB_PROP = { type: "string", description: "中核は tasks / projects / roles / decisions / habits / habitlog。追加の DB（sessions, daily, dreamtime, proposals, blog_neta, sale_windows=セール窓マスター など）は DB 名で指定。対象の DB" };
 const READ = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
