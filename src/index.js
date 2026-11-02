@@ -32,6 +32,7 @@
  *   POST /api/tasks/:id/start?date=YYYY-MM-DD   開始日を指定日に (期日がそれより前なら期日も同じ日へ)
  *   POST /api/tasks/:id/evening  今夜に送る (開始日=今日 18:00 の日時。一覧の「今夜」節に移る)
  *   POST /api/tasks/:id/daytime  今夜を解除して今日に戻す (開始日=今日、日付のみ)
+ *   GET  /api/shopping           🛒 買い物画面 (2026-11-02)。購入タスク・セール窓・引落し月・買ったつもり貯金 (src/shopping.js)
  *   GET  /health                 認証なし。Worker が生きているかだけ返す
  *   /mcp /authorize /oauth/* /.well-known/oauth-*  MCP コネクタ (OAuth)。claude.ai などから使う。自前の署名トークンで守る。docs/mcp.md
  *
@@ -43,6 +44,7 @@ import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, 
 import { d1Notion, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
 import { knowledgeRoute } from "./knowledge.js"; // 知識文書 (PRJ・archive・ref) のパス解決・早送りの門 (2026-10-29)
 import { isMcpPath, mcpRoute } from "./mcp.js";
+import { SALE_WINDOWS_DS, CF_PARAM_PAGE_ID, TEMP_BUY_LABEL, shopFields, windowFromPage, parsePools, shoppingModel } from "./shopping.js"; // 🛒 買い物画面 (2026-11-02)
 import APP_HTML from "./app.html";
 import SW_JS from "./sw.txt";
 import MANIFEST from "./manifest.webmanifest";
@@ -948,6 +950,35 @@ async function listTasks(env, view) {
   return uniq;
 }
 
+// 🛒 買い物画面 (2026-11-02): 種類=購入 (と ラベル=買ったつもり) のタスクを完了済みも含めて引き、セール窓マスターと裁量枠を合わせて返す。
+// 集計の規則は src/shopping.js。セール窓マスターや裁量枠が読めなくても、一覧だけは返す
+async function queryAllPages(env, ds, body) {
+  const out = []; let cursor, n = 0;
+  do {
+    const r = await notion(env, `/data_sources/${ds}/query`, { method: "POST", body: JSON.stringify({ ...body, page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }) });
+    out.push(...(r.results ?? []));
+    cursor = r.has_more ? r.next_cursor : undefined;
+  } while (cursor && ++n < 50);
+  return out;
+}
+async function shopping(env) {
+  const today = todayJst();
+  const filter = { or: [{ property: "種類", select: { equals: "購入" } }, { property: "ラベル", multi_select: { contains: TEMP_BUY_LABEL } }] };
+  const [pages, windowPages, paramText] = await Promise.all([
+    queryAllPages(env, env.TASKS_DATA_SOURCE_ID, { filter }),
+    queryAllPages(env, SALE_WINDOWS_DS, {}).catch(() => []),
+    bodyText(env, CF_PARAM_PAGE_ID).catch(() => ""),
+  ]);
+  const tasks = dedupeTasks(pages.map((pg) => ({ ...pageToTask(pg), ...shopFields(pg) })));
+  const pools = parsePools(paramText);
+  const model = shoppingModel({ tasks, windows: windowPages.filter((w) => !w.archived && !w.in_trash).map(windowFromPage), pools, today });
+  if (model.items.some((t) => t.projectIds.length)) {
+    const names = await projectNames(env).catch(() => new Map());
+    for (const t of model.items) t.project = t.projectIds.map((id) => names.get(id)).filter(Boolean).join(" / ") || null;
+  }
+  return { today, ...model, pools, poolsOk: Object.keys(pools).length > 0, windowsOk: windowPages.length > 0 };
+}
+
 // WIP (着手中) の件数 (Personal Kanban の WIP 制限, 2026-10-06): ステータスが 進行中 か 人対応 の未完了。上限を超えたら Kairos が警告する
 const WIP_LIMIT = 10; // 2026-10-06 夜: 5 → 10 (利用者「同時に実行できるタスクの数は10個ぐらい」)
 async function wipCount(env) {
@@ -1339,6 +1370,7 @@ const kairosWorker = {
         const b = await req.json().catch(() => ({}));
         return json(await closeProject(env, mpc[1], String(b.note ?? "").replace(/\s+/g, " ").trim().slice(0, 300)));
       }
+      if (path === "/api/shopping" && req.method === "GET") return json(await cachedJson(env, "shopping", () => shopping(env)));
       if (path === "/api/quadrant" && req.method === "GET") return json(await quadrant(env));
       if (path === "/api/habits/due" && req.method === "GET") return json({ today: todayJst(), habits: await habitsDue(env) });
       const mhl = path.match(/^\/api\/habits\/([0-9a-f-]{32,36})\/log$/);

@@ -52,6 +52,8 @@ export async function initD1(env) {for(const sql of schema) await env.DB.prepare
 // D1 の正本はここなので、デプロイ後の最初の要求で isolate ごとに 1 回流す (2 回目以降は 0 行更新)。
 export const optionMigrations = [
  {collection:'tasks',property:'実行環境',option:{id:'kairos-cloud',name:'クラウド',color:'blue',description:null}},
+ // 🛒 買い物画面 (2026-11-02): 買ったつもりリストの印
+ {collection:'tasks',property:'ラベル',option:{id:'kairos-katta',name:'買ったつもり',color:'pink',description:null}},
 ];
 export async function ensureSchemaOptions(env) {
  const stmts=optionMigrations.map(({collection,property,option})=>{
@@ -59,6 +61,59 @@ export async function ensureSchemaOptions(env) {
   return env.DB.prepare(`UPDATE entity_schemas SET payload=json_insert(payload,?1,json(?2)) WHERE collection=?3 AND json_type(payload,?4)='array' AND NOT EXISTS (SELECT 1 FROM json_each(entity_schemas.payload,?4) WHERE json_extract(value,'$.name')=?5)`).bind(path+'[#]',JSON.stringify(option),collection,path,option.name);
  });
  if(stmts.length)await env.DB.batch(stmts);
+}
+// 🛒 買い物画面 (2026-11-02): tasks に 必要度 (選択)・セール窓 (セール窓マスターへのリレーション) を足し、
+// 追加コレクション sale_windows (セール窓マスター) を作って初期の窓を入れる。どれも「無いときだけ」足す冪等な移行で、
+// 既にあれば SELECT 1 本で抜ける (書き込みは rev を進めるので毎回は流さない)。窓の日付は確度=予想のものを人か AI が後で直す。
+// 定数は src/shopping.js から再公開する (d1.js は他のモジュールに読み込み時の依存を持たない。テストは import を外して連結するため)
+// (文字列を直に export しない: テストは全ソースを 1 本の Worker に連結し、Workers は文字列の export を受け付けないため 1 つの object にまとめる)
+export const SHOP_CONST={SALE_WINDOWS_DS:'5a1ec0de00004b1d8000000000000001',TEMP_BUY_LABEL:'買ったつもり',NEED_OPTIONS:['A 必需・期限あり','B 急がない必要品','C 欲しいだけ']}; // セール窓マスターの ID は Notion 由来ではなく Kairos で作ったので固定値
+const {SALE_WINDOWS_DS,NEED_OPTIONS}=SHOP_CONST;
+const hy=id=>id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,'$1-$2-$3-$4-$5');
+export const shoppingProperties = {
+ '必要度':{id:'kairos-need',name:'必要度',type:'select',select:{options:[{id:'need-a',name:NEED_OPTIONS[0],color:'red',description:null},{id:'need-b',name:NEED_OPTIONS[1],color:'yellow',description:null},{id:'need-c',name:NEED_OPTIONS[2],color:'gray',description:null}]}},
+ 'セール窓':{id:'kairos-sale',name:'セール窓',type:'relation',relation:{data_source_id:hy(SALE_WINDOWS_DS),type:'single_property',single_property:{}}},
+};
+export const saleWindowSchema = {object:'data_source',id:hy(SALE_WINDOWS_DS),title:[{type:'text',text:{content:'セール窓'},plain_text:'セール窓'}],properties:{
+ '名前':{id:'title',name:'名前',type:'title',title:{}},
+ '店':{id:'shop',name:'店',type:'select',select:{options:['楽天','Amazon','無印','IKEA','コストコ','その他'].map((n,i)=>({id:'shop-'+i,name:n,color:['red','orange','brown','blue','purple','gray'][i],description:null}))}},
+ '開始日':{id:'start',name:'開始日',type:'date',date:{}},
+ '終了日':{id:'end',name:'終了日',type:'date',date:{}},
+ '確度':{id:'cert',name:'確度',type:'select',select:{options:[{id:'cert-fixed',name:'確定',color:'green',description:null},{id:'cert-guess',name:'予想',color:'gray',description:null}]}},
+ 'メモ':{id:'memo',name:'メモ',type:'rich_text',rich_text:{}},
+}};
+// 初期の窓 (2026-11-02 時点)。お買い物マラソン 11月は楽天の公式ページで確定、ほかは予想
+export const saleWindowSeeds = [
+ {id:'5a1ec0de00004b1d8000000000001101',name:'楽天お買い物マラソン 11月',shop:'楽天',start:'2026-11-04',end:'2026-11-11',cert:'確定',memo:'11/4 20:00〜11/11 01:59（楽天市場の公式ページ）'},
+ {id:'5a1ec0de00004b1d8000000000001102',name:'Amazon ブラックフライデー 2026',shop:'Amazon',start:'2026-11-20',end:'2026-11-30',cert:'予想',memo:'未発表。先行 11/20〜22・本セール 11/23〜30 の予想。2025 は 11/14 に発表'},
+ {id:'5a1ec0de00004b1d8000000000001103',name:'楽天スーパーSALE 12月',shop:'楽天',start:'2026-12-04',end:'2026-12-11',cert:'予想',memo:'例年 12月第1週の 20:00〜翌週 01:59'},
+];
+const txt=s=>[{type:'text',text:{content:s},plain_text:s,annotations:{}}];
+export function saleWindowPage(w,now){
+ return {object:'page',id:hy(w.id),created_time:now,last_edited_time:now,archived:false,in_trash:false,icon:{type:'emoji',emoji:'🏷️'},parent:{type:'data_source_id',data_source_id:hy(SALE_WINDOWS_DS)},url:'/api/page/'+w.id,properties:{
+  '名前':{id:'title',type:'title',title:txt(w.name)},'店':{id:'shop',type:'select',select:{name:w.shop}},
+  '開始日':{id:'start',type:'date',date:{start:w.start,end:null,time_zone:null}},'終了日':{id:'end',type:'date',date:{start:w.end,end:null,time_zone:null}},
+  '確度':{id:'cert',type:'select',select:{name:w.cert}},'メモ':{id:'memo',type:'rich_text',rich_text:txt(w.memo)}}};
+}
+export async function ensureShopping(env){
+ const [src,tasks]=await env.DB.batch([
+  env.DB.prepare('SELECT 1 n FROM entity_schemas WHERE id=?').bind(SALE_WINDOWS_DS),
+  env.DB.prepare("SELECT id,json_type(payload,'$.properties.\"必要度\"') need,json_type(payload,'$.properties.\"セール窓\"') sale FROM entity_schemas WHERE collection='tasks'"),
+ ]);
+ const stmts=[],now=new Date().toISOString();
+ if(!src.results?.length){
+  stmts.push(env.DB.prepare('INSERT OR IGNORE INTO entity_schemas VALUES(?,?,?)').bind(SALE_WINDOWS_DS,'sale_windows',JSON.stringify(saleWindowSchema)));
+  for(const w of saleWindowSeeds)stmts.push(
+   env.DB.prepare('INSERT OR IGNORE INTO entities(id,ds,collection,payload) VALUES(?,?,?,?)').bind(w.id,SALE_WINDOWS_DS,'sale_windows',JSON.stringify(saleWindowPage(w,now))),
+   env.DB.prepare('INSERT OR IGNORE INTO entity_bodies VALUES(?,1)').bind(w.id),
+   env.DB.prepare('INSERT OR IGNORE INTO entity_body_versions VALUES(?,?)').bind(w.id,now));
+ }
+ for(const r of tasks.results || [])for(const [name,def] of Object.entries(shoppingProperties)){
+  if(r[name==='必要度'?'need':'sale'])continue;
+  stmts.push(env.DB.prepare('UPDATE entity_schemas SET payload=json_set(payload,?,json(?)) WHERE id=? AND json_type(payload,?) IS NULL').bind('$.properties.'+JSON.stringify(name),JSON.stringify(def),r.id,'$.properties.'+JSON.stringify(name)));
+ }
+ if(stmts.length)await env.DB.batch(stmts);
+ return stmts.length;
 }
 const optionsDone=new WeakSet();
 // 切り替え後は /api/storage/init を呼べないので、無いときだけ作る (作る文は rev を進めるので、毎回は流さない)
@@ -71,7 +126,7 @@ const sourceIds = new WeakMap();
 export async function d1Environment(env) {
  let cached=sourceIds.get(env.DB);
  if(!cached || Date.now()-cached.at>5000) {cached={at:Date.now(),promise:env.DB.batch([env.DB.prepare('SELECT id,collection FROM entity_schemas'),env.DB.prepare("SELECT value FROM storage_control WHERE key='presence_page_id'")])};sourceIds.set(env.DB,cached);}
- if(!env.D1_READ_ONLY&&!optionsDone.has(env.DB)){optionsDone.add(env.DB);try{await ensureSchemaOptions(env);await ensureBodyEdits(env);}catch(e){optionsDone.delete(env.DB);console.error('ensureSchemaOptions failed',String(e?.message ?? e));}}
+ if(!env.D1_READ_ONLY&&!optionsDone.has(env.DB)){optionsDone.add(env.DB);try{await ensureSchemaOptions(env);await ensureBodyEdits(env);await ensureShopping(env);}catch(e){optionsDone.delete(env.DB);console.error('ensureSchemaOptions failed',String(e?.message ?? e));}}
  const [sources,presence]=await cached.promise,copy={...env};
  for(const row of sources.results || [])if(collectionVars[row.collection])copy[collectionVars[row.collection]]=row.id;
  if(presence.results?.[0])copy.PRESENCE_PAGE_ID=presence.results[0].value;
