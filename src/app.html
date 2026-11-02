@@ -1187,13 +1187,13 @@
       label = aiName() + " と週次役割レビュー"; sub = "今週の石の達成と来週の石";
       q = `週次の役割レビューをお願いします。Kairos 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。作業記録は関連タスクの本文に追記してください。`;
     } else if (v === "review") {
-      const qs = reviewList();
-      label = qs.length ? aiName() + " と残りの問いを話しながら決める" : aiName() + " と Decisions を見直す";
-      sub = qs.length ? `残り ${qs.length} 問を理由つきで` : "提案中・提示済みの未決を一問一答で";
-      const lines = qs.slice(0, 10).map((x, i) => `${i + 1}. [${x.db}] ${x.name || x.q}（${x.url}）`).join("、") + (qs.length > 10 ? `、…ほか ${qs.length - 10} 件` : "");
+      const qs = reviewAll();
+      label = qs.length ? aiName() + " と残りをまとめて片付ける" : aiName() + " と Decisions を見直す";
+      sub = qs.length ? `残り ${qs.length} 問。調べてわかることは聞かず、選択肢だけ出してもらう` : "提案中・提示済みの未決を、選ぶだけの形にしてもらう";
+      const steps = numbered([...REVIEW_POLICY, `その場で決めきれない未決は、Decisions の 問い の末尾に選択肢を書いて残す（Kairos の決めるタブでタップで選べる）: ${OPT_FORMAT}`]);
       q = qs.length
-        ? `見直しの残り ${qs.length} 問を、理由を話しながら決めたいです: ${lines}。1 問ずつ判断に要る事実を聞いて、決着したら Kairos（Decisions の 決定・決定日・結論、Tasks、Projects）を操作規約どおり更新してください。作業記録は関連タスクの本文に追記してください。`
-        : `Kairos 🧠 Decisions の 提案中・提示済み で未決のものを一問一答で見直したいです。古いものから順に「着手する／棚上げ／やめる／今は決めない」を聞いて、決着したら 決定・決定日・結論 を書き、着手するものは ✅ Tasks に起票してください。作業記録は関連タスクの本文に追記してください。`;
+        ? `Kairos「決める」の残り ${qs.length} 問を片付けたいです。\n\n進め方\n${steps}\n\n問い\n${reviewItems(qs)}`
+        : `Kairos 🧠 Decisions の 提案中・提示済み の未決を、古いものから見直したいです。\n\n進め方\n${steps}`;
     } else return "";
     return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
   }
@@ -1324,7 +1324,46 @@
   };
   const md = (d) => d ? fmtDate(String(d).slice(0, 10)).split(" ")[0] : "";
   let reviewKind = null, reviewLater = new Set(); // 種類チップで絞る／「この種類は後で」(端末内)
-  function reviewList() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind) && !reviewLater.has(q.kind)) : []; }
+  // 下ごしらえ待ち (2026-11-02): 案の行が無い未決は人に聞かず「AI が先に調べる」へ。タップした問いだけ、その場でカードにする
+  let reviewForce = new Set();
+  const isPrep = (q) => q.prep && !reviewForce.has(q.id + q.kind);
+  function reviewAll() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind) && !reviewLater.has(q.kind)) : []; }
+  function reviewList() { return reviewAll().filter((q) => !isPrep(q)); }
+  function reviewPrep() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind) && isPrep(q)) : []; }
+  // AI に渡す依頼文 (2026-11-02): 1 行に詰めず、進め方と問いを番号つきの行で。調べてわかることは聞かない・戻せる操作は自分で進める
+  const REVIEW_POLICY = [
+    "まず各問いを自分で調べる（Kairos のタスク・本文・関連 PJ、メール・カレンダー・会計など手元で見られるもの）。調べてわかる事実は私に聞かない。",
+    "戻せる操作（起票・本文への追記・日程や順番の提案・選択肢の書き込み）は確認せずに進める。削除・見送り・支払い・送信など戻しにくいものだけ私に選ばせる。",
+    "私に聞くのは本人にしか決められないものだけ。1 問ずつ、短い問い＋選択肢 2〜4 個（推奨を先頭に、各 1 行の理由）で出し、番号で答えられるようにする。",
+    "決まったら操作規約どおり Kairos を更新し、作業記録は関連タスクの本文に追記する。",
+  ];
+  const OPT_FORMAT = "[案 着手|棚上げ|やめる] 案の短い名前 — 1 行の理由（推奨 1 つは [案 着手 推奨]）";
+  const numbered = (a) => a.map((x, i) => `${i + 1}. ${x}`).join("\n");
+  function reviewItems(qs, n = 10) {
+    const a = qs.slice(0, n).map((x, i) => `${i + 1}. 【${(KIND[x.kind] || {}).t || x.db}】${x.name || x.q}\n   なぜ今: ${reviewWhy(x) || "—"}\n   ${x.url}`);
+    return a.join("\n") + (qs.length > n ? `\n…ほか ${qs.length - n} 件（Kairos の決めるタブにあります）` : "");
+  }
+  function reviewPrepPrompt(ps) {
+    return `Kairos の未決 ${ps.length} 件を、私が選ぶだけの形に下ごしらえしてください。
+
+やること
+${numbered([
+  "各件を自分で調べる（Kairos のタスク・本文・関連 PJ、メール・カレンダー・会計など手元で見られるもの）。わかった事実は Decisions の 問い に追記する。",
+  "調べた結果、答えが機械的に出るもの（もう済んでいる・前提が消えた・期限が過ぎた）は、理由を結論に書いて決着させてよい。削除・見送り・支払い・送信など戻しにくい操作はしない。",
+  `本人にしか決められないものは、問い の末尾に選択肢を 2〜4 行で書く: ${OPT_FORMAT}`,
+  "名前が問いの形でなければ「〜するか」に直す。",
+  "最後に、各件の問い・選択肢・推奨をこのチャットに一覧で見せる（私はここでも Kairos の決めるタブでも選べる）。",
+])}
+
+対象
+${reviewItems(ps, 12)}`;
+  }
+  function reviewPrepHtml() {
+    const ps = reviewPrep(); if (!ps.length) return "";
+    return `<div class="rvn"><h2>🔎 AI が先に調べる<small>${ps.length} 件 · 選択肢ができたらカードになる</small></h2>
+      <div class="meta" style="margin:0 0 8px"><a href="${claudeLink(reviewPrepPrompt(ps))}" data-ext>${aiIcon()} ${aiName()} にまとめて下ごしらえを頼む</a><small>調べてわかることは聞かず、選択肢と推奨だけ用意してもらう</small></div>
+      <div class="group">${ps.slice(0, reviewShowAll ? 40 : 6).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span>${esc(n.name || n.q)}</span><small style="flex:none;color:var(--mute)">今決める ›</small></div>`).join("")}</div></div>`;
+  }
   function reviewWhy(q) {
     const m = q.meta || {};
     if (q.kind === "decision") return m.state === "提示済み" ? `前に「今は決めない」にした問い${m.shown ? `（${md(m.shown)} 提示）` : ""}。${m.src ? "出所: " + m.src : ""}` : `${m.at ? md(m.at) + " に起票。" : ""}${m.src ? "出所: " + m.src : "提案中のまま"}`;
@@ -1339,7 +1378,7 @@
   // 問いの文を定型に: 「〈対象〉を、どうする？」
   function reviewAsk(q) {
     const m = q.meta || {}, nm = (x) => `「${esc(x)}」`;
-    if (q.kind === "decision") return `${nm(q.name || q.q)}を、どうする？`;
+    if (q.kind === "decision") { const n = String(q.name || q.q || "").trim(); return /[？?]$/.test(n) ? esc(n) : /か$/.test(n) ? esc(n) + "？" : `${nm(n)}を、どうする？`; }
     if (q.kind === "project-close") return `PJ ${nm(q.name)}を、閉じる？`;
     if (q.kind === "task-carry") return `${nm(q.name)}を、まだやる？`;
     if (q.kind === "verify") return `${nm(q.name)}は、当たった？`;
@@ -1377,8 +1416,9 @@
   function renderReview(today) {
     const list = $("#list");
     if (!reviewData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
-    const all = reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind));
-    const total = reviewData.questions.length, done = total - all.length;
+    const cards = reviewData.questions.filter((q) => !isPrep(q));
+    const all = cards.filter((q) => !reviewSkipped.has(q.id + q.kind));
+    const total = cards.length, done = total - all.length;
     const counts = {}; for (const q of all) counts[q.kind] = (counts[q.kind] || 0) + 1;
     if (reviewKind && !counts[reviewKind]) reviewKind = null; // 絞っていた種類が尽きたら全体へ
     const qs = reviewList().filter((q) => !reviewKind || q.kind === reviewKind);
@@ -1387,7 +1427,7 @@
     const chipBar = Object.keys(counts).length > 1 || reviewLater.size ? `<div class="kchips"><button data-kind="" class="${reviewKind ? "" : "on"}">すべて<span class="n">${all.length}</span></button>${chips}</div>` : "";
     if (!qs.length) {
       const laterN = all.filter((q) => reviewLater.has(q.kind)).length;
-      list.innerHTML = chipBar + `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}${laterN ? `<div style="font-size:13px;color:var(--mute);margin-top:6px">後回しにした ${laterN} 問は、上のチップから戻せます</div>` : ""}</div>` + metaHtml("review");
+      list.innerHTML = chipBar + `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}${laterN ? `<div style="font-size:13px;color:var(--mute);margin-top:6px">後回しにした ${laterN} 問は、上のチップから戻せます</div>` : ""}</div>` + reviewPrepHtml() + metaHtml("review");
       return;
     }
     const q = qs[0], K = KIND[q.kind] || { ic: "❓", t: q.label || "" };
@@ -1406,11 +1446,22 @@
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${aiIcon()} 理由を話しながら決める</a>${counts[q.kind] > 1 ? `<a class="rcl" href="#" data-later="${q.kind}" style="color:var(--mute)">${K.ic} この種類は後で（${counts[q.kind]}）</a>` : ""}</div>
       </div>
       ${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${(KIND[n.kind] || {}).ic || ""} ${(KIND[n.kind] || {}).t || n.db}</span><span>${esc(n.name || n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}
-      <div class="hint">機械的に決まる問いだけをここに出す。判断理由が要るものは選んだAIに相談する</div>` + metaHtml("review");
+      ${reviewPrepHtml()}
+      <div class="hint">本人が選ぶだけの問いをここに出す。調べればわかるものは「AI が先に調べる」へ回す</div>` + metaHtml("review");
   }
   function reviewClaudeHref(q) {
-    const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : "🧠 Decisions の決定";
-    return claudeLink(`「${q.name || q.q}」について一問一答で決めたいです（${where}。ページ: ${q.url} ）。${q.kind === "verify" ? "決めたことの検証結果（当たり／外れ／部分的）と学びを一緒に書いてください。" : q.kind === "project-close" ? "クローズするか、次のアクションを 1 件足すかを決めて、Projects と Decisions を更新してください。" : "判断に要る事実を 1 問ずつ聞いて、決着したら Kairos を更新してください（操作規約どおり）。"}`);
+    const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : q.db === "Habits" ? "🔁 Habits の習慣" : "🧠 Decisions の決定";
+    const goal = q.kind === "verify" ? "検証結果（当たり／外れ／部分的）と学びを書く。"
+      : q.kind === "project-close" ? "クローズするか、次のアクションを 1 件足すかを決め、Projects と Decisions を更新する。"
+      : q.kind === "decision" ? `決めきれなければ、Decisions の 問い の末尾に選択肢を書いて残す: ${OPT_FORMAT}`
+      : "決まったら Kairos を更新する。";
+    return claudeLink(`「${q.name || q.q}」を決めたいです。
+種類: ${(KIND[q.kind] || {}).t || q.label}（${where}）
+なぜ今: ${reviewWhy(q) || "—"}
+ページ: ${q.url}
+
+進め方
+${numbered([...REVIEW_POLICY, goal])}`);
   }
   async function reviewAnswer(q, a) {
     const note = ($("#rvNote") || {}).value || "";
@@ -2291,7 +2342,7 @@
     if (view === "review") {
       if (e.target.closest("[data-ext]") || e.target.closest("a")) return;
       // 「このあと」の問いをタップ＝その問いを先頭に (2026-10-10 利用者の提案「どれからスタートするか選べるように」)
-      const pk = e.target.closest("[data-rvpick]"); if (pk && reviewData) { const i = reviewData.questions.findIndex((n) => n.id + n.kind === pk.dataset.rvpick); if (i > 0) { const [x] = reviewData.questions.splice(i, 1); reviewData.questions.unshift(x); render(todayStr); window.scrollTo({ top: 0, behavior: "smooth" }); } return; }
+      const pk = e.target.closest("[data-rvpick]"); if (pk && reviewData) { reviewForce.add(pk.dataset.rvpick); reviewKind = null; const i = reviewData.questions.findIndex((n) => n.id + n.kind === pk.dataset.rvpick); if (i >= 0) { const [x] = reviewData.questions.splice(i, 1); reviewData.questions.unshift(x); render(todayStr); window.scrollTo({ top: 0, behavior: "smooth" }); } return; }
       if (e.target.closest("[data-rvmore]")) { reviewShowAll = true; render(todayStr); return; }
       const kc = e.target.closest(".kchips [data-kind]"); if (kc) { const k = kc.dataset.kind; if (k && reviewLater.has(k)) reviewLater.delete(k); reviewKind = k || null; render(todayStr); return; } // 種類チップ: 絞る／後回しを戻す
       const lt = e.target.closest("[data-later]"); if (lt) { e.preventDefault(); reviewLater.add(lt.dataset.later); if (reviewKind === lt.dataset.later) reviewKind = null; render(todayStr); toast(`${(KIND[lt.dataset.later] || {}).t || ""} は後回し（チップで戻せる）`); return; }
@@ -2429,7 +2480,12 @@
     catch (err) { toast("追加失敗: " + err.message); $("#addName").value = name; }
   };
 
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  // 新しい版の SW が引き継いだら 1 回だけ読み込み直す (デプロイ後に古い画面を残さない)。初回インストールでは読み込み直さない
+  if ("serviceWorker" in navigator) {
+    let swCtl = navigator.serviceWorker.controller, swReloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { const prev = swCtl; swCtl = navigator.serviceWorker.controller; if (!prev || swReloading) return; swReloading = true; location.reload(); });
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
   if (window.KAIROS_PREVIEW) { const banner = document.createElement("div"); banner.textContent = "D1プレビュー（読み取り専用）"; banner.style.cssText = "padding:8px;text-align:center;background:#fff3cd;color:#664d03"; document.body.prepend(banner); }
   load(view).then(() => { counts(); const id = new URL(location.href).searchParams.get("page"); if (/^[a-f0-9]{32}$/.test(id || "")) openReader(id); });
 })();
