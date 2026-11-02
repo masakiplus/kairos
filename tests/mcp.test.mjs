@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { isMcpPath, mcpRoute } from '../src/mcp.js';
+import { matches } from '../src/d1.js';
 
 const ORIGIN = 'https://kairos.test';
 const TOKEN = 'test-only-token';
@@ -9,11 +10,29 @@ const REDIRECT = 'https://claude.ai/api/mcp/auth_callback';
 const hex = (c) => c.repeat(32);
 const DS = { tasks: hex('a'), projects: hex('b'), roles: hex('c'), decisions: hex('d') };
 const SCHEMA = {
-  [DS.tasks]: { 名前: { type: 'title' }, 完了: { type: 'checkbox' }, 完了日: { type: 'date' }, ステータス: { type: 'status', status: { options: [{ name: '未着手' }, { name: '進行中' }, { name: '人対応' }, { name: '完了' }] } }, 期日: { type: 'date' }, AIセッション: { type: 'url' }, 説明: { type: 'rich_text' }, ラベル: { type: 'multi_select', multi_select: { options: [{ name: 'Home' }] } } },
+  [DS.tasks]: { 名前: { type: 'title' }, 完了: { type: 'checkbox' }, 完了日: { type: 'date' }, ステータス: { type: 'status', status: { options: [{ name: '未着手' }, { name: '進行中' }, { name: '人対応' }, { name: '完了' }] } }, 期日: { type: 'date' }, AIセッション: { type: 'url' }, 説明: { type: 'rich_text' }, ラベル: { type: 'multi_select', multi_select: { options: [{ name: 'Home' }, { name: '買ったつもり' }] } }, 必要度: { type: 'select', select: { options: [{ name: 'A 必須' }, { name: 'B 急がない必要品' }] } }, 関連プロジェクト: { type: 'relation' }, 外出: { type: 'checkbox' }, メモ: { type: 'rich_text' } },
   [DS.projects]: { 名前: { type: 'title' }, 対応ゴール: { type: 'rich_text' }, ステータス: { type: 'status', status: { options: [{ name: '進行中' }, { name: '完了' }] } } },
   [DS.roles]: { 名前: { type: 'title' }, 今週の目標: { type: 'relation' } },
 };
 const PAGES = { [hex('1')]: DS.tasks, [hex('2')]: DS.projects, [hex('3')]: DS.roles };
+
+// tasks の行 1,500 件（完了済みを含む実データより多め）。条件に合う行を並びの後ろ（1,000 行より先）に置く
+const PID = '3c40cdbf-f88a-816d-bd8d-ecf1c59b0920';
+const ROWS = Array.from({ length: 1500 }, (_, i) => {
+  const late = i >= 1200 && i % 50 === 0; // 1200,1250,…,1450 の 6 件
+  return {
+    id: String(i).padStart(32, '0'),
+    properties: {
+      名前: { type: 'title', title: [{ plain_text: '行' + i }] },
+      完了: { type: 'checkbox', checkbox: late ? i === 1450 : i % 2 === 0 },
+      ラベル: { type: 'multi_select', multi_select: late ? [{ name: '買ったつもり' }] : [] },
+      必要度: { type: 'select', select: late ? { name: 'B 急がない必要品' } : { name: 'A 必須' } },
+      関連プロジェクト: { type: 'relation', relation: late ? [{ id: PID }] : [] },
+      外出: { type: 'checkbox', checkbox: late },
+      メモ: { type: 'rich_text', rich_text: [{ plain_text: late ? '後ろ' : '前' }] },
+    },
+  };
+});
 
 // Worker 自身の API の代わり。呼ばれた内容を calls に残す
 function fakeWorker() {
@@ -25,6 +44,12 @@ function fakeWorker() {
     if (p === '/api/storage/sources') return res({ sources: Object.entries(DS).map(([collection, id]) => ({ collection, id })) });
     let m = p.match(/^\/api\/data\/data_sources\/([0-9a-f]{32})$/);
     if (m) return res({ properties: SCHEMA[m[1]] ?? {} });
+    m = p.match(/^\/api\/data\/data_sources\/([0-9a-f]{32})\/query$/);
+    if (m && method === 'POST') {
+      const rows = m[1] === DS.tasks ? ROWS.filter((r) => matches(r, body.filter)) : [];
+      const from = Number(String(body.start_cursor ?? 'd1:0').slice(3)), end = from + (body.page_size ?? 100);
+      return res({ results: rows.slice(from, end), has_more: end < rows.length, next_cursor: end < rows.length ? 'd1:' + end : null });
+    }
     m = p.match(/^\/api\/data\/pages\/([0-9a-f]{32})$/);
     if (m && method === 'GET') return res({ id: m[1], parent: { data_source_id: PAGES[m[1]] }, properties: { 名前: { type: 'title', title: [{ plain_text: '検証' }] } } });
     if (m && method === 'PATCH') return res({ id: m[1], properties: { 名前: { type: 'title', title: [{ plain_text: '検証' }] } } });
@@ -290,4 +315,31 @@ test('tools: 本文追記は見出し・箇条書き・長い行を落とさず�
   assert.equal(blocks[3].to_do.checked, true);
   assert.equal(blocks[4].paragraph.rich_text.map((x) => x.text.content).join('').length, 2500);
   assert.equal((await tool(send, tokens.access_token, 'kairos_append_body', { id: hex('1'), markdown: '   \n\n' })).isError, true);
+});
+
+test('kairos_query は 1,000 行より後ろの行も where・open_only で拾い、filter を D1 側へ渡す', async () => {
+  const { send, fw } = setup();
+  const { tokens } = await connect(send);
+  const t = tokens.access_token;
+  const q = async (args) => { const r = await tool(send, t, 'kairos_query', { database: 'tasks', ...args }); assert.equal(r.isError, false, r.text); return JSON.parse(r.text); };
+  const names = (rows) => rows.map((r) => r.名前);
+  const late = ['行1200', '行1250', '行1300', '行1350', '行1400', '行1450'];
+
+  fw.calls.length = 0;
+  assert.deepEqual(names(await q({ where: { ラベル: '買ったつもり' } })), late, 'multi_select');
+  const qs = fw.calls.filter((c) => c.path.endsWith('/query'));
+  assert.equal(qs.length, 1, '絞った結果だけ受け取るので 1 ページで済む');
+  assert.deepEqual(qs[0].body.filter, { property: 'ラベル', multi_select: { contains: '買ったつもり' } });
+
+  assert.deepEqual(names(await q({ open_only: true, where: { 必要度: 'B 急がない必要品' } })), late.slice(0, 5), 'select＋open_only');
+  assert.deepEqual(names(await q({ where: { 関連プロジェクト: PID.replace(/-/g, '') } })), late, 'relation（ハイフン無しの ID でも合う）');
+  assert.deepEqual(names(await q({ where: { 外出: 'true' } })), late, 'checkbox');
+  assert.deepEqual(names(await q({ where: { メモ: '後ろ' } })), late, 'D1 に渡さない型（rich_text）も全件から手元で絞る');
+  assert.deepEqual(names(await q({ where: { ラベル: '買ったつもり' }, columns: ['名前'] })), late, 'columns に where の列が無くても絞れる');
+  assert.deepEqual(Object.keys((await q({ where: { ラベル: '買ったつもり' }, columns: ['名前'] }))[0]).sort(), ['id', '名前']);
+
+  fw.calls.length = 0;
+  assert.equal((await q({ open_only: true, limit: 3 })).length, 3);
+  assert.equal(fw.calls.filter((c) => c.path.endsWith('/query')).length, 1, 'limit に届いたら次のページを読まない');
+  assert.equal((await q({ limit: 500 })).length, 500);
 });
