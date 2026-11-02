@@ -550,7 +550,7 @@
   applyTheme();
 
   let view = localStorage.getItem("view") || "today";
-  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated"].includes(requested)) view = requested; }
+  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "phone", "cloud", "doing", "project", "roles", "review", "delegated", "shop"].includes(requested)) view = requested; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
   const allTasks = () => tasks; // render は絞った後の行を同名の tasks で持つので、元の一覧はこれで読む
@@ -1830,6 +1830,7 @@
   function removeRow(id) {
     markPending(id, { hide: true });
     tasks = tasks.filter((t) => t.id !== id);
+    if (view === "shop") { const sr = document.querySelector(`.srow[data-id="${id}"]`); if (sr) sr.remove(); lastSig = ""; return; } // 🛒 は節と図を残したまま行だけ消す。取り直しで必ず描き直す
     const el = document.querySelector(`.row[data-id="${id}"]`);
     if (el) { const g = el.parentElement, s = g.parentElement; el.remove(); if (!g.children.length) s.remove(); }
     $("#n-" + view).textContent = tasks.length;

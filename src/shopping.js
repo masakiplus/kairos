@@ -144,7 +144,7 @@ export function shoppingModel({ tasks, windows, pools, today }) {
   const savings = [];
   if (months.length) {
     let cum = 0;
-    for (let m = months[0], i = 0; m <= thisMonth && i < 36; m = addMonths(m, 1), i++) {
+    for (let m = months[0]; m <= thisMonth || m <= months[months.length - 1]; m = addMonths(m, 1)) {
       const r = byMonth.get(m) ?? { month: m, amount: 0, count: 0, unpriced: 0 };
       cum += r.amount; savings.push({ ...r, cum });
     }
