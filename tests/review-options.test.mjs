@@ -29,5 +29,10 @@ test('Decisions の [案] 行が選択肢になり、選んだ案の文と効き
   assert.equal(p.状態.select.name,'決着');assert.equal(p.決定.select.name,'削除');
   assert.match(p.結論.rich_text.map(t=>t.plain_text??t.text?.content).join(''),/^やめる \(/);
   assert.equal((await api('/api/review/decision/'+withOpts,{answer:'opt:9'})).status>=400,true);
+  // 応答は D1 に置いて使い回し、答えた (書き込んだ) あとは作り直す
+  assert.ok(await db.prepare("SELECT 1 FROM storage_control WHERE key='resp:review'").first());
+  const again=await api('/api/review');
+  assert.equal(again.data.questions.some(q=>q.id.replace(/-/g,'')===withOpts),false);
+  assert.equal(again.data.questions.some(q=>q.id.replace(/-/g,'')===noOpts),true);
  }finally{await mf.dispose();}
 });

@@ -447,6 +447,13 @@ async function taskGraph(env, id) {
     Promise.all(t.succIds.slice(0, 12).map((sid) => getTask(env, sid).catch(() => null))),
   ]);
   const names = await projectNames(env).catch(() => new Map());
+  // 依存案・日程案が指すタスクを先にまとめて引く (1 件ずつ await すると件数ぶん直列になる)
+  const refIds = new Set();
+  for (const pg of decs.results ?? []) { const p = pg.properties ?? {}, kind = p["種別"]?.select?.name;
+    if (kind === "依存案") { const d = parseDepsRow(p); if (d) { refIds.add(d.predId); refIds.add(d.succId); } }
+    if (kind === "日程案") { const d = parseDatesRow(p); if (d) refIds.add(d.taskId); } }
+  const refTasks = new Map(await Promise.all([...refIds].map(async (id) => [id, await getTask(env, id).catch(() => null)])));
+  const taskOf = async (id) => refTasks.has(id) ? refTasks.get(id) : getTask(env, id).catch(() => null);
   const fill = (x) => { x.project = x.projectIds.map((pid) => names.get(pid)).filter(Boolean).join(" / ") || null; return x; };
   fill(t); preds.filter(Boolean).forEach(fill); succs.filter(Boolean).forEach(fill);
   const roleNames = await rolesNames(env).catch(() => new Map());
@@ -671,7 +678,7 @@ async function reviewQuestions(env) {
     if (p["種別"]?.select?.name === "依存案") {
       const d = parseDepsRow(p);
       if (!d) continue;
-      const [pt, st] = await Promise.all([getTask(env, d.predId).catch(() => null), getTask(env, d.succId).catch(() => null)]);
+      const [pt, st] = await Promise.all([taskOf(d.predId), taskOf(d.succId)]);
       if (st && st.predIds.map((x) => x.replace(/-/g, "")).includes(d.predId.replace(/-/g, ""))) continue; // もう結ばれている
       out.push({
         kind: "deps", db: "Decisions", label: "依存の提案", id: pg.id, url: pg.url,
@@ -687,7 +694,7 @@ async function reviewQuestions(env) {
     if (p["種別"]?.select?.name === "日程案") {
       const d = parseDatesRow(p);
       if (!d) continue;
-      const tt = await getTask(env, d.taskId).catch(() => null);
+      const tt = await taskOf(d.taskId);
       if (tt && tt.done) continue;
       out.push({
         kind: "dates", db: "Decisions", label: "日程の提案", id: pg.id, url: pg.url,
@@ -1407,7 +1414,8 @@ const kairosWorker = {
       const mpd = path.match(/^\/api\/projects\/([0-9a-f-]{32,36})\/deps$/);
       if (mpd && req.method === "GET") return json(await projectDeps(env, mpd[1]));
       // 🗂 見直し (Phase C-9): 問いの一覧と、答えの書き込み
-      if (path === "/api/review" && req.method === "GET") return json(await reviewQuestions(env));
+      // 決めるタブ (2026-11-03 遅い件): 一覧と同じく応答を D1 に置いて使い回す。答える・タスクを動かすなど書き込みがあれば rev が進んで外れる
+      if (path === "/api/review" && req.method === "GET") return json(await cachedJson(env, "review", () => reviewQuestions(env)));
       const mrv = path.match(/^\/api\/review\/(decision|verify|task-carry|habit|deps|dates)\/([0-9a-f-]{32,36})$/);
       if (mrv && req.method === "POST") {
         const b = await req.json().catch(() => ({}));

@@ -1325,7 +1325,22 @@
   const md = (d) => d ? fmtDate(String(d).slice(0, 10)).split(" ")[0] : "";
   let reviewKind = null, reviewLater = new Set(); // 種類チップで絞る／「この種類は後で」(端末内)
   // 下ごしらえ待ち (2026-11-02): 案の行が無い未決は人に聞かず「AI が先に調べる」へ。タップした問いだけ、その場でカードにする
-  let reviewForce = new Set();
+  let reviewForce = new Set(), reviewStale = false, reviewFetching = null;
+  // 決めるタブの問いを取る。起動直後にも裏で 1 回呼び、サーバーのキャッシュと端末の控えを温めておく
+  function fetchReview() {
+    if (reviewFetching) return reviewFetching;
+    reviewFetching = (async () => {
+      try {
+        const j = await api("/api/review");
+        reviewData = j; reviewStale = false; reviewPos = Math.min(reviewPos, Math.max(0, j.questions.length - 1));
+        try { localStorage.setItem("review:data", JSON.stringify(j)); } catch (e) {}
+        $("#n-review").textContent = reviewList().length || "";
+        if (view === "review") { render(j.today); $("#stale").hidden = true; }
+      } catch (e) { if (view === "review") { $("#stale").hidden = false; $("#stale").textContent = (reviewStale ? "更新に失敗（表示は前回のもの）: " : "取得失敗: ") + e.message; } }
+      finally { reviewFetching = null; }
+    })();
+    return reviewFetching;
+  }
   const isPrep = (q) => q.prep && !reviewForce.has(q.id + q.kind);
   function reviewAll() { return reviewData ? reviewData.questions.filter((q) => !reviewSkipped.has(q.id + q.kind) && !reviewLater.has(q.kind)) : []; }
   function reviewList() { return reviewAll().filter((q) => !isPrep(q)); }
@@ -1815,12 +1830,13 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       catch (e) { setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
       return;
     }
-    if (v === "review") { // 見直し (Phase C-9): 問いは Worker が作る。キャッシュしない
+    if (v === "review") { // 見直し (Phase C-9): 問いは Worker が作る
+      // 2026-11-03 遅い件: 前回の問いを端末に置いてすぐ出し、裏で最新に差し替える。差し替わるまでは答えられない (古いカードで決着させない)
       view = v; localStorage.setItem("view", v);
-      if (!silent || !reviewData) { $("#stale").hidden = false; $("#stale").textContent = "問いを集めています…"; }
+      if (!reviewData) { try { const c = JSON.parse(localStorage.getItem("review:data") || "null"); if (c && c.today === todayStr) { reviewData = c; reviewStale = true; } } catch (e) {} }
+      if (!silent || !reviewData) { $("#stale").hidden = false; $("#stale").textContent = reviewData ? "最新の問いに更新しています…" : "問いを集めています…"; }
       render(todayStr);
-      try { const j = await api("/api/review"); reviewData = j; reviewPos = Math.min(reviewPos, Math.max(0, j.questions.length - 1)); render(j.today); $("#stale").hidden = true; $("#n-review").textContent = reviewList().length || ""; }
-      catch (e) { $("#stale").hidden = false; $("#stale").textContent = "取得失敗: " + e.message; }
+      await fetchReview();
       return;
     }
     if (v === "project") { // PJ別 (Phase B-7/8): 見出し用の PJ 情報を並行して引く (2 分は使い回す)
@@ -2347,6 +2363,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       const kc = e.target.closest(".kchips [data-kind]"); if (kc) { const k = kc.dataset.kind; if (k && reviewLater.has(k)) reviewLater.delete(k); reviewKind = k || null; render(todayStr); return; } // 種類チップ: 絞る／後回しを戻す
       const lt = e.target.closest("[data-later]"); if (lt) { e.preventDefault(); reviewLater.add(lt.dataset.later); if (reviewKind === lt.dataset.later) reviewKind = null; render(todayStr); toast(`${(KIND[lt.dataset.later] || {}).t || ""} は後回し（チップで戻せる）`); return; }
       const b = e.target.closest("[data-ans]"); if (!b) return;
+      if (reviewStale) { toast("最新の問いを読み込み中です。少し待ってから答えてください"); return; }
       const card = b.closest(".rvc"); const q = card && reviewData && reviewData.questions.find((x) => x.id === card.dataset.qid && x.kind === card.dataset.kind);
       if (q) reviewAnswer(q, b.dataset.ans);
       return;
@@ -2487,7 +2504,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
   if (window.KAIROS_PREVIEW) { const banner = document.createElement("div"); banner.textContent = "D1プレビュー（読み取り専用）"; banner.style.cssText = "padding:8px;text-align:center;background:#fff3cd;color:#664d03"; document.body.prepend(banner); }
-  load(view).then(() => { counts(); const id = new URL(location.href).searchParams.get("page"); if (/^[a-f0-9]{32}$/.test(id || "")) openReader(id); });
+  load(view).then(() => { counts(); if (view !== "review") setTimeout(() => fetchReview(), 1500); const id = new URL(location.href).searchParams.get("page"); if (/^[a-f0-9]{32}$/.test(id || "")) openReader(id); });
 })();
 </script>
 </body>
