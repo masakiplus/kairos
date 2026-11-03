@@ -421,6 +421,9 @@ export async function d1Notion(env,path,init={}) {
   const id=crypto.randomUUID(),now=new Date().toISOString();
   const page={object:'page',id,created_time:now,last_edited_time:now,archived:false,in_trash:false,icon:args.icon || null,parent:args.parent,properties:props,url:'/api/page/'+cleanId(id)};
   const coll=(await collectionOfSource(env,ds)) || 'pages';
+  // 2026-11-04: 起票時の片肺完了を防ぐ。ステータス=完了・完了=true・完了日 のどれか1つだけで作られると
+  // 完了フラグや完了日が欠けた「片肺完了」になり、夜間棚卸しが完了済みの行の期日を繰り越し続けていた。done と同じ3点セットに揃え、AI処理開始 も空にする
+  if(coll==='tasks'){const st=props['ステータス'];const isDone=props['完了']?.checkbox===true||st?.[st?.type]?.name==='完了'||!!props['完了日']?.date?.start;if(isDone){const today=new Date(Date.now()+9*3_600_000).toISOString().slice(0,10);if(props['完了'])props['完了'].checkbox=true;if(st)st[st.type]={name:'完了'};if(props['完了日']&&!props['完了日'].date?.start)props['完了日'].date={start:today};if(props['AI処理開始'])props['AI処理開始'].date=null;}}
   const extra=[env.DB.prepare('INSERT INTO entity_bodies VALUES(?,1)').bind(cleanId(id)),env.DB.prepare('INSERT INTO entity_body_versions VALUES(?,?)').bind(cleanId(id),now),...blockStatements(env,cleanId(id),args.children || []).stmts];
   for(const [name,p] of Object.entries(props))if(p.type==='relation')for(const rel of p.relation){const target=state.rows.get(cleanId(rel.id));if(!target)throw new Error('Relation target is not migrated');const reciprocal=definition.properties[name]?.relation?.dual_property?.synced_property_name;if(reciprocal)extra.push(env.DB.prepare('INSERT OR IGNORE INTO entity_links VALUES(?,?,?)').bind(cleanId(rel.id),reciprocal,cleanId(id)));}
   await storePage(env,page,coll,ds,undefined,extra);
