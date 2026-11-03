@@ -590,7 +590,7 @@
   }
   // ---- end 絞り込み ----
   let filt = {}; try { filt = cleanFilter(JSON.parse(localStorage.getItem("filter") || "{}")); } catch (e) {} // 端末ごとに覚える。取れなければ「すべて」
-  const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} refreshTabCounts(); };
+  const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} };
   // タブの件数は 🔍 絞り込み後の件数を出す (2026-11-03 利用者の報告「タブの件数と一覧の件数がずれる」: 📍 クラウド で絞っても タブは 48 のままだった)
   const tabCount = (v, ts) => applyFilter(ts, filt, v).length;
   function refreshTabCounts() {
@@ -600,7 +600,7 @@
       if (Array.isArray(ts)) $("#n-" + v).textContent = tabCount(v, ts);
     }
   }
-  if (legacyEnv) { filt = { env: legacyEnv }; try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} } // ここではまだ K が無いので saveFilt (件数の描き直し付き) は呼ばない
+  if (legacyEnv) { filt = { env: legacyEnv }; saveFilt(); }
   let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
   let undoTask = null, undoTimer = null;
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -1131,11 +1131,11 @@
       <div class="grid"><button class="pri" id="fltOk">閉じる</button><button class="skip" id="fltClear" ${filterOn(filt) ? "" : "disabled"}>すべて解除</button></div>`;
       $("#sheet").querySelector(".close").onclick = closeSheet;
       $("#fltOk").onclick = closeSheet;
-      $("#fltClear").onclick = () => { filt = {}; saveFilt(); lastSig = ""; render(todayStr); draw(); };
+      $("#fltClear").onclick = () => { filt = {}; saveFilt(); refreshTabCounts(); lastSig = ""; render(todayStr); draw(); };
       $("#sheet").querySelectorAll("[data-fk]").forEach((b) => b.onclick = () => {
         const k = b.dataset.fk, v = b.dataset.fv;
         if (v && filt[k] !== v) filt[k] = v; else delete filt[k]; // 選択中をもう一度押したら外す
-        saveFilt(); lastSig = ""; render(todayStr); draw(); // 一覧も裏で絞り直す
+        saveFilt(); refreshTabCounts(); lastSig = ""; render(todayStr); draw(); // 一覧も裏で絞り直す
       });
     };
     draw();
@@ -2483,7 +2483,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   const _render = render; render = (today) => { todayStr = today; _render(today); };
   $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) load(b.dataset.v); };
   $("#sitChip").onclick = openSitPick;
-  $("#fltChip").onclick = (e) => { if (e.target.closest("[data-fx]")) { filt = {}; saveFilt(); lastSig = ""; render(todayStr); return; } openFilterPick(); };
+  $("#fltChip").onclick = (e) => { if (e.target.closest("[data-fx]")) { filt = {}; saveFilt(); refreshTabCounts(); lastSig = ""; render(todayStr); return; } openFilterPick(); };
   // 検索 (2026-10-04): 🔍 で検索欄を出し、入力が止まって 350ms で引く。✕ か空 Esc で元のタブへ
   function openSearch() {
     if (view !== "search") { searchBack = view; view = "search"; }
