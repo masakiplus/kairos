@@ -384,11 +384,11 @@ async function bodyMd(ctx, id, depth = 0) {
 
 // 2026-11-03: 以前は先頭 1,000 行だけ読んでから where・open_only で絞っていたため、tasks（完了済みを含め 1,000 行超）の後ろの行を取りこぼしていた。
 // いまは filter を D1 側に渡して必要な行だけ受け取り、keep に合う行が want 件たまるか最後のページまで読む（上限を設けない）。
-async function queryAll(ctx, ds, { filter, keep = () => true, want = Infinity } = {}) {
+async function queryAll(ctx, ds, { filter, sorts, keep = () => true, want = Infinity } = {}) {
   const out = [];
   let cursor = null;
   for (;;) {
-    const r = await api(ctx, "POST", `/api/data/data_sources/${ds}/query`, { page_size: 100, ...(filter ? { filter } : {}), ...(cursor ? { start_cursor: cursor } : {}) });
+    const r = await api(ctx, "POST", `/api/data/data_sources/${ds}/query`, { page_size: 100, ...(filter ? { filter } : {}), ...(sorts ? { sorts } : {}), ...(cursor ? { start_cursor: cursor } : {}) });
     for (const p of r.results ?? []) if (keep(p)) out.push(p);
     if (out.length >= want || !r.has_more || !r.next_cursor || r.next_cursor === cursor) break;
     cursor = r.next_cursor;
@@ -451,6 +451,7 @@ const RULES = [
   "タスクを更新・起票するとき、次のどれかに当たればサブタスクに分ける（確認は要らない。分けた理由は親の本文に書く）: 実行環境・担当・場所が違う工程が混ざる／本人の手番と AI の手番が混ざる／途中に待ち（返事・到着・特定日以降）を挟む／1回で終わらない（目安2時間超・複数日）。1回・1か所で終わるものは分けない。子は2〜5件で名前は①②…、説明は2行、親アイテム に親の id、待ちのある子は 開始日、順番があれば 先行タスク。作る前に親の サブアイテム を見て重複させない。親の 何を に「サブタスクN件。全部終わったら親を完了」と書き、親の 実行環境・期日 を子の全体に合わせる。",
   "Decisions に未決を書くときは、先に自分で調べる（タスク・本文・メール・カレンダー・会計など手元で見られるもの）。調べてわかる事実は 問い に書いて、本人に聞く問いにしない。本人にしか決められないものだけを残し、問い の末尾に選択肢を2〜4行「[案 着手|棚上げ|やめる] 案の短い名前 — 1行の理由」で書く（推奨1つは「[案 着手 推奨]」）。Kairos の決めるタブはこの行をそのまま選択肢にし、案の行が無い未決は「AIが先に調べる」に回して人には聞かない。名前は「〜するか」の問いの形にする。",
   "Decisions の答え合わせ（状態=決着・検証日≦今日・検証結果が空）は、AI が先に実績を調べる（関連タスクの完了と本文・家計や口座の数字・メール・カレンダー）。結果が実績から明らかなら 検証結果（当たり／部分的／外れ／検証不要）と 学び（根拠1行）を自分で書いて閉じる。判断が要るものだけ、問い の末尾に調べた実績を書き、「[案 当たり|部分的|外れ|検証不要] 短い名前 — 根拠1行」を2〜3行（推奨1つは「[案 当たり 推奨]」の形）で書いて本人に残す。",
+  "会話の足跡は Kairos の sessions に kairos_create で書く（Notion の 📻 Sessions には書かない。2026-10-19 以降 Notion にも Kairos にも書かれず止まっていた）。実質的な作業か判断があった会話の終わりに1件: 名前（やったことを体言で）・日時（終わった JST の ISO 日時）・サーフェス（Cowork / claude.ai / Claude Code / 定期タスク）・要旨（結果から1〜2文）・決めたこと・残課題・うまくいかなかったこと・手戻り と 対象スキル（本人が直した点とそのスキル）・触った領域。決めたことのうち今後を縛るものは Decisions にも書いて 関連決定 で結ぶ。会社の業務・認証情報は書かない。",
   "AIに渡されたタスクは、終わるとき AI処理開始 を空にする（done なら自動。止まるなら kairos_task_action の human か ai_clear）。人の手が要って止まるなら human（ステータス=人対応）。",
 ];
 
@@ -504,7 +505,7 @@ const TOOLS = [
   {
     name: "kairos_query",
     title: "DB の行を一覧",
-    description: "tasks / projects / roles / decisions / habits / habitlog の行を返す。open_only=true で未完了だけ。where は {プロパティ名: 値} の完全一致（配列プロパティは含む）。columns で列を絞る。",
+    description: "tasks / projects / roles / decisions / habits / habitlog（ほか sessions・daily などの追加 DB）の行を、新しく作られた順に返す。open_only=true で未完了だけ。where は {プロパティ名: 値} の完全一致（配列プロパティは含む）。columns で列を絞る。",
     inputSchema: {
       type: "object",
       properties: {
@@ -523,7 +524,8 @@ const TOOLS = [
       const filter = a.where || a.open_only ? whereFilter(await schemaOf(ctx, ds), a.where, a.open_only) : undefined;
       // 絞り込みは列を落とす前の全列で行う（columns に where の列が無くても効くように）
       const keep = (p) => { const r = flat(p); return matchWhere(r, a.where) && (!a.open_only || isOpen(r)); };
-      const pages = await queryAll(ctx, ds, { filter, keep, want: limit });
+      // 新しく作られた順 (2026-11-03): 作成順のままだと Notion から移した古い行が先に来て、limit で切ると移行後に Kairos へ書いた行が見えなかった
+      const pages = await queryAll(ctx, ds, { filter, sorts: [{ timestamp: "created_time", direction: "descending" }], keep, want: limit });
       return pages.slice(0, limit).map((p) => flat(p, { cols, truncate: cols ? 0 : 600 }));
     },
   },
@@ -541,7 +543,7 @@ const TOOLS = [
   {
     name: "kairos_create",
     title: "ページを作る",
-    description: "tasks / decisions / habitlog に 1 件作る。fields は {プロパティ名: 値}（日付は YYYY-MM-DD か ISO 日時、複数選択・リレーションは配列）。icon（絵文字）は tasks で必須。body は Markdown 風の本文。",
+    description: "tasks / decisions / habitlog と、sessions（会話の足跡）・selfreview・daily などの追加 DB に 1 件作る（Roles / Projects / Habits は作れない）。fields は {プロパティ名: 値}（日付は YYYY-MM-DD か ISO 日時、複数選択・リレーションは配列）。icon（絵文字）は tasks で必須。body は Markdown 風の本文。",
     inputSchema: {
       type: "object",
       properties: { database: DB_PROP, fields: { type: "object" }, icon: { type: "string" }, body: { type: "string" } },

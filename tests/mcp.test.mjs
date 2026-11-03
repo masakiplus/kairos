@@ -330,6 +330,7 @@ test('kairos_query は 1,000 行より後ろの行も where・open_only で拾�
   const qs = fw.calls.filter((c) => c.path.endsWith('/query'));
   assert.equal(qs.length, 1, '絞った結果だけ受け取るので 1 ページで済む');
   assert.deepEqual(qs[0].body.filter, { property: 'ラベル', multi_select: { contains: '買ったつもり' } });
+  assert.deepEqual(qs[0].body.sorts, [{ timestamp: 'created_time', direction: 'descending' }], '新しく作られた順で読む（移行前の古い行で limit が埋まらないように）');
 
   assert.deepEqual(names(await q({ open_only: true, where: { 必要度: 'B 急がない必要品' } })), late.slice(0, 5), 'select＋open_only');
   assert.deepEqual(names(await q({ where: { 関連プロジェクト: PID.replace(/-/g, '') } })), late, 'relation（ハイフン無しの ID でも合う）');
