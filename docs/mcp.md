@@ -37,7 +37,7 @@ Kairos を **リモート MCP サーバー**として公開する。claude.ai �
 | `kairos_get` | 1 件のプロパティと本文（Markdown 風） |
 | `kairos_query` | DB の行（open_only・where・columns・limit）。where・open_only は D1 側の filter に渡して全行から絞る（select・status=一致、multi_select・relation=含む、checkbox=true/false。それ以外の型は全ページを読んで手元で絞る） |
 | `kairos_schema` | プロパティ名・型・選択肢 |
-| `kairos_create` | tasks / decisions / habitlog を 1 件作る |
+| `kairos_create` | tasks / decisions / habitlog と、sessions（会話の足跡）などの追加 DB に 1 件作る |
 | `kairos_update` | 一部のプロパティを更新（`null` で空にする） |
 | `kairos_append_body` | 本文の末尾に追記（既存の本文は消さない） |
 | `kairos_task_action` | done / skip / reopen / human / ai_clear |
@@ -49,6 +49,7 @@ Kairos を **リモート MCP サーバー**として公開する。claude.ai �
 - タスクの `説明` は「なぜ: …」「何を: …」の 2 行だけ。出所・根拠・手順・経過は本文に書く（例外は `docs/rules.md` §1）。
 - 基準に当たるタスクは確認せずにサブタスクに分ける（基準と作り方は `docs/rules.md` §5-2）。
 - 選択肢にない値は作らず、エラーにする。
+- 会話の足跡は Kairos の `sessions` に書く。Notion の 📻 Sessions は退役（書き方は `docs/sessions.md`）。
 - **削除・アーカイブの道具は置いていない。**
 - 長い文字列は 1900 字ずつに分けて保存し、切り捨てない。
 

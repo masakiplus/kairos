@@ -697,7 +697,7 @@
   const aiIcon = () => aiProvider === "claude" ? ICONS.claude : "🤖";
   function storagePrompt(q) {
     if (typeof window === "undefined" || window.KAIROS_STORAGE !== "d1" || q.includes("【保存先: Kairos D1】")) return q;
-    return q.replace(/Notion/g, "Kairos D1").replace(/(?:終わったら )?📻 Sessions に足跡を\s*1\s*行。/g, "作業記録はKairosタスクの本文に追記してください。") + "\n【保存先: Kairos D1】正本はKairosのD1です。Notionのコピーを更新しないでください。操作規約とAPIは " + location.origin + "/api/storage/agent を確認してください。APIの認証が使えない場合はユーザーに接続を依頼し、更新済みと報告しないでください。";
+    return q.replace(/Notion/g, "Kairos D1").replace(/(?:終わったら )?📻 Sessions に足跡を\s*1\s*行。/g, "作業記録はKairosタスクの本文に追記してください。") + "\n【保存先: Kairos D1】正本はKairosのD1です。Notionのコピーを更新しないでください。操作規約とAPIは " + location.origin + "/api/storage/agent を確認してください。APIの認証が使えない場合はユーザーに接続を依頼し、更新済みと報告しないでください。会話の足跡は終わるときKairosのsessionsに1件書いてください（NotionのSessionsは退役）。";
   }
   function sessionProvider(url) {
     try {
