@@ -41,7 +41,7 @@
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
 import { tapsAdd, tapsReport } from "./taps.js";
 import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, launchAdd, launchRows, parseUsageRows, weeklyReport, weekStart } from "./launches.js";
-import { d1Notion, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
+import { d1Notion, d1Task, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
 import { knowledgeRoute } from "./knowledge.js"; // 知識文書 (PRJ・archive・ref) のパス解決・早送りの門 (2026-10-29)
 import { isMcpPath, mcpRoute } from "./mcp.js";
 import { SALE_WINDOWS_DS, CF_PARAM_PAGE_ID, TEMP_BUY_LABEL, shopFields, windowFromPage, parsePools, shoppingModel } from "./shopping.js"; // 🛒 買い物画面 (2026-11-02)
@@ -264,15 +264,17 @@ async function getTask(env, id) {
 async function resolveChain(env, id) {
   const order = [], seen = new Set(), stack = new Set();
   let cycle = false, truncated = false;
+  // D1 では 1 件ずつ SQL で引く (全件スナップショットを組まない)。D1 に無い先行は飛ばす (2026-11-04)
+  const load = env.DATA_BACKEND === "d1" ? async (tid) => { const pg = await d1Task(env, tid); return pg ? pageToTask(pg) : null; } : (tid) => getTask(env, tid);
   async function visit(tid, depth) {
     if (seen.has(tid)) return;
     if (stack.has(tid)) { cycle = true; return; }
     if (depth > 10) { truncated = true; return; }
     stack.add(tid);
-    const t = await getTask(env, tid);
-    if (!t.done) {
+    const t = await load(tid);
+    if (t && !t.done) {
       // 並列の先行は 期日→優先度 の順 (作成順は API から取れないので名前で安定化)
-      const preds = await Promise.all(t.predIds.map((pid) => getTask(env, pid)));
+      const preds = (await Promise.all(t.predIds.map((pid) => load(pid)))).filter(Boolean);
       preds.sort((a, b) => (a.due ?? "9999") < (b.due ?? "9999") ? -1 : (a.due ?? "9999") > (b.due ?? "9999") ? 1 : (a.priority ?? "p9") < (b.priority ?? "p9") ? -1 : 0);
       for (const p of preds) if (!p.done) await visit(p.id, depth + 1);
       if (tid !== id) order.push(t);
