@@ -101,9 +101,13 @@ Notion を使わなくなるので、**名前を中立にした**（2026-10-29 �
 | `notion_sync/notion_knowledge.py` | `knowledge/knowledge_store.py` | 同じ関数（`locate`・`read`・`read_section`・`replace_body`・`upsert_section`・`append_to_section`・`create_page`・`body_edited`・`human_edited`）を `/api/knowledge/resolve` と `/api/data/*` で直接実装。書いたブロックに `last_edited_by = saito-tools` を付け、`human_edited` はそれと Notion 時代のインテグレーションの id を人の編集から外す |
 | `notion_sync/mirror_knowledge.py`・`.sh` | `knowledge/knowledge_mirror.py`・`.sh` | Kairos → ボルトの写し。対象と時刻は `/api/knowledge/index` の `bodyEdited` を1回で取る。門（作成途中・空・入口だけ・衝突退避・認証情報）は同じ。launchd `com.masaki.mirrorknowledge` と scheduler_watchdog の鮮度検査はこちらを見る |
 | `knowledge_ownership.notion_owns` | `kairos_owns` | 判定は同じ。旧名は別名で残す（ファイルは `notion_sync/` のまま） |
-| 旧モジュール | 退役の印を付けて残す | 旧い検査と、まだ付け替えていない保守用スクリプト（`ensure_pages`・`check_knowledge_drift`・`fill_ownership_prop`・`flip_banner`）のため。`notion_sync/mirror_knowledge.sh` は新しい方への転送 |
+| `notion_sync/ensure_pages.py` | `knowledge/knowledge_ensure.py`・`.sh` | 足りない置き場（ref の行・PRJ の子ページ・Projects の行）を `knowledge_store` で Kairos へ直接作って刻む。定時便 launchd `com.masaki.notionsyncprojects`（ラベルは旧名のまま）は `knowledge/knowledge_ensure.sh` を直接呼ぶ。旧 `sync_projects.sh`・`ensure_pages.py` は転送だけ（saito-tools#8） |
+| `notion_sync/check_knowledge_drift.py` | `knowledge/knowledge_drift.py` | 比べる相手を Kairos に（saito-tools#8） |
+| 旧モジュール（`notion_knowledge`・`mirror_knowledge`・`fill_ownership_prop`・`flip_banner` と旧い検査3本） | `notion_sync/_retired/` へ移した | もう読み込むものは無い（saito-tools#8）。門の検査は `knowledge/test_knowledge_store.py` へ移した。`notion_sync/mirror_knowledge.sh` だけ新しい写しへの転送として残す |
 
-据え置いたもの: ボルトの写しの frontmatter の鍵（`mirror: notion`・`notion_edited`）。ai-drive の手順書と apple-notes の写しが「`mirror: notion` があれば機械の写し」と読むので、鍵の名前はそちらと一緒に替える。URL は `kairos_url` に替えた。Projects・Reference の `正本` 列（選択肢 `Notion`）も未変更。
+ボルトの写しの frontmatter の鍵（2026-11-04、saito-tools#29）: `mirror: kairos`・`kairos_url`・`kairos_edited`・`mirror_hash`。`mirror:` の値は正本の置き場を表す。`knowledge_mirror` は Notion 時代の鍵（`mirror: notion`・`notion_edited`）も読み、本文が動いていない写しは次の便で鍵の名前だけ付け替える（時刻・指紋は同じ値なので門の判定は変わらない）。読む側（ai-drive の手順書・apple-notes の `build_all`）は `mirror:` の鍵の有無で「機械の写し」と見る。`ref/apple-notes/` の写しは正本が Notion「Appleメモ」DB のままなので `mirror: notion` が正しい。
+
+Projects・Reference の `正本` 列（選択肢 `Notion`・`ボルト`・`保留`）は**残し、書き換えない**（2026-11-04 決定）。読むコードが無く（Notion 時代の `notion_relation_audit` だけ）、持ち主の判定の正本は saito-tools の `knowledge_ownership.py`（`kairos_owns`）である。`Notion` は「Notion へ反転した文書＝いまは Kairos が正本」と読む。選択肢を `Kairos` へ替えるには数百行の payload を書き直すことになり、D1 の書き込み枠を使うわりに得るものが無い。Kairos の Projects は API から `正本` を書けない。
 
 ### Kairos → Drive の控え
 
@@ -121,7 +125,7 @@ Notion を使わなくなるので、**名前を中立にした**（2026-10-29 �
 2. Mac で `audit` を流し、`audit.md` を本人が見る。`review`・`conflict`・`new-project` の扱いを決める
 3. D1 を export してから `apply --confirm`（必要なら `--accept`）
 4. もう一度 `audit` → `fast-forward`・`new-sub`・`new-ref` が 0、残る `review`／`conflict` が本人の判断どおり
-5. saito-tools の付け替え（中立名。済み）→ 残る保守用スクリプトの Notion 経路を止める
+5. saito-tools の付け替え（中立名。済み）→ 残る保守用スクリプトの Notion 経路を止める（旧モジュールは saito-tools#8 で `_retired/` へ。写しの鍵は 2026-11-04 に中立名へ）
 6. Drive の `_knowledge/` に PRJ・archive・ref が揃っていることを確かめる
 
 ## 4. 限界
