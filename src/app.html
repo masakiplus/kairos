@@ -591,6 +591,15 @@
   // ---- end 絞り込み ----
   let filt = {}; try { filt = cleanFilter(JSON.parse(localStorage.getItem("filter") || "{}")); } catch (e) {} // 端末ごとに覚える。取れなければ「すべて」
   const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} };
+  // タブの件数は 🔍 絞り込み後の件数を出す (2026-11-03 利用者の報告「タブの件数と一覧の件数がずれる」: 📍 クラウド で絞っても タブは 48 のままだった)
+  const tabCount = (v, ts) => applyFilter(ts, filt, v).length;
+  function refreshTabCounts() {
+    for (const v of views) {
+      let ts = v === view ? allTasks() : null;
+      if (!ts) { try { const c = JSON.parse(localStorage.getItem(K(v)) || "null"); ts = c && c.tasks; } catch (e) {} }
+      if (Array.isArray(ts)) $("#n-" + v).textContent = tabCount(v, ts);
+    }
+  }
   if (legacyEnv) { filt = { env: legacyEnv }; saveFilt(); }
   let searchQ = "", searchAll = false, searchBack = "today"; // 検索モード (2026-10-04)。searchBack＝閉じたとき戻るタブ
   let undoTask = null, undoTimer = null;
@@ -1122,11 +1131,11 @@
       <div class="grid"><button class="pri" id="fltOk">閉じる</button><button class="skip" id="fltClear" ${filterOn(filt) ? "" : "disabled"}>すべて解除</button></div>`;
       $("#sheet").querySelector(".close").onclick = closeSheet;
       $("#fltOk").onclick = closeSheet;
-      $("#fltClear").onclick = () => { filt = {}; saveFilt(); lastSig = ""; render(todayStr); draw(); };
+      $("#fltClear").onclick = () => { filt = {}; saveFilt(); refreshTabCounts(); lastSig = ""; render(todayStr); draw(); };
       $("#sheet").querySelectorAll("[data-fk]").forEach((b) => b.onclick = () => {
         const k = b.dataset.fk, v = b.dataset.fv;
         if (v && filt[k] !== v) filt[k] = v; else delete filt[k]; // 選択中をもう一度押したら外す
-        saveFilt(); lastSig = ""; render(todayStr); draw(); // 一覧も裏で絞り直す
+        saveFilt(); refreshTabCounts(); lastSig = ""; render(todayStr); draw(); // 一覧も裏で絞り直す
       });
     };
     draw();
@@ -1864,7 +1873,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       if (Array.isArray(j.delegates) && j.delegates.length) { DELEGATES = j.delegates; localStorage.setItem("delegates", JSON.stringify(DELEGATES)); }
       if (Array.isArray(j.companions) && j.companionsOk) { COMPANIONS = j.companions; try { localStorage.setItem("companions", JSON.stringify(COMPANIONS)); } catch (e) {} }
       if (typeof j.phoneEnv === "string" && j.phoneEnv && j.phoneEnv !== PHONE_ENV) { PHONE_ENV = j.phoneEnv; SIT_AXES.tool[1] = PHONE_ENV; sitMemo = null; try { localStorage.setItem("phoneEnv", PHONE_ENV); } catch (e) {} } // スマホの選択肢名が変わったら手元の軸も揃える
-      render(j.today); $("#stale").hidden = true; setBusy(false); $("#n-" + v).textContent = tasks.length;
+      render(j.today); $("#stale").hidden = true; setBusy(false); $("#n-" + v).textContent = tabCount(v, tasks);
       // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
       const w = j.wip; const we = $("#wip");
       if (w && w.count > w.limit) { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
@@ -1891,7 +1900,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   }
   function counts() {
     clearTimeout(countsTimer);
-    const run = () => { countsAt = Date.now(); const vs = views.filter((v) => v !== view); if (!vs.length) return; api("/api/tasks?views=" + vs.join(",")).then((r) => { for (const v of vs) { const j = r.views && r.views[v]; if (!j) continue; $("#n-" + v).textContent = j.tasks.length; writeCache(v, j); } }).catch(() => {}); }; // 1 リクエストにまとめる (2026-10-21)
+    const run = () => { countsAt = Date.now(); const vs = views.filter((v) => v !== view); if (!vs.length) return; api("/api/tasks?views=" + vs.join(",")).then((r) => { for (const v of vs) { const j = r.views && r.views[v]; if (!j) continue; $("#n-" + v).textContent = tabCount(v, j.tasks); writeCache(v, j); } }).catch(() => {}); }; // 1 リクエストにまとめる (2026-10-21)
     const wait = Math.max(0, 8000 - (Date.now() - countsAt));
     countsTimer = setTimeout(run, wait);
   }
@@ -2474,7 +2483,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   const _render = render; render = (today) => { todayStr = today; _render(today); };
   $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) load(b.dataset.v); };
   $("#sitChip").onclick = openSitPick;
-  $("#fltChip").onclick = (e) => { if (e.target.closest("[data-fx]")) { filt = {}; saveFilt(); lastSig = ""; render(todayStr); return; } openFilterPick(); };
+  $("#fltChip").onclick = (e) => { if (e.target.closest("[data-fx]")) { filt = {}; saveFilt(); refreshTabCounts(); lastSig = ""; render(todayStr); return; } openFilterPick(); };
   // 検索 (2026-10-04): 🔍 で検索欄を出し、入力が止まって 350ms で引く。✕ か空 Esc で元のタブへ
   function openSearch() {
     if (view !== "search") { searchBack = view; view = "search"; }
