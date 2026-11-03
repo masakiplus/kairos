@@ -181,7 +181,8 @@ export async function loadState(env,only=null) {
  for(const r of rows.values()) if(r.collection==='tasks') for(const p of r.page.properties?.['先行タスク']?.relation || []) {const key=cleanId(p.id);if(!successorsById.has(key))successorsById.set(key,[]);successorsById.get(key).push(r);}
  for(const r of rows.values()) if(r.collection==='tasks') {
   const p=r.page.properties;
-  const blocked=(p['先行タスク']?.relation || []).filter(x=>rows.get(cleanId(x.id))?.page.properties?.['完了']?.checkbox!==true).length;
+  // D1 に無い先行 (消した・取り込んでいない) は数えない。数えると永久に先行待ちになり、チェーンにも出ない (2026-11-04)
+  const blocked=(p['先行タスク']?.relation || []).filter(x=>{const t=rows.get(cleanId(x.id));return t&&t.page.properties?.['完了']?.checkbox!==true;}).length;
   // Reverse edges are also derived so imported one-sided relations remain visible.
   const successors=successorsById.get(cleanId(r.page.id)) || [];
   const successorIds=new Set(successors.map(x=>cleanId(x.page.id))),priorSuccessors=(p['後続タスク']?.relation || []).filter(x=>successorIds.has(cleanId(x.id))),knownSuccessors=new Set(priorSuccessors.map(x=>cleanId(x.id)));
@@ -286,6 +287,12 @@ export async function cachedJson(env, key, build, { maxAge = RESP_MAX_AGE_MS, sh
   return data;
 }
 
+// 先行チェーン用 (2026-11-04): 1 件だけ SQL で引く。null = D1 に無い。
+// d1Notion の /pages/:id は全件スナップショット (約 1.5 万行の解析) を組むので、チェーンを辿るたびに D1 の上限に当たり「確認中…」のまま止まっていた
+export async function d1Task(env,id) {
+ const key=cleanId(id),row=await env.DB.prepare('SELECT 1 FROM entities WHERE id=?').bind(key).first();
+ return row?freshPage(env,key):null;
+}
 async function freshPage(env,id) {
  const row=await env.DB.prepare('SELECT collection,payload FROM entities WHERE id=?').bind(id).first();
  if(!row)throw new Error('D1 page not found');
@@ -296,7 +303,7 @@ async function freshPage(env,id) {
   value.relation=[...old.filter(k=>byId.has(k)),...current.map(l=>l.to_id).filter(k=>!old.includes(k))].map(k=>({id:byId.get(k)}));value.has_more=false;
  }
  if(row.collection==='tasks') {
-  const blocked=await env.DB.prepare(`SELECT COUNT(*) n FROM entity_links l LEFT JOIN entities p ON p.id=l.to_id WHERE l.from_id=? AND l.prop='先行タスク' AND COALESCE(json_extract(p.payload,'$.properties."完了".checkbox'),0)!=1`).bind(id).first();
+  const blocked=await env.DB.prepare(`SELECT COUNT(*) n FROM entity_links l JOIN entities p ON p.id=l.to_id WHERE l.from_id=? AND l.prop='先行タスク' AND COALESCE(json_extract(p.payload,'$.properties."完了".checkbox'),0)!=1`).bind(id).first();
   const successors=(await env.DB.prepare("SELECT json_extract(e.payload,'$.id') id FROM entity_links l JOIN entities e ON e.id=l.from_id WHERE l.to_id=? AND l.prop='先行タスク' AND e.collection='tasks' ORDER BY l.rowid").bind(id).all()).results;
   const prior=p['後続タスク']?.relation || [],successorMap=new Map(successors.map(r=>[cleanId(r.id),r.id])),known=new Set(prior.map(r=>cleanId(r.id)));
   p['後続タスク']={type:'relation',relation:[...prior.filter(r=>successorMap.has(cleanId(r.id))),...successors.filter(r=>!known.has(cleanId(r.id)))],has_more:false};

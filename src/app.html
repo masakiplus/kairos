@@ -2143,7 +2143,9 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     };
     // 先行タスクのチェーンを引いて、順に並べる。各行に完了ボタン (人が自分で順送りする用) と Notion リンク
     if (t.blocked || t.predIds.length) {
-      api(`/api/tasks/${t.id}/chain`).then((j) => {
+      // 20 秒で打ち切る (2026-11-04: 応答が返らず「確認中…」のまま止まっていた)
+      const chainCtl = new AbortController(), chainTimer = setTimeout(() => chainCtl.abort(), 20000);
+      api(`/api/tasks/${t.id}/chain`, { signal: chainCtl.signal }).finally(() => clearTimeout(chainTimer)).then((j) => {
         const box = $("#chainBox"); if (!box) return;
         if (!j.chain.length) { // 式の再計算待ちで blocked のまま見えているだけ。操作を戻す
           box.innerHTML = `<div class="ch"><span class="nm" style="color:var(--mute)">先行はすべて完了。着手できます</span></div>`;
@@ -2170,7 +2172,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
           setTimeout(() => openSheet(t, today), 800); // 残りのチェーンを引き直す
           load(view, { silent: true });
         });
-      }).catch(() => { const box = $("#chainBox"); if (box) box.innerHTML = `<div class="ch"><span class="nm" style="color:var(--over)">先行を取得できませんでした</span></div>`; });
+      }).catch((e) => { const box = $("#chainBox"); if (box) box.innerHTML = `<div class="ch"><span class="nm" style="color:var(--over)">${chainCtl.signal.aborted ? "先行の取得が時間切れになりました" : "先行を取得できませんでした"}</span><a href="#" data-chainretry>もう一度</a></div>`; const rb = box && box.querySelector("[data-chainretry]"); if (rb) rb.onclick = (ev) => { ev.preventDefault(); openSheet(t, today); }; });
     }
     // 開始日はネイティブのカレンダー UI (input type=date) で選ぶ。Android Chrome ではカレンダーが出る
     $("#pickStart").onclick = (e) => {
