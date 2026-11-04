@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f5f4f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Kairos</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <style>
-  /* Things 風: 淡いグレー地に白カード、青アクセント、丸チェック。デザイン正本は Claude Design「Tasks PWA デザイン」 */
-  :root{--bg:#f5f5f7;--card:#ffffff;--line:#f0f0f2;--sep:#e5e5ea;--fg:#1d1d1f;--mute:#8e8e93;--mute2:#aeaeb2;--seg:#e9e9ee;--segon:#ffffff;--acc:#2f7cf6;--accbg:#eef3ff;--over:#d0342c;--today:#e0a100;--p2:#e8871e;--star:#f7c948;--ring:#c7c7cc;--shadow:0 1px 2px rgba(0,0,0,.05);--toast:#2c2c2e;--airun:#f1edff;--aiupd:#e8f1ff;--wait:#8e6d00}
+  /* 生成り地に白カード、藍のアクセント、丸チェック (2026-11-05 ワイド対応で配色を更新。ダークは墨地に同じ藍を明るくしたもの)。デザイン正本は Claude Design「Kairos ワイド画面デザイン」(旧「Tasks PWA デザイン」) */
+  :root{--bg:#f5f4f0;--card:#ffffff;--line:#efede7;--sep:#e3e1da;--fg:#1c1b19;--mute:#5f5c55;--mute2:#8c8880;--seg:#eceae3;--segon:#ffffff;--acc:#2f55c8;--accbg:#e8edfb;--over:#b42318;--today:#a86800;--p2:#b45309;--star:#e0a100;--ring:#a8a49b;--shadow:0 1px 2px rgba(28,27,25,.06);--toast:#2c2c2e;--airun:#f1edff;--aiupd:#e8f1ff;--wait:#8e6d00}
   /* テーマ: data-theme が dark なら常にダーク、light なら常にライト、無指定 (auto) は端末設定に追従 */
-  :root[data-theme="dark"],:root:not([data-theme="light"]).sys-dark{--bg:#1c1c1e;--card:#2c2c2e;--line:#3a3a3c;--sep:#3a3a3c;--fg:#f2f2f7;--mute:#aeaeb2;--mute2:#8e8e93;--seg:#2c2c2e;--segon:#48484a;--acc:#4c8dff;--accbg:#1f2f4d;--over:#ff6b5e;--today:#f7c948;--p2:#ff9f3c;--ring:#636366;--shadow:none;--toast:#48484a;--airun:#2d2548;--aiupd:#1f2f4d;--wait:#f7c948}
+  :root[data-theme="dark"],:root:not([data-theme="light"]).sys-dark{--bg:#1b1a18;--card:#262522;--line:#33312d;--sep:#3a3833;--fg:#f2f0ea;--mute:#b0aca3;--mute2:#8c8880;--seg:#2c2b28;--segon:#45433e;--acc:#6d8bff;--accbg:#232b47;--over:#ff8a7a;--today:#f0b84b;--p2:#f0a050;--star:#f0b84b;--ring:#6b6862;--shadow:none;--toast:#45433e;--airun:#2b2540;--aiupd:#232b47;--wait:#f0b84b}
   .theme{margin-left:auto;display:flex;align-items:center;gap:8px}
   .theme button{height:34px;min-width:34px;padding:0 8px;border-radius:17px;border:0;background:var(--seg);color:var(--mute);display:flex;align-items:center;justify-content:center;gap:4px}
   .theme button .auto{font-size:11px;font-weight:600;letter-spacing:.3px}
@@ -22,7 +22,7 @@
   #undoBtn .n{position:absolute;top:-4px;right:-4px;font-size:10px;font-weight:700;background:var(--acc);color:#fff;border-radius:8px;padding:0 4px;line-height:14px}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   [hidden]{display:none!important} /* .toast 等の display:flex に hidden 属性が負けないように */
-  html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,"SF Pro Text","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,"SF Pro Text","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   /* タップの手応え (2026-10-15 利用者の報告「タップのレスポンスが悪い」): 押した瞬間に見た目が変わる。遅延なし */
   button:active,.row .card:active,.sheet .list a:active,.meta a:active,.rvc .opts button:active,.rel a:active,.snext button:active,.rpj button:active{opacity:.7;transition:none}
   .tabs button:active,.grid button:active{transform:scale(.97);transition:none}
@@ -477,11 +477,61 @@
   .sneed{border-radius:6px;padding:0 6px;font-weight:600} .sneed.nA{background:#fde8e7;color:#c0352b} .sneed.nB{background:#fff4d6;color:#8a6200} .sneed.nC{background:var(--seg);color:var(--mute)} .sneed.n0{color:var(--mute2);font-weight:400;padding:0}
   :root[data-theme="dark"] .sneed.nA,:root:not([data-theme="light"]).sys-dark .sneed.nA{background:#4a2321;color:#ff8a80} :root[data-theme="dark"] .sneed.nB,:root:not([data-theme="light"]).sys-dark .sneed.nB{background:#43381a;color:#f7c948}
   .scool{color:#5e5ce6;font-weight:600}
+
+  /* ---- 2026-11-05 ワイド対応のデザイン (Claude Design「Kairos ワイド画面デザイン」) ---- */
+  .wipchip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border:0;border-radius:14px;background:var(--seg);color:var(--fg);font-size:11px;font-weight:600}
+  .wipchip .wl{color:var(--mute);font-weight:500}
+  .wipchip i{display:block;width:28px;height:5px;border-radius:3px;background:var(--sep);overflow:hidden}
+  .wipchip i b{display:block;height:100%;background:var(--acc)}
+  .wipchip.over{color:var(--over)}.wipchip.over i b{background:var(--over)}
+  .ttl h1,.ttl .date{white-space:nowrap}
+  .add input{min-width:0}
+  @media (max-width:439px){.wipchip .wl,.wipchip i{display:none}.wipchip{padding:0 8px}}
+  .sheet .desc .dk{color:var(--mute);background:transparent;padding:0;font-size:12px;margin-right:6px}
+  .sheet details.sitd{background:var(--card);border-radius:12px;padding:0 10px;box-shadow:var(--shadow)}
+  .sheet details.sitd>summary{list-style:none;display:flex;align-items:center;gap:12px;padding:12px 4px;font-size:15px;cursor:pointer}
+  .sheet details.sitd>summary::-webkit-details-marker{display:none}
+  .sheet details.sitd>summary .sv{margin-left:auto;font-size:13px;color:var(--mute);max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sheet details.sitd>summary::after{content:"›";color:var(--mute);transition:transform .15s}
+  .sheet details.sitd[open]>summary::after{transform:rotate(90deg)}
+  .sheet details.sitd[open]{padding-bottom:10px}
+  .sheet details.sitd .grid button{background:var(--bg)}
+  .sheet .sbar{position:sticky;bottom:calc(-16px - env(safe-area-inset-bottom));margin:4px -12px calc(-16px - env(safe-area-inset-bottom));padding:10px 12px calc(12px + env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:8px;background:var(--bg);border-top:1px solid var(--sep);z-index:1}
+  .sheet .sbar>*{height:46px;border:0;border-radius:23px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:14px;font-weight:600;text-decoration:none;background:var(--card);color:var(--fg);box-shadow:var(--shadow)}
+  .sheet .sbar .ai{background:var(--accbg);color:var(--acc)}
+  .sheet .sbar .pri{background:var(--acc);color:#fff}
+  .sheet .sbar svg{width:18px;height:18px;flex:none}
+  .sheet .sbar button:disabled{opacity:.35}
+  /* 3 ペイン (Fold 展開・PC): 左にタブのレール、中央に一覧、詳細は右に据え付け。一覧は押せたまま */
+  @media (min-width:900px){
+    :root{--rail:184px;--pane:400px}
+    header{position:fixed;left:0;top:0;bottom:0;width:var(--rail);padding:calc(18px + env(safe-area-inset-top)) 12px 16px;gap:14px;overflow-y:auto;background:var(--card);border-right:1px solid var(--sep);z-index:6}
+    .ttl{flex-wrap:wrap;gap:6px 8px}
+    .ttl h1{font-size:22px}
+    .ttl .theme{margin-left:0;width:100%;flex-wrap:wrap;gap:6px}
+    .ttl .date{margin-right:auto}
+    .tabs{gap:14px}
+    .trow,.trow.sub{flex-direction:column;background:transparent;padding:0;gap:2px}
+    .trow button,.trow.sub button{flex:none;display:flex;justify-content:space-between;align-items:center;text-align:left;padding:9px 10px;border-radius:8px;font-size:14px;color:var(--fg);font-weight:500}
+    .trow button.on,.trow.sub button.on{background:var(--accbg);color:var(--acc);box-shadow:none;font-weight:700}
+    .trow button .n{color:inherit;font-variant-numeric:tabular-nums}
+    .sitbar{justify-content:flex-start}
+    body{padding-left:var(--rail)}
+    main{max-width:860px;margin:0 auto;padding:20px 20px 120px}
+    .add{left:var(--rail)}
+    .veil{display:none}
+    .sheet{left:auto;top:0;bottom:0;width:var(--pane);max-height:none!important;border-radius:0;box-shadow:none;border-left:1px solid var(--sep);padding:16px 16px 16px;z-index:7}
+    .sheet .grab{display:none}
+    .sheet .sbar{bottom:-16px;margin:4px -16px -16px;padding:12px 16px 16px}
+    body:has(#sheetWrap:not([hidden])){padding-right:var(--pane)}
+    body:has(#sheetWrap:not([hidden])) .add{right:var(--pane)}
+  }
+  @media (min-width:1280px){:root{--rail:232px;--pane:460px}}
 </style>
 </head>
 <body>
 <header>
-  <div class="ttl"><span id="ttlIcon"></span><h1 id="ttl">今日やる</h1><div class="theme"><span class="date" id="date"></span><button id="undoBtn" aria-label="取り消し" title="直前の操作を取り消す" hidden>↩<span class="n" id="undoN"></span></button><button id="srchBtn" aria-label="検索" title="タスクを検索">🔍</button><button id="themeBtn" aria-label="テーマ切り替え" title="テーマ"></button></div></div>
+  <div class="ttl"><span id="ttlIcon"></span><h1 id="ttl">今日やる</h1><div class="theme"><span class="date" id="date"></span><button id="wipChip" class="wipchip" type="button" title="着手中（進行中＋人対応）の件数と上限。タップで着手中タブ" hidden><span class="wl">WIP</span><i><b id="wipBar"></b></i><span id="wipN"></span></button><button id="undoBtn" aria-label="取り消し" title="直前の操作を取り消す" hidden>↩<span class="n" id="undoN"></span></button><button id="srchBtn" aria-label="検索" title="タスクを検索">🔍</button><button id="themeBtn" aria-label="テーマ切り替え" title="テーマ"></button></div></div>
   <div class="tabs" id="tabs">
     <div class="trow">
       <button data-v="today">今日やる<span class="n" id="n-today"></span></button>
@@ -2021,6 +2071,9 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       render(j.today); $("#stale").hidden = true; setBusy(false); $("#n-" + v).textContent = tabCount(v, tasks);
       // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
       const w = j.wip; const we = $("#wip");
+      // WIP をいつも見せる (2026-11-05 ワイド対応のデザイン): 見出しの小さなゲージ。上限超えの1行警告は従来どおり
+      const wc = $("#wipChip");
+      if (w && w.limit) { wc.hidden = false; $("#wipN").textContent = `${w.count}/${w.limit}`; $("#wipBar").style.width = Math.min(100, Math.round(w.count / w.limit * 100)) + "%"; wc.classList.toggle("over", w.count > w.limit); wc.onclick = () => load("doing"); }
       if (w && w.count > w.limit && v !== "doing") { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
       else we.hidden = true;
     } catch (e) {
@@ -2142,7 +2195,9 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     return `<div class="rel">${chips.map((c, i) => i < N ? c : c.replace(/^<a /, '<a class="relx" ')).join("")}${rest > 0 ? `<button type="button" data-relmore>他 ${rest} 件 ▾</button>` : ""}</div>`;
   }
   function sheetOrder() { return [...document.querySelectorAll("#list .row[data-id], #list .srow[data-id]")].map((r) => r.dataset.id); }
+  let sitOpen = false; // 📍 できる状況を開いたまま付け外しできるように (タップのたびにシートを描き直すので覚えておく)
   function openSheet(t, today) {
+    if (!sheetTask || sheetTask.id !== t.id) sitOpen = false;
     sheetTask = t;
     const sub =[t.due ? (t.due === today ? "今日" : fmtDate(t.due)) : null, t.priority, t.env.join("・") || null, t.project ? "📁 " + esc(t.project) : null].filter(Boolean).join(" · ");
     const order = sheetOrder(), pos = order.indexOf(t.id);
@@ -2163,12 +2218,13 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       <div class="grid st4">
         ${[["todo", "未着手", "○"], ["doing", "進行中", "▶"], ["wait", "待ち", "⏸"], ["human", "人対応", "🧔"]].map(([a, n, ic]) => `<button data-a="${a}" data-keep="1" data-st="${n}" class="${t.status === n ? "pri" : ""}" ${t.blocked || t.status === n ? "disabled" : ""}>${ic} ${n}</button>`).join("")}
       </div>`}
-      ${t.done ? "" : `<div class="sect">📍 できる状況 <small style="font-weight:400;color:var(--mute)">タグが付いた軸だけ条件になる。空＝どこでも</small></div>
+      ${t.done ? "" : `<details class="sitd"${sitOpen ? " open" : ""}><summary><span class="ic">📍</span>できる状況<span class="sv">${esc(t.env.join("・")) || "どこでも"}</span></summary>
+      <div class="sub" style="margin:2px 2px 6px">タグが付いた軸だけ条件になる。空＝どこでも</div>
       <div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${x}</button>`).join("")}</div>
       <div class="grid sit" style="grid-template-columns:repeat(4,1fr);margin-top:6px">${SIT_AXES.tool.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
       ${COMPANIONS.length ? `<div class="grid sit" style="grid-template-columns:repeat(${Math.min(COMPANIONS.length, 3)},1fr);margin-top:6px">${COMPANIONS.map((x) => `<button data-env="${esc(x)}" class="${t.env.includes(x) ? "on" : ""}">👥 ${esc(x)}</button>`).join("")}</div>` : ""}
       <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="早朝" class="${t.env.includes("早朝") ? "on" : ""}">🌅 早朝向き<small style="font-weight:400;color:${t.env.includes("早朝") ? "rgba(255,255,255,.8)" : "var(--mute)"}">　家で静かに・時間をかけて</small></button></div>
-      <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="${CLOUD_ENV}" class="${t.env.includes(CLOUD_ENV) ? "on" : ""}">☁️ クラウドで<small style="font-weight:400;color:${t.env.includes(CLOUD_ENV) ? "rgba(255,255,255,.8)" : "var(--mute)"}">　Claude Code のクラウドで・Mac 不要</small></button></div>`}
+      <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="${CLOUD_ENV}" class="${t.env.includes(CLOUD_ENV) ? "on" : ""}">☁️ クラウドで<small style="font-weight:400;color:${t.env.includes(CLOUD_ENV) ? "rgba(255,255,255,.8)" : "var(--mute)"}">　Claude Code のクラウドで・Mac 不要</small></button></div></details>`}
       <div class="sect">🤖 ${aiName()} に任せる ${aiSelectHtml()}</div>
       <div class="list">
         ${sessionProvider(t.aiSession) ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `AI のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の AI セッションを開く（続きを任せる）"}</a>` : ""}
@@ -2214,10 +2270,16 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       <div class="grid" >
         <button data-a="skip" class="skip" ${t.blocked ? "disabled" : ""}>${ICONS.skip}見送りで完了</button>
         <button data-a="dup" class="skip" ${t.blocked ? "disabled" : ""}>⧉ 重複で完了</button>
+      </div>`}
+      ${t.done ? "" : `<div class="sbar">
+        <button data-a="defer?days=1" ${t.blocked ? "disabled" : ""}>${ICONS.tomorrow}明日へ</button>
+        <a href="${aiHref(t, "run")}" id="claudeRunBar" class="ai" data-ai data-mode="run">${aiIcon()}<span>進めてもらう</span></a>
+        <button class="pri" data-a="done" ${t.blocked ? "disabled" : ""}>${ICONS.check}完了</button>
       </div>`}`;
 
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = "";
     fitDesc($("#descBox"));
+    const sd = $("#sheet").querySelector("details.sitd"); if (sd) sd.ontoggle = () => { sitOpen = sd.open; };
     // 端末の「戻る」で閉じられるように履歴を1つ積む
     if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheetClose").onclick = closeSheet;
@@ -2315,7 +2377,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
             <a href="#" data-copen="${c.id}">開く</a></div>`).join("") +
           (j.cycle ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が循環しています。先行タスクを付け直してください</span></div>` : "") +
           (j.truncated ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が深すぎます（10段まで）</span></div>` : "");
-        $("#claudeRun").href = aiHref(t, "run", j.chain);
+        $("#claudeRun").href = aiHref(t, "run", j.chain); const crb = $("#claudeRunBar"); if (crb) crb.href = $("#claudeRun").href;
         $("#claudeRunLabel").textContent = `${aiName()} に先行から順に進めてもらう（${j.chain.length} 件先）`;
         // 先行を Kairos のシートで開く (Notion には飛ばない)。戻る導線はシート上部の「後続に戻る」
         box.querySelectorAll("[data-copen]").forEach((a) => a.onclick = (ev) => { ev.preventDefault(); const c = j.chain.find((x) => x.id === a.dataset.copen); if (c) { sheetFrom = t; openSheet(c, today); } });
@@ -2404,8 +2466,9 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   $("#veil").onclick = closeSheet;
   // シートを下にスワイプで閉じる
   let shY = 0, shDy = 0, shOn = false;
+  const WIDE = matchMedia("(min-width:900px)"); // 3 ペイン (左レール・一覧・右の詳細) に切り替える幅。CSS の @media と揃える
   /* シートが縦にスクロールする場合、引き下げて閉じるのは一番上にいるときだけ（2026-09-30） */
-  $("#sheet").addEventListener("touchstart", (e) => { shY = e.touches[0].clientY; shDy = 0; shOn = $("#sheet").scrollTop <= 0; }, { passive: true });
+  $("#sheet").addEventListener("touchstart", (e) => { shY = e.touches[0].clientY; shDy = 0; shOn = $("#sheet").scrollTop <= 0 && !WIDE.matches; }, { passive: true }); // 横長では右に据え付けなので引き下げない
   $("#sheet").addEventListener("touchmove", (e) => { if (!shOn) return; if ($("#sheet").scrollTop > 0) { shOn = false; $("#sheet").style.transform = ""; return; } shDy = Math.max(0, e.touches[0].clientY - shY); $("#sheet").style.transform = `translateY(${shDy}px)`; }, { passive: true });
   $("#sheet").addEventListener("touchend", () => { if (!shOn) return; shOn = false; if (shDy > 80) closeSheet(); else $("#sheet").style.transform = ""; });
 
