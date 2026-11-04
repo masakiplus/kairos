@@ -12,9 +12,9 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <style>
   /* Things 風: 淡いグレー地に白カード、青アクセント、丸チェック。デザイン正本は Claude Design「Tasks PWA デザイン」 */
-  :root{--bg:#f5f5f7;--card:#ffffff;--line:#f0f0f2;--sep:#e5e5ea;--fg:#1d1d1f;--mute:#8e8e93;--mute2:#aeaeb2;--seg:#e9e9ee;--segon:#ffffff;--acc:#2f7cf6;--accbg:#eef3ff;--over:#d0342c;--today:#e0a100;--p2:#e8871e;--star:#f7c948;--ring:#c7c7cc;--shadow:0 1px 2px rgba(0,0,0,.05);--toast:#2c2c2e;--airun:#f1edff;--aiupd:#e8f1ff}
+  :root{--bg:#f5f5f7;--card:#ffffff;--line:#f0f0f2;--sep:#e5e5ea;--fg:#1d1d1f;--mute:#8e8e93;--mute2:#aeaeb2;--seg:#e9e9ee;--segon:#ffffff;--acc:#2f7cf6;--accbg:#eef3ff;--over:#d0342c;--today:#e0a100;--p2:#e8871e;--star:#f7c948;--ring:#c7c7cc;--shadow:0 1px 2px rgba(0,0,0,.05);--toast:#2c2c2e;--airun:#f1edff;--aiupd:#e8f1ff;--wait:#8e6d00}
   /* テーマ: data-theme が dark なら常にダーク、light なら常にライト、無指定 (auto) は端末設定に追従 */
-  :root[data-theme="dark"],:root:not([data-theme="light"]).sys-dark{--bg:#1c1c1e;--card:#2c2c2e;--line:#3a3a3c;--sep:#3a3a3c;--fg:#f2f2f7;--mute:#aeaeb2;--mute2:#8e8e93;--seg:#2c2c2e;--segon:#48484a;--acc:#4c8dff;--accbg:#1f2f4d;--over:#ff6b5e;--today:#f7c948;--p2:#ff9f3c;--ring:#636366;--shadow:none;--toast:#48484a;--airun:#2d2548;--aiupd:#1f2f4d}
+  :root[data-theme="dark"],:root:not([data-theme="light"]).sys-dark{--bg:#1c1c1e;--card:#2c2c2e;--line:#3a3a3c;--sep:#3a3a3c;--fg:#f2f2f7;--mute:#aeaeb2;--mute2:#8e8e93;--seg:#2c2c2e;--segon:#48484a;--acc:#4c8dff;--accbg:#1f2f4d;--over:#ff6b5e;--today:#f7c948;--p2:#ff9f3c;--ring:#636366;--shadow:none;--toast:#48484a;--airun:#2d2548;--aiupd:#1f2f4d;--wait:#f7c948}
   .theme{margin-left:auto;display:flex;align-items:center;gap:8px}
   .theme button{height:34px;min-width:34px;padding:0 8px;border-radius:17px;border:0;background:var(--seg);color:var(--mute);display:flex;align-items:center;justify-content:center;gap:4px}
   .theme button .auto{font-size:11px;font-weight:600;letter-spacing:.3px}
@@ -78,6 +78,18 @@
   .sec h2.huh{color:var(--today)}
   .meta .huc{color:var(--today);font-weight:600}
   .row.hu .card{box-shadow:inset 3px 0 0 var(--today)}
+  /* 着手中の見やすさ (2026-11-05) */
+  .row .nx{margin-top:3px;font-size:12.5px;line-height:1.35;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta .agec{color:var(--mute)}.meta .agec.hot{color:var(--over);font-weight:600}
+  .meta .wtc{color:var(--wait)}.meta .parc{color:var(--mute)}.meta .dupc{color:var(--over);font-weight:600}
+  .sec h2.huh{text-transform:none;letter-spacing:0} /* 💻 Mac が MAC にならないように */
+  .sec h2 .nowc{font-size:11px;font-weight:600;color:var(--acc);text-transform:none;letter-spacing:0;margin-left:4px}
+  .wipm{margin:4px 2px 10px;padding:8px 10px;border-radius:10px;background:var(--seg)}
+  .wipm .wipt{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:13px}
+  .wipm .wipt span{color:var(--mute)}.wipm .wipt small{color:var(--wait);font-size:12px}
+  .wipm .wipb{height:5px;margin-top:6px;border-radius:3px;background:var(--line);overflow:hidden}
+  .wipm .wipb i{display:block;height:100%;background:var(--acc)}
+  .wipm.over b{color:var(--over)}.wipm.over .wipb i{background:var(--over)}
   .row.blocked .ring{border-style:dashed;cursor:default}
   .row.blocked .name{color:var(--mute)}
   .grid button:disabled{opacity:.35;pointer-events:none}
@@ -589,10 +601,77 @@
     return { all: base.length, opts: [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")) };
   }
   // ---- end 絞り込み ----
+  // ---- 着手中 (pure helpers; tests read this block) ----
+  // 着手中タブの見やすさ (2026-11-05 利用者「全て対応」、Decisions 7515ec1f)。13 件中 8 件の 🧔 人対応 が 1 塊で、開かないと次の一手がわからなかった
+  // B: 次の一手。説明の「人対応: …」行を優先し、なければ「何を: …」の先頭 (留意 から先は切る)
+  function nextStep(t, max = 48) {
+    const lines = String(t.rawDesc || "").split("\n");
+    const hu = lines.find((l) => /^人対応[:：]/.test(l));
+    let s = hu ? hu.replace(/^人対応[:：]\s*/, "") : (lines.find((l) => /^何を[:：]/.test(l)) || "").replace(/^何を[:：]\s*/, "").replace(/\s*留意[:：][\s\S]*$/, "");
+    s = s.trim();
+    return s.length > max ? s.slice(0, max - 1) + "…" : s;
+  }
+  // A: できる場所で小分け。場所 (外出・職場) → 道具 (Mac・スマホ・電話・紙) → 自宅 → どこでも の順に最初に当たったもの
+  const PLACE_GROUPS = [["外出", "🚶 外出"], ["職場", "🏢 職場"], ["Mac", "💻 Mac"], ["@phone", "📱 スマホ"], ["電話", "📞 電話"], ["紙・郵送", "✉️ 紙・郵送"], ["自宅", "🏠 自宅"]];
+  const ANYWHERE = "🌐 どこでも";
+  function placeKey(t, phone) {
+    const env = t.env || [];
+    for (const [k, lab] of PLACE_GROUPS) if (env.includes(k === "@phone" ? phone : k)) return lab;
+    return ANYWHERE;
+  }
+  // why(t) は 合わない理由 ("" ならいまできる)。いまできる行がある組を先に、あとは PLACE_GROUPS の順
+  function groupByPlace(ts, phone, why) {
+    const g = new Map();
+    for (const t of ts) { const k = placeKey(t, phone); if (!g.has(k)) g.set(k, []); g.get(k).push(t); }
+    const order = [...PLACE_GROUPS.map((x) => x[1]), ANYWHERE];
+    return [...g.entries()].map(([key, rows]) => ({ key, tasks: rows, now: rows.filter((t) => !why(t)).length }))
+      .sort((a, b) => (b.now > 0) - (a.now > 0) || order.indexOf(a.key) - order.indexOf(b.key));
+  }
+  // C: 返事・到着・結果を待つだけに見えるもの。待ち にすれば WIP から外れる (印を出すだけで、状態は変えない)
+  const WAITISH = /(届く|届いたら|届くの|返信を待|返事を待|連絡を待|を待って|待ってから|確かめたら完了|結果が出たら|以降に)/;
+  function looksWaiting(t) { return !t.aiActive && t.status !== "待ち" && WAITISH.test(nextStep(t, 999)); }
+  // D: 子が同じ一覧にいれば親の行は畳み、子に「親: …」を出す。親が 🤖 処理中・⭐ のときは畳まない (状態が見えなくなるため)
+  function foldParents(ts) {
+    const byId = new Map(ts.map((t) => [t.id, t])), parentOf = new Map(), hide = new Set();
+    for (const t of ts) for (const pid of t.parentIds || []) {
+      const p = byId.get(pid); if (!p || p.aiActive || p.mit) continue;
+      parentOf.set(t.id, p); hide.add(pid);
+    }
+    return { shown: ts.filter((t) => !hide.has(t.id)), parentOf };
+  }
+  // E: 名前がほぼ同じ行 (2 文字の重なり率)。親子・別 PJ どうしは除く。11/5 の Grok 2 件が 0.40、他の組は 0.10 以下だった
+  function nameGrams(s) {
+    const n = String(s || "").replace(/^[①-⑳]/, "").replace(/[^\p{L}\p{N}]/gu, "").toLowerCase(), g = new Set();
+    for (let i = 0; i < n.length - 1; i++) g.add(n.slice(i, i + 2));
+    return g;
+  }
+  function dupPairs(ts, th = 0.35) {
+    const out = new Map(), gs = ts.map((t) => nameGrams(t.name));
+    for (let i = 0; i < ts.length; i++) for (let j = i + 1; j < ts.length; j++) {
+      const a = ts[i], b = ts[j];
+      if ((a.parentIds || []).includes(b.id) || (b.parentIds || []).includes(a.id)) continue;
+      const pa = a.projectIds || [], pb = b.projectIds || [];
+      if (pa.length && pb.length && !pa.some((x) => pb.includes(x))) continue;
+      const A = gs[i], B = gs[j]; if (!A.size || !B.size) continue;
+      let k = 0; for (const x of A) if (B.has(x)) k++;
+      if (k / Math.min(A.size, B.size) >= th) { if (!out.has(a.id)) out.set(a.id, b); if (!out.has(b.id)) out.set(b.id, a); }
+    }
+    return out;
+  }
+  // F: 上部の内訳。数え方はサーバーの wipCount と同じ (委任・開始日が先は除く、子がいる親は数えない)
+  function wipSummary(ts, today) {
+    const rows0 = ts.filter((t) => !t.done && !t.owner && !(t.start && t.start > today) && (t.status === "進行中" || t.status === "人対応"));
+    const kid = new Set(rows0.flatMap((t) => t.parentIds || []));
+    const rows = rows0.filter((t) => !kid.has(t.id));
+    return { count: rows.length, ai: rows.filter((t) => t.aiActive).length, hu: rows.filter((t) => !t.aiActive && t.status === "人対応").length, doing: rows.filter((t) => !t.aiActive && t.status === "進行中").length, mit: rows.filter((t) => t.mit).length, waitish: rows.filter(looksWaiting).length };
+  }
+  // 開始日からの日数 (着手日の列は無いので 開始日 で代える)。3 日未満は出さない
+  function ageDays(t, today) { if (!t.start || !today) return 0; const d = Math.round((Date.parse(today + "T00:00:00Z") - Date.parse(t.start + "T00:00:00Z")) / 86400000); return d >= 3 ? d : 0; }
+  // ---- end 着手中 ----
   let filt = {}; try { filt = cleanFilter(JSON.parse(localStorage.getItem("filter") || "{}")); } catch (e) {} // 端末ごとに覚える。取れなければ「すべて」
   const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} };
   // タブの件数は 🔍 絞り込み後の件数を出す (2026-11-03 利用者の報告「タブの件数と一覧の件数がずれる」: 📍 クラウド で絞っても タブは 48 のままだった)
-  const tabCount = (v, ts) => applyFilter(ts, filt, v).length;
+  const tabCount = (v, ts) => { const r = applyFilter(ts, filt, v); return v === "doing" ? foldParents(r).shown.length : r.length; }; // 着手中は親子を 1 件に (2026-11-05)
   function refreshTabCounts() {
     for (const v of views) {
       let ts = v === view ? allTasks() : null;
@@ -941,6 +1020,17 @@
     const show = t.env.filter((x) => x === "早朝" ? true : SIT_AXES.place.includes(x) ? x !== S.place : SIT_AXES.tool.includes(x) ? !S.tools.includes(x) : COMPANIONS.includes(x) ? !(S.withs || []).includes(x) : true);
     return show.length ? `<span>${esc(show.map((x) => x === "早朝" ? "🌅" : x === CLOUD_ENV ? "☁️" : TOOL_LABEL[x] || x).join("・"))}</span>` : "";
   }
+  let doingCtx = null; // 着手中の描画中だけ {parentOf, dup, today}
+  function doingChips(t) {
+    const d = doingCtx, age = ageDays(t, d.today), p = d.parentOf.get(t.id), dup = d.dup.get(t.id);
+    return `${age ? `<span class="agec${age >= 14 ? " hot" : ""}">開始から ${age} 日</span>` : ""}${looksWaiting(t) ? `<span class="wtc" title="返事・到着を待つだけなら シートの 🚦 状態 で 待ち にすると着手中から外れる">⏸ 待ちにできそう</span>` : ""}${p ? `<span class="parc" title="${esc(p.name)}">親: ${esc(p.name.length > 18 ? p.name.slice(0, 17) + "…" : p.name)}</span>` : ""}${dup ? `<span class="dupc" title="${esc(dup.name)}">重複? ${esc(dup.name.length > 14 ? dup.name.slice(0, 13) + "…" : dup.name)}</span>` : ""}`;
+  }
+  // 上部の内訳メーター (2026-11-05)。上限を超えたら赤、待ちにできそうな件数も添える
+  let wipLimit = 10;
+  function wipMeterHtml(w) {
+    const pct = Math.min(100, Math.round(w.count / wipLimit * 100)), over = w.count > wipLimit;
+    return `<div class="wipm${over ? " over" : ""}"><div class="wipt"><b>${w.count} / ${wipLimit}</b> <span>🤖 ${w.ai} · 🧔 ${w.hu} · ▶ ${w.doing}${w.mit ? ` · ⭐ ${w.mit}` : ""}</span>${w.waitish ? `<small>⏸ 待ちにできそう ${w.waitish}</small>` : ""}</div><div class="wipb"><i style="width:${pct}%"></i></div></div>`;
+  }
   function rowHtml(t, today) {
     return `<div class="row${t.blocked ? " blocked" : ""}${t.done ? " dn" : ""}${t.mit && !t.done ? " mit" : ""}${t.aiActive ? (t.aiMode === "更新" ? " ai upd" : " ai run") : t.status === "人対応" ? " hu" : ""}" data-id="${t.id}">
       <div class="under"><span>🤖 ${aiName()} へ</span><span>明日へ →</span></div>
@@ -948,7 +1038,7 @@
         <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
         <div class="body">
           <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
-          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}</div>
+          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}${doingCtx ? doingChips(t) : ""}</div>${doingCtx && nextStep(t) ? `<div class="nx">→ ${esc(nextStep(t))}</div>` : ""}
         </div>
         ${t.aiActive && sessionProvider(t.aiSession)
           ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="AI のセッションを開く" data-sess>💬</a>`
@@ -958,7 +1048,7 @@
   // 描き直しの間引き (2026-10-07 キビキビ対応): 一覧の中身が前回と同じなら DOM を作り直さない。
   // 30 秒ごとの取り直し・操作後 1.5 秒の取り直し・前面復帰のたびに全行を innerHTML していたのが「一瞬固まる」の正体
   let lastSig = "", lastView = null;
-  const sigOf = (ts) => ts.map((t) => [t.id, t.name, t.due, t.start, t.startRaw, t.status, t.done, t.mit, t.owner, t.aiSince, t.aiMode, t.blockedCount, t.priority, t.project, t.carry, (t.predIds || []).length, (t.succIds || []).length, (t.env || []).join(",")].join("|")).join("\n");
+  const sigOf = (ts) => ts.map((t) => [t.id, t.name, t.due, t.start, t.startRaw, t.status, t.done, t.mit, t.owner, t.aiSince, t.aiMode, t.blockedCount, t.priority, t.project, t.carry, (t.predIds || []).length, (t.succIds || []).length, (t.env || []).join(","), (t.parentIds || []).join(","), view === "doing" ? t.rawDesc : ""].join("|")).join("\n");
   function render(today) {
     const viewChanged = lastView !== view; lastView = view;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
@@ -977,11 +1067,15 @@
     if (view === "graph") { $("#add").hidden = true; renderGraph(today); return; }
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
-    const tasks = applyFilter(allTasks(), filt, view); // 🔍 絞り込み (2026-11-03)。ここから下は絞った後の行だけを見る
+    let tasks = applyFilter(allTasks(), filt, view); // 🔍 絞り込み (2026-11-03)。ここから下は絞った後の行だけを見る
     const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
+    // 着手中 (2026-11-05): 内訳は畳む前の行で数え、親子は 1 行に畳み、重複らしき組を拾う
+    const wipSum = view === "doing" ? wipSummary(tasks, today) : null;
+    doingCtx = null;
+    if (view === "doing") { const f = foldParents(tasks); tasks = f.shown; doingCtx = { parentOf: f.parentOf, dup: dupPairs(tasks), today }; }
     if (!tasks.length && !(view === "project" && (projInfo || []).some((p) => p.closable || p.stalled))) { list.innerHTML = `<div class="empty">${filterOn(filt) ? "絞り込みに合うタスクはありません" : view === "search" ? "見つかりません" : "なし"}</div>`; return; }
     // 今日やる は 期限切れ／今日 で区切る。他は 期日あり／なし
     let secs;
@@ -1027,7 +1121,9 @@
     // 🧔 人対応 (Claude が止めて本人の手番) は 処理中 の次に独立した節で (2026-10-03)
     // 開始日が先の 人対応 は手番がまだ来ていないので節に上げない (2026-10-24 利用者「本人の手番も始まってないものが出ちゃう」)。PJ別・委任などでは元の節に「開始 M/D」付きで残る
     const hu = tasks.filter((t) => t.status === "人対応" && !t.aiActive && !(t.start && t.start > today));
-    if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ["🧔 本人の手番（AI が止めた）", "huh", hu], ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
+    // 着手中では できる場所 ごとに小分けし、いまの 📍 でできる組を先に (2026-11-05)
+    const huSecs = view === "doing" ? groupByPlace(hu, PHONE_ENV, unavailWhy).map((g) => [`🧔 本人の手番 · ${g.key}${g.now ? ` <small class="nowc">いまできる ${g.now}</small>` : ""}`, "huh", g.tasks]) : [["🧔 本人の手番（AI が止めた）", "huh", hu]];
+    if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ...huSecs, ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
     // ⭐ 今日の3つ (MIT, 2026-10-06) は一番上。4件以上なら見出しで注意 (検索タブでは節を作らない)
     const mit = view === "search" ? [] : tasks.filter((t) => t.mit && !t.done);
     if (mit.length) secs = [[`⭐ 今日の3つ${mit.length > 3 ? ` <span style="color:var(--over)">（${mit.length} 件。3つに絞る）</span>` : ""}`, "mith", mit], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.mit)])];
@@ -1046,7 +1142,7 @@
       }
     }
     const pjOf = new Map((view === "project" && projInfo || []).map((p) => [p.label, p]));
-    list.innerHTML = secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
+    list.innerHTML = (wipSum ? wipMeterHtml(wipSum) : "") + secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
       if (view === "project" && cls === "prjh") {
         const p = pjOf.get(h);
         const addBtn = p ? `<button class="addrow" data-pjadd="${p.id}" data-pjlabel="${esc(p.label)}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>${p.stalled ? "次のアクションを1件決める" : "この PJ にタスクを足す"}</button>` : "";
@@ -1875,10 +1971,11 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       if (Array.isArray(j.delegates) && j.delegates.length) { DELEGATES = j.delegates; localStorage.setItem("delegates", JSON.stringify(DELEGATES)); }
       if (Array.isArray(j.companions) && j.companionsOk) { COMPANIONS = j.companions; try { localStorage.setItem("companions", JSON.stringify(COMPANIONS)); } catch (e) {} }
       if (typeof j.phoneEnv === "string" && j.phoneEnv && j.phoneEnv !== PHONE_ENV) { PHONE_ENV = j.phoneEnv; SIT_AXES.tool[1] = PHONE_ENV; sitMemo = null; try { localStorage.setItem("phoneEnv", PHONE_ENV); } catch (e) {} } // スマホの選択肢名が変わったら手元の軸も揃える
+      if (j.wip && j.wip.limit) wipLimit = j.wip.limit;
       render(j.today); $("#stale").hidden = true; setBusy(false); $("#n-" + v).textContent = tabCount(v, tasks);
       // WIP 制限 (2026-10-06): 進行中＋人対応 が上限を超えたら1行で警告。タップで中身
       const w = j.wip; const we = $("#wip");
-      if (w && w.count > w.limit) { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
+      if (w && w.count > w.limit && v !== "doing") { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
       else we.hidden = true;
     } catch (e) {
       setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "オフライン／取得失敗（表示は前回のもの）";
