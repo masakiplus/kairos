@@ -2195,7 +2195,9 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     return `<div class="rel">${chips.map((c, i) => i < N ? c : c.replace(/^<a /, '<a class="relx" ')).join("")}${rest > 0 ? `<button type="button" data-relmore>他 ${rest} 件 ▾</button>` : ""}</div>`;
   }
   function sheetOrder() { return [...document.querySelectorAll("#list .row[data-id], #list .srow[data-id]")].map((r) => r.dataset.id); }
+  let sitOpen = false; // 📍 できる状況を開いたまま付け外しできるように (タップのたびにシートを描き直すので覚えておく)
   function openSheet(t, today) {
+    if (!sheetTask || sheetTask.id !== t.id) sitOpen = false;
     sheetTask = t;
     const sub =[t.due ? (t.due === today ? "今日" : fmtDate(t.due)) : null, t.priority, t.env.join("・") || null, t.project ? "📁 " + esc(t.project) : null].filter(Boolean).join(" · ");
     const order = sheetOrder(), pos = order.indexOf(t.id);
@@ -2216,7 +2218,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       <div class="grid st4">
         ${[["todo", "未着手", "○"], ["doing", "進行中", "▶"], ["wait", "待ち", "⏸"], ["human", "人対応", "🧔"]].map(([a, n, ic]) => `<button data-a="${a}" data-keep="1" data-st="${n}" class="${t.status === n ? "pri" : ""}" ${t.blocked || t.status === n ? "disabled" : ""}>${ic} ${n}</button>`).join("")}
       </div>`}
-      ${t.done ? "" : `<details class="sitd"><summary><span class="ic">📍</span>できる状況<span class="sv">${esc(t.env.join("・")) || "どこでも"}</span></summary>
+      ${t.done ? "" : `<details class="sitd"${sitOpen ? " open" : ""}><summary><span class="ic">📍</span>できる状況<span class="sv">${esc(t.env.join("・")) || "どこでも"}</span></summary>
       <div class="sub" style="margin:2px 2px 6px">タグが付いた軸だけ条件になる。空＝どこでも</div>
       <div class="grid sit" style="grid-template-columns:repeat(3,1fr)">${SIT_AXES.place.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${x}</button>`).join("")}</div>
       <div class="grid sit" style="grid-template-columns:repeat(4,1fr);margin-top:6px">${SIT_AXES.tool.map((x) => `<button data-env="${x}" class="${t.env.includes(x) ? "on" : ""}">${TOOL_LABEL[x] || x}</button>`).join("")}</div>
@@ -2277,6 +2279,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
 
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = "";
     fitDesc($("#descBox"));
+    const sd = $("#sheet").querySelector("details.sitd"); if (sd) sd.ontoggle = () => { sitOpen = sd.open; };
     // 端末の「戻る」で閉じられるように履歴を1つ積む
     if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
     $("#sheetClose").onclick = closeSheet;
