@@ -1265,7 +1265,7 @@
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
     let tasks = applyFilter(allTasks(), filt, view); // 🔍 絞り込み (2026-11-03)。ここから下は絞った後の行だけを見る
-    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, JSON.stringify(doingCell), WIDE.matches, pjSel, [...focusSkip].join(","), sigOf(tasks)].join("\u0001");
+    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, WIDE.matches, pjSel, [...focusSkip].join(","), JSON.stringify(doingCell), sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
@@ -1324,7 +1324,8 @@
     if (ai.length) secs = [["🤖 AI が処理中", "aih", ai], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.aiActive)])];
     // 🧔 人対応 (Claude が止めて本人の手番) は 処理中 の次に独立した節で (2026-10-03)
     // 開始日が先の 人対応 は手番がまだ来ていないので節に上げない (2026-10-24 利用者「本人の手番も始まってないものが出ちゃう」)。PJ別・委任などでは元の節に「開始 M/D」付きで残る
-    const hu = pjWide ? [] : tasks.filter((t) => t.status === "人対応" && !t.aiActive && !(t.start && t.start > today));
+    const hu = tasks.filter((t) => t.status === "人対応" && !t.aiActive && !(t.start && t.start > today));
+    if (pjWide) hu.length = 0; // 横長の PJ別では PJ から抜き出さない
     // 着手中では できる場所 ごとに小分けし、いまの 📍 でできる組を先に (2026-11-05)
     const huSecs = view === "doing" ? groupByPlace(hu, PHONE_ENV, unavailWhy).map((g) => [`🧔 本人の手番 · ${g.key}${g.now ? ` <small class="nowc">いまできる ${g.now}</small>` : ""}`, "huh", g.tasks]) : [["🧔 本人の手番（AI が止めた）", "huh", hu]];
     if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ...huSecs, ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
