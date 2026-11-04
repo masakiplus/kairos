@@ -527,6 +527,93 @@
     body:has(#sheetWrap:not([hidden])) .add{right:var(--pane)}
   }
   @media (min-width:1280px){:root{--rail:232px;--pane:460px}}
+  /* ---- 画面ごとの並び (2026-11-05, Claude Design「Kairos ワイド画面デザイン」の 画面ごと ページ) ---- */
+  .scol,.smain{display:flex;flex-direction:column;gap:18px}
+  .pjl button{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 12px;border:0;background:transparent;color:var(--fg);font:inherit;font-size:14px;text-align:left;cursor:pointer}
+  .pjl button+button{border-top:1px solid var(--line)}
+  .pjl button .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pjl button small{flex:none;font-size:11px;color:var(--mute)}
+  .pjl button small.cl{color:var(--today);font-weight:700}.pjl button small.st{color:var(--over);font-weight:700}
+  .pjl button.on{background:var(--accbg);color:var(--acc);font-weight:700}
+  @media (min-width:900px){
+    /* 着手中: 節 (本人の手番 · 場所ごと など) を列に並べる。詳細は一覧を押し縮めず上に重ねる */
+    body[data-view="doing"] main{max-width:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));align-items:start;gap:14px}
+    body[data-view="doing"] main>:not(.sec){grid-column:1/-1}
+    /* 役割: カード 2 列。右の詳細は使わない */
+    body[data-view="roles"] main{max-width:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:14px}
+    body[data-view="roles"] main>:not(.rc){grid-column:1/-1}
+    /* 決める: 中央に 1 問、右に「このあと」 */
+    body[data-view="review"] main{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 300px;align-items:start;gap:14px;grid-auto-flow:row dense}
+    body[data-view="review"] main>*{grid-column:1}
+    body[data-view="review"] main>.rvn{grid-column:2;grid-row:1/span 5;position:sticky;top:16px}
+    /* 買い物: 一覧と、右にグラフ */
+    body[data-view="shop"] main{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 340px;align-items:start;gap:14px}
+    body[data-view="shop"] main>*{grid-column:1/-1}
+    body[data-view="shop"] main>.smain{grid-column:1;grid-row:2}
+    body[data-view="shop"] main>.scol{grid-column:2;grid-row:2;position:sticky;top:16px}
+    /* PJ別: 左に PJ の一覧、右に選んだ PJ の中身 */
+    body[data-view="project"] main{max-width:none}
+    .pjm{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);gap:16px;align-items:start}
+    .pjl{display:flex;flex-direction:column;background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow-y:auto;position:sticky;top:16px;max-height:calc(100vh - 120px)}
+    /* 着手中・PJ別・役割・決める・買い物では、タスクの詳細を一覧の上に重ねる (一覧の幅を削らない) */
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]) .veil{display:block}
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]):has(#sheetWrap:not([hidden])){padding-right:0}
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]):has(#sheetWrap:not([hidden])) .add{right:0}
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]) .sheet{box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+  }
+  /* ---- 今日やる「いまの1つ」・今日できる タイル・スマホ／広い画面 (2026-11-05) ---- */
+  .row.focus{overflow:visible;content-visibility:visible;contain-intrinsic-size:none}
+  .fcard{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:16px;background:var(--card);box-shadow:var(--shadow),inset 0 0 0 2px var(--acc)}
+  .fcard .fh{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--mute)}
+  .fcard .fh b{color:var(--acc)}.fcard .fh .fc{color:var(--over)}.fcard .fh .fsp{flex:1}
+  .fcard .fh .fp{padding:2px 7px;border-radius:4px;background:var(--seg);font-weight:700}.fcard .fh .fp.p1{color:var(--over)}.fcard .fh .fp.p2{color:var(--p2)}
+  .fcard .fh .fe{padding:2px 7px;border-radius:4px;background:var(--seg);color:var(--fg)}
+  .fcard .fn{margin:0;font-size:19px;line-height:1.45;font-weight:700}
+  .fcard .fd{padding:0;box-shadow:none;background:transparent;font-size:14px}
+  .fcard .fb{display:grid;grid-template-columns:1.3fr 1.2fr 1fr 48px;gap:6px}
+  .fcard .fb button{height:48px;border:0;border-radius:24px;display:flex;align-items:center;justify-content:center;gap:4px;font:inherit;font-size:13px;font-weight:600;background:var(--seg);color:var(--fg);padding:0 6px}
+  .fcard .fb button svg{width:16px;height:16px;flex:none}
+  .fcard .fb .pri{background:var(--acc);color:#fff;font-size:15px}.fcard .fb .ai{background:var(--accbg);color:var(--acc)}
+  .fcard .fb .fl1{display:none}
+  .fcard .fo{align-self:center;border:0;background:none;color:var(--acc);font:inherit;font-size:13px;font-weight:600;padding:4px 8px}
+  .nexth{margin:4px 0 -10px;padding:0 10px;font-size:13px;font-weight:600;color:var(--mute)}
+  @media (max-width:399px){.fcard .fb{grid-template-columns:1fr 1fr 1fr}.fcard .fb [data-fnext]{display:none}}
+  /* 今日できる: タイルで見渡す (行の部品はそのまま。丸・🤖・スワイプも効く) */
+  body[data-view="can"] .group{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px;background:transparent;box-shadow:none;overflow:visible}
+  body[data-view="can"] .row{border-radius:12px;box-shadow:var(--shadow);contain-intrinsic-size:auto 130px}
+  body[data-view="can"] .row+.row .card{border-top:0}
+  body[data-view="can"] .row .card{flex-wrap:wrap;align-items:flex-start;height:100%;gap:8px;padding:10px 10px 10px 12px}
+  body[data-view="can"] .row .card .body{order:3;flex-basis:100%}
+  body[data-view="can"] .row .card .go{margin-left:auto;width:32px;height:32px}
+  body[data-view="can"] .row .name{white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;font-size:14px;line-height:1.45;min-height:4.35em}
+  body[data-view="can"] .row .nx{display:none}
+  /* スマホ・細い画面: 買い物のグラフは横にめくる */
+  @media (max-width:899px){
+    body[data-view="shop"] .scol{flex-direction:row;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -12px;padding:0 12px 4px;-webkit-overflow-scrolling:touch}
+    body[data-view="shop"] .scol .scard{flex:0 0 86%;scroll-snap-align:start}
+  }
+  @media (min-width:600px) and (max-width:899px){
+    body[data-view="roles"] main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px}
+    body[data-view="roles"] main>:not(.rc){grid-column:1/-1}
+  }
+  @media (min-width:900px){
+    body[data-view="can"] main{max-width:none}
+    body[data-view="today"] .fcard{padding:24px}
+    body[data-view="today"] .fcard .fn{font-size:24px}
+  }
+  /* 広い画面: 詳細は重ねずに右へ据え付ける。役割は 3 列、買い物のグラフは 2 列 */
+  @media (min-width:1600px){
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]) .veil{display:none}
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]):has(#sheetWrap:not([hidden])){padding-right:var(--pane)}
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]):has(#sheetWrap:not([hidden])) .add{right:var(--pane)}
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]) .sheet{box-shadow:none}
+    body[data-view="roles"] main{grid-template-columns:repeat(3,minmax(0,1fr))}
+    body[data-view="shop"] main{grid-template-columns:minmax(0,1fr) 700px}
+    body[data-view="shop"] .scol{display:grid;grid-template-columns:1fr 1fr;align-items:start}
+    body[data-view="today"] main{max-width:760px}
+    .fcard .fb .fl1{display:inline}.fcard .fb .fl2{display:none}
+    body[data-view="can"] .group{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+  }
 </style>
 </head>
 <body>
@@ -1106,6 +1193,22 @@
   }
   // 上部の内訳メーター (2026-11-05)。上限を超えたら赤、待ちにできそうな件数も添える
   let wipLimit = 10;
+  // 横長 (Fold 展開・PC) の判定 (2026-11-05)。CSS の @media (min-width:900px) と揃える。画面ごとの並びは body[data-view] で CSS が切り替える
+  const WIDE = matchMedia("(min-width:900px)");
+  let pjSel = null; // PJ別 (横長): 右に中身を出している PJ の見出し
+  const focusSkip = new Set(); // 今日やる「いまの1つ」で › を押して後回しにした id (この端末・この起動中だけ)
+  // 今日やる の「いまの1つ」(2026-11-05): 説明のうち なぜ／何を の 2 行だけを大きく出す
+  function focusHtml(t, today) {
+    const dl = (t.rawDesc || "").split("\n").filter((l) => /^(なぜ|何を)[:：]/.test(l)).join("\n");
+    const tag = t.mit ? "⭐ 今日の3つ" : t.status === "人対応" ? "🧔 本人の手番" : "";
+    return `<div class="row focus" data-id="${t.id}"><div class="fcard">
+      <div class="fh"><b>いまの1つ</b>${tag ? `<span>${tag}</span>` : ""}${t.carry > 0 ? `<span class="fc">繰越${t.carry}回</span>` : ""}<span class="fsp"></span>${t.priority ? `<span class="fp ${t.priority}">${t.priority.toUpperCase()}</span>` : ""}${t.env.length ? `<span class="fe">${esc(t.env.join("・"))}</span>` : ""}</div>
+      <h2 class="fn">${t.icon ? t.icon + " " : ""}${esc(t.name)}</h2>
+      ${dl ? `<div class="desc fd"><div class="dtext">${descHtml(dl)}</div></div>` : ""}
+      <div class="fb"><button class="pri" data-done aria-label="完了にする">${ICONS.check}完了</button><button class="ai" data-claude>${aiIcon()}<span class="fl1">AIに進めてもらう</span><span class="fl2">AIに渡す</span></button><button data-fdefer>${ICONS.tomorrow}明日へ</button><button data-fnext aria-label="次のタスクへ（後回し）">›</button></div>
+      <button class="fo" type="button">詳細を開く ›</button>
+    </div></div>`;
+  }
   let doingCell = null; // マス目で選んだ {place, col}。もう一度タップ・✕・タブ移動で外す
   function gridHtml(rows, cell) {
     if (!rows.length) return "";
@@ -1142,6 +1245,9 @@
   function render(today) {
     const viewChanged = lastView !== view; lastView = view;
     if (viewChanged) doingCell = null;
+    document.body.dataset.view = view;
+    // タブを替えたら、前のタブで開いたタスクの詳細は閉じる (2026-11-05: 横長で右に据え付けたシートが別のタブに残っていた)
+    if (viewChanged && !$("#sheetWrap").hidden && !["deps", "graph", "quad"].includes(view)) closeSheet();
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
     $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
@@ -1159,7 +1265,7 @@
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
     let tasks = applyFilter(allTasks(), filt, view); // 🔍 絞り込み (2026-11-03)。ここから下は絞った後の行だけを見る
-    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, JSON.stringify(doingCell), sigOf(tasks)].join("\u0001");
+    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, WIDE.matches, pjSel, [...focusSkip].join(","), JSON.stringify(doingCell), sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
@@ -1212,16 +1318,19 @@
       secs = [["期日あり", "", tasks.filter((t) => t.due)], ["日付なし", "", tasks.filter((t) => !t.due)]];
     }
     // 🤖 処理中 は一番上に独立した節で出し、他の節からは外す (2026-09-30)
-    const ai = tasks.filter((t) => t.aiActive);
+    // 横長の PJ別は PJ ごとの一覧なので、処理中・本人の手番・今日の3つ を PJ から抜き出さない (抜くと左の PJ 一覧に PJ でない項目が並ぶ)
+    const pjWide = view === "project" && WIDE.matches;
+    const ai = pjWide ? [] : tasks.filter((t) => t.aiActive);
     if (ai.length) secs = [["🤖 AI が処理中", "aih", ai], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.aiActive)])];
     // 🧔 人対応 (Claude が止めて本人の手番) は 処理中 の次に独立した節で (2026-10-03)
     // 開始日が先の 人対応 は手番がまだ来ていないので節に上げない (2026-10-24 利用者「本人の手番も始まってないものが出ちゃう」)。PJ別・委任などでは元の節に「開始 M/D」付きで残る
     const hu = tasks.filter((t) => t.status === "人対応" && !t.aiActive && !(t.start && t.start > today));
+    if (pjWide) hu.length = 0; // 横長の PJ別では PJ から抜き出さない
     // 着手中では できる場所 ごとに小分けし、いまの 📍 でできる組を先に (2026-11-05)
     const huSecs = view === "doing" ? groupByPlace(hu, PHONE_ENV, unavailWhy).map((g) => [`🧔 本人の手番 · ${g.key}${g.now ? ` <small class="nowc">いまできる ${g.now}</small>` : ""}`, "huh", g.tasks]) : [["🧔 本人の手番（AI が止めた）", "huh", hu]];
     if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ...huSecs, ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
     // ⭐ 今日の3つ (MIT, 2026-10-06) は一番上。4件以上なら見出しで注意 (検索タブでは節を作らない)
-    const mit = view === "search" ? [] : tasks.filter((t) => t.mit && !t.done);
+    const mit = view === "search" || pjWide ? [] : tasks.filter((t) => t.mit && !t.done);
     if (mit.length) secs = [[`⭐ 今日の3つ${mit.length > 3 ? ` <span style="color:var(--over)">（${mit.length} 件。3つに絞る）</span>` : ""}`, "mith", mit], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.mit)])];
     // 🌅 早朝 (2026-10-12, 窓は 2026-10-15 に 22:00〜05:59 へ): その時間に開いたとき、今日やる・今日できる の先頭に 早朝向き (実行環境に 早朝) の着手可を出す。昼間は節を作らない (通常の節に混ざる)
     const SQ = currentSit();
@@ -1237,16 +1346,35 @@
         secs = [...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !un.includes(t))]), [`💤 いまはできない <small style="font-weight:400;color:var(--mute)">${esc(why)}</small>`, "unav", un]];
       }
     }
+    // 今日やる (2026-11-05): 並びの先頭から、いまできる・先行待ちでない・処理中でない 1 件を「いまの1つ」にして大きく出す。残りは「このあと」
+    let focus = null;
+    if (view === "today") {
+      const pick = () => { for (const [, cls, ts] of secs) { if (cls === "unav" || cls === "blk") continue; const f = ts.find((t) => !t.done && !t.blocked && !t.aiActive && !focusSkip.has(t.id)); if (f) return f; } return null; };
+      focus = pick(); if (!focus && focusSkip.size) { focusSkip.clear(); focus = pick(); }
+      if (focus) secs = secs.map(([h, c, ts]) => [h, c, ts.filter((t) => t !== focus)]);
+    }
     const pjOf = new Map((view === "project" && projInfo || []).map((p) => [p.label, p]));
-    list.innerHTML = (wipSum ? wipMeterHtml(wipSum) : "") + gridH + secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
+    const secHtml = ([h, cls, ts]) => {
       if (view === "project" && cls === "prjh") {
         const p = pjOf.get(h);
         const addBtn = p ? `<button class="addrow" data-pjadd="${p.id}" data-pjlabel="${esc(p.label)}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>${p.stalled ? "次のアクションを1件決める" : "この PJ にタスクを足す"}</button>` : "";
         return `<section class="sec" ${p ? `data-pj="${p.id}"` : ""}>${pjHeadHtml(h, p, ts)}<div class="group">${ts.map((t) => rowHtml(t, today)).join("")}${addBtn}</div></section>`;
       }
       return `<section class="sec"><h2 class="${cls}">${cls === "prjh" ? esc(h) + `<span class="n">${ts.length}</span>` : h}</h2><div class="group">${ts.map((t) => rowHtml(t, today)).join("")}</div></section>`;
-    }).join("") +
+    };
+    const shown = secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0])));
+    let body;
+    if (pjWide && shown.length) {
+      // 横長の PJ別 (2026-11-05): 左に PJ の一覧、右に選んだ PJ の中身 (見出し・完了条件・タスク)。並びはスマホと同じ (クローズ候補 → 止まっている → 件数順)
+      if (!shown.some((s) => s[0] === pjSel)) pjSel = shown[0][0];
+      const tag = (h, ts) => { const p = pjOf.get(h); return p && p.closable ? `<small class="cl">クローズ候補</small>` : p && p.stalled ? `<small class="st">止まっている</small>` : `<small>${ts.length}</small>`; };
+      body = `<div class="pjm"><nav class="pjl" aria-label="プロジェクト">${shown.map(([h, , ts]) => `<button type="button" data-pjsel="${esc(h)}" class="${h === pjSel ? "on" : ""}"><span class="t">${esc(h)}</span>${tag(h, ts)}</button>`).join("")}</nav><div class="pjd">${secHtml(shown.find((s) => s[0] === pjSel))}</div></div>`;
+    } else body = shown.map(secHtml).join("");
+    if (focus) body = focusHtml(focus, today) + (body ? `<h2 class="nexth">このあと</h2>` : "") + body;
+    list.innerHTML = (wipSum ? wipMeterHtml(wipSum) : "") + gridH + body +
       `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー ／ 右クリック・長押し＝すぐ操作</div>` + metaHtml(view);
+    // 横長で今日やるに入ったときは、いまの1つの詳細を右に開いておく (デザイン: いまの1枚＋詳細)
+    if (focus && viewChanged && WIDE.matches && $("#sheetWrap").hidden) openSheet(focus, today);
   }
   // 各タブの一番下: そのタブ全体を Claude と見返すメタ操作 (2026-10-10)。1 件ずつの 🤖 とは別に「一覧ごと」渡す。文面は URL に乗せるので 12 件まで
   function taskLines(ts, n = 12) {
@@ -1513,11 +1641,11 @@
     const sec = (title, arr, sum) => `<section class="sec"><h2>${title} <span class="cnt">${arr.length} 件 · ${yen(sum)}</span></h2>${arr.length ? arr.map(shopRowHtml).join("") : '<div class="hint">なし</div>'}</section>`;
     const poolNote = d.poolsOk ? "線＝購入月の裁量枠（discretionary_pool）。残り＝枠 − 予定額" : "裁量枠を読めませんでした（裁量日割りパラメータの本文）";
     list.innerHTML = `<div class="rsum"><span>未完了 ${T.count} 件 · 予定 ${yen(T.amount)}${T.unpriced ? ` · 金額未記入 ${T.unpriced} 件` : ""}</span><b>買ったつもり貯金 ${yen(T.savedAmount)}</b></div>
-      <div class="scard"><h3>セール窓ごとの予定額</h3>${shopWindowsChart(d.windows)}</div>
+      <div class="scol"><div class="scard"><h3>セール窓ごとの予定額</h3>${shopWindowsChart(d.windows)}</div>
       <div class="scard"><h3>引落し月ごとの予定額 <small>購入月の翌月27日</small></h3>${shopDebitChart(d.debit)}<div class="hint">${poolNote}</div></div>
-      <div class="scard"><h3>買ったつもり貯金 <small>見送りで閉じた金額・月別と累計</small></h3>${shopSavingsChart(d.savings)}</div>
-      ${sec("買ったつもり", temp, T.tempAmount)}${sec("その他の購入", other, T.otherAmount)}
-      <div class="hint">並びはセール窓の開始日順（窓なしは末尾）。必要度Cは起票から30日は冷却中。値の変更はシートの🤖から</div>`;
+      <div class="scard"><h3>買ったつもり貯金 <small>見送りで閉じた金額・月別と累計</small></h3>${shopSavingsChart(d.savings)}</div></div>
+      <div class="smain">${sec("買ったつもり", temp, T.tempAmount)}${sec("その他の購入", other, T.otherAmount)}
+      <div class="hint">並びはセール窓の開始日順（窓なしは末尾）。必要度Cは起票から30日は冷却中。値の変更はシートの🤖から</div></div>`;
   }
   // 🗂 見直し (Phase C-9): 1 問ずつ。答えは Worker が Notion に書く。「今は決めない」は端末内で飛ばす (Decisions は 提示済み にする)
   // 決めるタブ (2026-10-15 改修 A〜F): 種類の帯＋なぜ今か＋定型の問い＋種類チップ＋依存・日程は図
@@ -2464,9 +2592,9 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     if (!$("#sheetWrap").hidden) $("#sheetWrap").hidden = true;
   });
   $("#veil").onclick = closeSheet;
+  WIDE.addEventListener("change", () => { lastSig = ""; render(todayStr); });
   // シートを下にスワイプで閉じる
   let shY = 0, shDy = 0, shOn = false;
-  const WIDE = matchMedia("(min-width:900px)"); // 3 ペイン (左レール・一覧・右の詳細) に切り替える幅。CSS の @media と揃える
   /* シートが縦にスクロールする場合、引き下げて閉じるのは一番上にいるときだけ（2026-09-30） */
   $("#sheet").addEventListener("touchstart", (e) => { shY = e.touches[0].clientY; shDy = 0; shOn = $("#sheet").scrollTop <= 0 && !WIDE.matches; }, { passive: true }); // 横長では右に据え付けなので引き下げない
   $("#sheet").addEventListener("touchmove", (e) => { if (!shOn) return; if ($("#sheet").scrollTop > 0) { shOn = false; $("#sheet").style.transform = ""; return; } shDy = Math.max(0, e.touches[0].clientY - shY); $("#sheet").style.transform = `translateY(${shDy}px)`; }, { passive: true });
@@ -2561,6 +2689,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     if (gc) { const [place, col] = gc.dataset.cell.split("|"); const nx = { place: place || null, col: col || null }; doingCell = doingCell && doingCell.place === nx.place && doingCell.col === nx.col ? null : nx; lastSig = ""; render(todayStr); return; }
     if (e.target.closest("[data-cell-clear]")) { doingCell = null; lastSig = ""; render(todayStr); return; }
     const pc = e.target.closest("[data-pjclose]"); if (pc) { closeProject(pc.dataset.pjclose, pc.dataset.pjname); return; }
+    const ps = e.target.closest("[data-pjsel]"); if (ps) { pjSel = ps.dataset.pjsel; lastSig = ""; render(todayStr); const d = $(".pjd"); if (d) d.scrollIntoView({ block: "nearest" }); return; }
     const pd = e.target.closest("[data-pjdeps]"); if (pd) { openDeps(pd.dataset.pjdeps); return; }
     if (e.target.closest("[data-quad]")) { e.preventDefault(); openQuad(); return; }
     if (view === "graph") {
@@ -2614,6 +2743,8 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     const t = tasks.find((x) => x.id === row.dataset.id); if (!t) return;
     if (e.target.closest("[data-sess]")) return; // 処理中のセッションを開くリンク。シートは開かない
     if (e.target.closest("[data-claude]")) { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでメニューへ
+    if (e.target.closest("[data-fdefer]")) { act(t, "defer?days=1", "明日へ"); return; } // いまの1つ の 明日へ
+    if (e.target.closest("[data-fnext]")) { focusSkip.add(t.id); lastSig = ""; render(todayStr); return; } // いまの1つ を後回しにして次へ
     const ring = e.target.closest("[data-done]");
     if (ring) { // 丸をタップ＝完了 (青く塗ってから消す)
       if (t.aiActive && !confirm("AI が処理中です。それでも完了にしますか？")) return;
