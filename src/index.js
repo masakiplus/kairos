@@ -504,6 +504,36 @@ async function habitsDue(env) {
   }
   return due.filter((h) => !h.auto).map((h) => ({ ...h, roles: h.roleIds.map((r) => roleNames.get(r)).filter(Boolean) }));
 }
+// 🔁 習慣トラッカー (2026-11-05): 習慣の一覧と、直近 3 週 (月曜起算) の Habit Log。読むだけ。判定は書かない (書くのは各 Worker・Dreamtime・手動申告のまま)
+async function habitsTracker(env) {
+  const today = todayJst(), weekStart = weekStartJst();
+  const since = new Date(Date.parse(weekStart + "T00:00:00Z") - 14 * 86400_000).toISOString().slice(0, 10);
+  const hr = await notion(env, `/data_sources/${env.HABITS_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({ page_size: 100 }) });
+  const roleNames = await rolesNames(env).catch(() => new Map());
+  const habits = (hr.results ?? []).filter((pg) => !pg.archived && !pg.in_trash).map((pg) => { const p = pg.properties ?? {}; return {
+    id: pg.id, icon: pg.icon?.type === "emoji" ? pg.icon.emoji : null, name: (p["名前"]?.title ?? []).map((t) => t.plain_text).join(""),
+    freq: p["頻度"]?.select?.name ?? null, method: p["計測方法"]?.select?.name ?? null, state: p["状態"]?.select?.name ?? null,
+    rule: RT_TEXT(p["判定ルール"]).slice(0, 400), source: RT_TEXT(p["データ源"]).slice(0, 240),
+    roles: (p["役割"]?.relation ?? []).map((x) => roleNames.get(x.id)).filter(Boolean), logs: [] }; });
+  const byId = new Map(habits.map((h) => [h.id.replace(/-/g, ""), h]));
+  let cursor;
+  do {
+    const r = await notion(env, `/data_sources/${env.HABIT_LOG_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({ filter: { property: "日付", date: { on_or_after: since } }, page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }) });
+    for (const pg of r.results ?? []) {
+      const p = pg.properties ?? {}, date = (p["日付"]?.date?.start ?? "").slice(0, 10); if (!date) continue;
+      const row = { id: pg.id, date, done: !!p["達成"]?.checkbox, value: p["値"]?.number ?? null, memo: RT_TEXT(p["メモ"]).slice(0, 160), src: p["取得元"]?.select?.name ?? null };
+      for (const x of p["習慣"]?.relation ?? []) { const h = byId.get(x.id.replace(/-/g, "")); if (h) h.logs.push(row); }
+    }
+    cursor = r.has_more ? r.next_cursor : undefined;
+  } while (cursor);
+  for (const h of habits) h.logs.sort((a, b) => a.date.localeCompare(b.date));
+  return { today, weekStart, since, habits };
+}
+// 習慣の記録の取り消し (↩): 行をごみ箱へ。ごみ箱に入れられない保存先なら 達成 を外す
+async function habitLogUndo(env, logId) {
+  try { await notion(env, `/pages/${logId}`, { method: "PATCH", body: JSON.stringify({ in_trash: true }) }); return { id: logId, trashed: true }; }
+  catch (e) { await notion(env, `/pages/${logId}`, { method: "PATCH", body: JSON.stringify({ properties: { "達成": { checkbox: false } } }) }); return { id: logId, trashed: false }; }
+}
 async function habitLog(env, habitId, done, note, source = "manual") {
   const today = todayJst();
   const h = await notion(env, `/pages/${habitId}`);
@@ -1433,6 +1463,9 @@ const kairosWorker = {
       if (path === "/api/shopping" && req.method === "GET") return json(await cachedJson(env, "shopping", () => shopping(env)));
       if (path === "/api/quadrant" && req.method === "GET") return json(await quadrant(env));
       if (path === "/api/habits/due" && req.method === "GET") return json({ today: todayJst(), habits: await habitsDue(env) });
+      if (path === "/api/habits" && req.method === "GET") return json(await cachedJson(env, "habits", () => habitsTracker(env)));
+      const mhu = path.match(/^\/api\/habits\/log\/([0-9a-f-]{32,36})\/undo$/);
+      if (mhu && req.method === "POST") return json(await habitLogUndo(env, mhu[1]));
       const mhl = path.match(/^\/api\/habits\/([0-9a-f-]{32,36})\/log$/);
       if (mhl && req.method === "POST") { const b = await req.json().catch(() => ({})); return json({ log: await habitLog(env, mhl[1], b.done !== false, String(b.note ?? "").trim()) }); }
       const mtg = path.match(/^\/api\/tasks\/([0-9a-f-]{32,36})\/graph$/);
