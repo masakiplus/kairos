@@ -975,6 +975,7 @@ async function listTasks(env, view) {
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
       if (view === "cloud" && !t.env.includes(CLOUD_ENV)) continue; // クラウドで の 🤖 処理中 節にはクラウドのものだけ (2026-10-29: 紙・早朝のタスクが混ざっていた)
+      if (t.owner && view !== "delegated") continue; // 委任中は 🤖 処理中でも自分のタブに足さない (2026-11-05: 委任済みが今日やるに混ざっていた)。委任タブでは出す
       if (t.aiActive && !have.has(t.id)) { t.aiForeign = true; out.push(t); }
     }
   } catch (e) { /* 一覧本体は返す */ }
@@ -988,6 +989,7 @@ async function listTasks(env, view) {
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
       if (!t.mit || have.has(t.id)) continue;
+      if (t.owner) continue; // 委任中は ⭐ 今日の3つ でも今日やるに出さない (2026-11-05: 担当=真実 のタスクが今日やるに出ていた)。passesView と同じく委任タブで見る
       // ⭐ なのに開始日が未来 (Dreamtime が 10/10 開始のタスクを今日の3つに置いた, 2026-10-07): 今日やるものなので開始日を今日に戻す
       if (t.start && t.start > today) { try { await patchTask(env, t.id, { "開始日": { date: { start: today } } }); t.start = today; t.startRaw = today; } catch (e) { /* 表示は続ける */ } }
       t.mitForeign = true; out.push(t);
