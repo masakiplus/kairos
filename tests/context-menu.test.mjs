@@ -14,8 +14,8 @@ test('未完了の行: 完了・🤖 を先頭に、使われている操作だ�
  assert.deepEqual(keys({}),['done','ai','ai-update','mit','defer?days=1','defer?to=weekend','defer?to=nextweek','delegate?to=%E7%9C%9F%E5%AE%9F','skip','open']);
 });
 test('メニューの操作はすべてシートにもある操作 (Worker に新しい口を足さない)',()=>{
- for(const k of keys({}).concat(keys({mit:true}),keys({owner:'真実'}),keys({done:true}))){
-  if(k==='ai'||k==='ai-update'||k==='open'||k.startsWith('delegate?to='))continue; // 🤖 と 詳細 は画面内、委任はシートの data-dg と同じ delegate?to=
+ for(const k of keys({}).concat(keys({aiSession:'https://claude.ai/chat/x'}),keys({mit:true}),keys({owner:'真実'}),keys({done:true}))){
+  if(k==='ai'||k==='ai-update'||k==='ai-update-fresh'||k==='open'||k.startsWith('delegate?to='))continue; // 🤖 と 詳細 は画面内、委任はシートの data-dg と同じ delegate?to=
   assert.ok(sheetActions.has(k)||k==='mit-clear',k);
  }
 });
@@ -28,4 +28,9 @@ test('状態に合わせて出し分ける',()=>{
 test('先行待ちは 🤖 (進める・更新)・委任・詳細だけ押せる (シートと同じ制約)',()=>{
  const on=[...cmenuItems({blocked:true},'真実')].filter(x=>x!=='-'&&!x.off).map(x=>x.m);
  assert.deepEqual(on,['ai','ai-update','delegate?to=%E7%9C%9F%E5%AE%9F','open']);
+});
+test('前回のセッションがあるときだけ 新しいチャットで更新 を出す (2026-11-05)',()=>{
+ assert.ok(!keys({}).includes('ai-update-fresh'));
+ const k=keys({aiSession:'https://claude.ai/chat/x'});
+ assert.equal(k[k.indexOf('ai-update')+1],'ai-update-fresh','更新のすぐ下');
 });
