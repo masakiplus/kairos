@@ -614,6 +614,45 @@
     .fcard .fb .fl1{display:inline}.fcard .fb .fl2{display:none}
     body[data-view="can"] .group{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
   }
+  /* ---- 🔁 習慣トラッカー (2026-11-05) ---- */
+  .hrow{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 14px;border:0;background:transparent;color:var(--fg);font:inherit;text-align:left}
+  .group>.hrow+.hrow,.hstrip .hrow+.hrow{border-top:1px solid var(--line)}
+  .hrow .hn{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hm{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px;box-shadow:inset 0 0 0 1.5px var(--mute)}
+  .hm.a{background:var(--mute)}.hm.s{background:linear-gradient(90deg,var(--mute) 50%,transparent 50%)}
+  .hlegend .hm{margin-left:6px}
+  .hrow .hn small{color:var(--mute);font-size:11px}
+  .hrow .hr{flex:none;font-size:11px;color:var(--mute)}
+  .hrow.tap .hname{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;border:0;background:none;padding:0;color:var(--fg);font:inherit;font-size:14px;text-align:left}
+  .hrow.tap .hname small{font-size:11px;color:var(--mute)}
+  .hbtn{flex:none;height:38px;padding:0 16px;border:0;border-radius:19px;background:var(--acc);color:#fff;font:inherit;font-size:13px;font-weight:700}
+  .hbtn:disabled{opacity:.5}
+  .hrow.hd .hn{flex:1 1 96px}
+  .hcells{display:flex;gap:3px;flex:0 1 auto;min-width:0}
+  .hc{display:block;flex:0 1 13px;min-width:5px;height:13px;border-radius:3px}
+  .hc.y{background:var(--acc)}.hc.n{background:var(--sep)}.hc.u{box-shadow:inset 0 0 0 1px var(--sep)}.hc.t{box-shadow:inset 0 0 0 1.5px var(--acc)}
+  .hrow.hw{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,56px);gap:6px}
+  .hrow.hwh{min-height:28px;padding-top:6px;padding-bottom:2px;font-size:10px;color:var(--mute);text-align:center}
+  .hwc{height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--seg);color:var(--mute)}
+  .hwc.ok{background:var(--acc);color:#fff}.hwc.cur{background:var(--card);color:var(--acc);box-shadow:inset 0 0 0 1.5px var(--acc)}
+  @media (max-width:479px){.hrow.hd{flex-wrap:wrap}.hrow.hd .hn{flex-basis:calc(100% - 50px)}.hrow.hd .hcells{order:3;flex-basis:100%;justify-content:space-between}.hc{width:auto;flex:1;max-width:18px}.hrow.hw{grid-template-columns:minmax(0,1fr) repeat(3,44px)}}
+  .hstrip{display:flex;flex-direction:column;background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:4px 0 8px}
+  .hstrip .hsh{display:flex;align-items:baseline;gap:8px;padding:8px 14px 4px}
+  .hstrip .hsh b{font-size:13px}.hstrip .hsh small{font-size:11px;color:var(--mute)}
+  .hstrip .hsh .lnk{margin-left:auto;border:0;background:none;color:var(--acc);font:inherit;font-size:12px;font-weight:600}
+  .hchips{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px 0;border-top:1px solid var(--line);margin-top:2px}
+  .hchip{border:0;border-radius:12px;padding:4px 10px;background:var(--seg);color:var(--mute);font:inherit;font-size:11px}
+  .hchip small{margin-left:4px;opacity:.8}.hchip.ok{background:var(--acc);color:#fff}
+  .sheet .hstat{background:var(--card);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+  .sheet .hstat small{font-size:11px;color:var(--mute)}.sheet .hstat b{font-size:16px}
+  .sheet .hbars{display:flex;align-items:flex-end;gap:3px;height:110px;padding:0 6px;border-bottom:1px solid var(--sep);background:var(--card);border-radius:10px 10px 0 0}
+  .sheet .hbars i{flex:1;background:var(--sep);border-radius:3px 3px 0 0}.sheet .hbars i.ok{background:var(--acc)}
+  .sheet .hlogs .hl{display:flex;align-items:baseline;gap:10px;padding:9px 14px;font-size:13px}
+  .sheet .hlogs .hl+.hl{border-top:1px solid var(--line)}
+  .sheet .hlogs .hl>span:first-child{width:14px;color:var(--mute)}.sheet .hlogs .hl>span.ok{color:var(--acc);font-weight:700}
+  .sheet .hlogs .hl b{font-weight:600;width:40px;flex:none}.sheet .hlogs .hl .m{flex:1;min-width:0;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sheet .hlogs .hl small{color:var(--mute2);font-size:11px}
+  @media (min-width:900px){body[data-view="habits"] main{max-width:760px}}
 </style>
 </head>
 <body>
@@ -631,6 +670,7 @@
       <button data-v="review">決める<span class="n" id="n-review"></span></button>
       <button data-v="delegated">委任<span class="n" id="n-delegated"></span></button>
       <button data-v="shop">買い物<span class="n" id="n-shop"></span></button>
+      <button data-v="habits">習慣<span class="n" id="n-habits"></span></button>
     </div>
   </div>
   <div class="sitbar" id="sitbar" hidden><button id="sitChip" type="button" title="いまの状況（場所・道具・一緒にいる人・時間帯）。タップで変更"></button><button id="fltChip" type="button" title="ラベル・コンテキスト・種類で絞り込む"></button></div>
@@ -669,7 +709,7 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const views = ["today", "can", "doing", "project", "delegated"];
-  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", cloud: "クラウドで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", shop: "買い物", deps: "つながり", graph: "つながり", quad: "象限" };
+  const TITLES = { today: "今日やる", can: "今日できる", phone: "スマホで", cloud: "クラウドで", doing: "着手中", project: "PJ別", delegated: "委任中", roles: "役割", review: "決める", shop: "買い物", habits: "習慣", deps: "つながり", graph: "つながり", quad: "象限" };
   let reviewData = null, reviewPos = 0, reviewSkipped = new Set(), reviewShowAll = false; // 見直し (Phase C-9)
   let depsData = null, depsPj = null, depsBack = "project"; // つながり (Phase C-11)
   let graphData = null, quadData = null; // 1 タスク 3 列 (C-11a)・象限 (C-10)
@@ -679,6 +719,9 @@
   // Phase B (2026-10-06): PJ別の見出し情報 (/api/projects) と 役割タブ (/api/roles)。追加欄の PJ 紐づけ
   let projInfo = null, projInfoAt = 0, rolesData = null, addProject = null;
   let shopData = null; // 🛒 買い物 (2026-11-02)
+  // 🔁 習慣トラッカー (2026-11-05): 習慣は「片付ける」ものではなく「続いているかを見る」もの。タスクと分けて、記録と達成だけを扱う
+  let habitsData = null, habitsAt = 0, habitsLoading = null;
+  try { habitsData = JSON.parse(localStorage.getItem("habits:data") || "null"); } catch (e) { habitsData = null; }
   let COMPANIONS = []; try { COMPANIONS = JSON.parse(localStorage.getItem("companions") || "[]"); } catch (e) {} // 👥 実行環境 の「〜と」タグ。Worker がスキーマから読む (2026-10-12)
   let PHONE_ENV = "スマホ"; try { PHONE_ENV = localStorage.getItem("phoneEnv") || PHONE_ENV; } catch (e) {} // 📱 スマホの選択肢名 (2026-10-15 に iPhone からリネーム)。Worker がスキーマに実在する方を /api/tasks に添える
   let DELEGATES = JSON.parse(localStorage.getItem("delegates") || "[]"); // 担当 の選択肢。Worker が Notion のスキーマから読んで /api/tasks に添える
@@ -725,7 +768,7 @@
   // 旧「スマホで」「クラウドで」タブ (2026-11-03 廃止。コンテキストの一種なので 🔍 絞り込みの 📍 へ移した): 最後に開いていた・?view= で来たら 今日できる ＋ 📍 その値 で開く
   const LEGACY_ENV_VIEWS = { phone: () => PHONE_ENV, cloud: () => "クラウド" };
   let view = localStorage.getItem("view") || "today", legacyEnv = null;
-  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "doing", "project", "roles", "review", "delegated", "shop"].includes(requested)) view = requested; else if (LEGACY_ENV_VIEWS[requested]) view = requested; }
+  { const requested = new URL(location.href).searchParams.get("view"); if (["today", "can", "doing", "project", "roles", "review", "delegated", "shop", "habits"].includes(requested)) view = requested; else if (LEGACY_ENV_VIEWS[requested]) view = requested; }
   if (LEGACY_ENV_VIEWS[view]) { legacyEnv = LEGACY_ENV_VIEWS[view](); view = "can"; }
   if (view === "search") view = "today"; // 検索は保存しない
   let tasks = [];
@@ -1250,22 +1293,25 @@
     if (viewChanged && !$("#sheetWrap").hidden && !["deps", "graph", "quad"].includes(view)) closeSheet();
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
-    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
+    $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "habits" ? "🔁" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
-    $("#add").hidden = view === "roles" || view === "review" || view === "shop";
+    $("#add").hidden = view === "roles" || view === "review" || view === "shop" || view === "habits";
     const sitOn = view === "today" || view === "can", fltOn = FILTER_VIEWS.includes(view);
     $("#sitChip").hidden = !sitOn; $("#fltChip").hidden = !fltOn; $("#sitbar").hidden = !sitOn && !fltOn;
     if (sitOn) pollWhere(); renderSit(); renderFilt();
     if (view === "roles") { renderRoles(today); return; }
     if (view === "review") { renderReview(today); return; }
     if (view === "shop") { renderShop(today); return; }
+    if (view === "habits") { renderHabits(today); return; }
     if (view === "deps") { $("#add").hidden = true; renderDeps(today); return; }
     if (view === "graph") { $("#add").hidden = true; renderGraph(today); return; }
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
     let tasks = applyFilter(allTasks(), filt, view); // 🔍 絞り込み (2026-11-03)。ここから下は絞った後の行だけを見る
-    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, WIDE.matches, pjSel, [...focusSkip].join(","), JSON.stringify(doingCell), sigOf(tasks)].join("\u0001");
+    // 🔁 習慣と同じ名前の繰り返しタスク (例: 子供とドリルを一緒に見る) は、今日やる・今日できるでは「今日の習慣」の帯にまとめる (2026-11-05)
+    if (view === "today" || view === "can") { const hn = habitTaskNames(); if (hn.size) tasks = tasks.filter((t) => !hn.has(t.name)); if (!habitsData || Date.now() - habitsAt > 300_000) loadHabits(); }
+    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, WIDE.matches, pjSel, [...focusSkip].join(","), habitsAt, JSON.stringify(doingCell), sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
@@ -1371,6 +1417,7 @@
       body = `<div class="pjm"><nav class="pjl" aria-label="プロジェクト">${shown.map(([h, , ts]) => `<button type="button" data-pjsel="${esc(h)}" class="${h === pjSel ? "on" : ""}"><span class="t">${esc(h)}</span>${tag(h, ts)}</button>`).join("")}</nav><div class="pjd">${secHtml(shown.find((s) => s[0] === pjSel))}</div></div>`;
     } else body = shown.map(secHtml).join("");
     if (focus) body = focusHtml(focus, today) + (body ? `<h2 class="nexth">このあと</h2>` : "") + body;
+    if (view === "today") body += habitStripHtml(today);
     list.innerHTML = (wipSum ? wipMeterHtml(wipSum) : "") + gridH + body +
       `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー ／ 右クリック・長押し＝すぐ操作</div>` + metaHtml(view);
     // 横長で今日やるに入ったときは、いまの1つの詳細を右に開いておく (デザイン: いまの1枚＋詳細)
@@ -1630,6 +1677,127 @@
     ].filter(Boolean).join("");
     return `<div class="srow" data-id="${t.id}" role="button" tabindex="0"><div class="st">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div><div class="sc2">${chips}</div></div>`;
   }
+  // ---- 🔁 習慣トラッカー (2026-11-05, Claude Design「Kairos ワイド画面デザイン」の 習慣トラッカー ページ) ----
+  const HABIT_ACTIVE = (h) => h.state === "有効" || h.state === "定着済み";
+  const habitTarget = (h) => { if (h.freq === "毎日") return 0; const m = /週(\d)/.exec(h.freq || ""); return m ? Number(m[1]) : h.freq ? 1 : null; }; // 0 = 毎日、null = 頻度なし (判定ルールが期間を決める)
+  const habitTappable = (h) => h.method === "手動" || (h.method === "半自動" && /telegram/i.test(h.source || "")); // 本人が押して記録するもの。自動・夜間判定のものは押させない
+  const hmd = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  function habitByDate(h) { const m = new Map(); for (const l of h.logs || []) { const p = m.get(l.date); if (!p || (l.done && !p.done)) m.set(l.date, l); } return m; } // 日付 → その日の記録 (達成を優先)
+  function habitWeekCount(h, ws) { const end = addDays(ws, 7); return new Set((h.logs || []).filter((l) => l.done && l.date >= ws && l.date < end).map((l) => l.date)).size; }
+  function habitNeedsTap(h, today, ws) {
+    if (!HABIT_ACTIVE(h) || !habitTappable(h) || (h.logs || []).some((l) => l.done && l.date === today)) return false;
+    const t = habitTarget(h); return t === 0 || (t != null && habitWeekCount(h, ws) < t);
+  }
+  const habitTaskNames = () => new Set(((habitsData && habitsData.habits) || []).filter(HABIT_ACTIVE).map((h) => h.name));
+  function loadHabits(force) {
+    if (habitsLoading || (!force && habitsData && Date.now() - habitsAt < 120_000)) return habitsLoading;
+    habitsLoading = api("/api/habits").then((j) => {
+      habitsData = j; habitsAt = Date.now(); try { localStorage.setItem("habits:data", JSON.stringify(j)); } catch (e) {}
+      lastSig = ""; if (["habits", "today", "can"].includes(view)) render(todayStr || j.today);
+    }).catch(() => {}).finally(() => { habitsLoading = null; });
+    return habitsLoading;
+  }
+  // 記録は既存の POST /api/habits/:id/log (取得元 manual)。同じ用件の繰り返しタスクが残っていれば一緒に完了にする。↩ で両方戻す
+  async function logHabit(id, btn) {
+    const h = habitsData && habitsData.habits.find((x) => x.id === id); if (!h) return;
+    if (btn) { btn.disabled = true; btn.textContent = "記録中…"; }
+    try {
+      const j = await api(`/api/habits/${id}/log`, { method: "POST", body: JSON.stringify({ done: true }) });
+      const today = todayStr || habitsData.today;
+      h.logs.push({ id: j.log.id, date: today, done: true, value: null, memo: "", src: "manual" });
+      const t = allTasks().find((x) => x.name === h.name && !x.done);
+      let tDone = false;
+      if (t) { try { await api(`/api/tasks/${t.id}/done`, { method: "POST" }); tDone = true; } catch (e) {} }
+      lastSig = ""; render(todayStr); if (!$("#sheetWrap").hidden && $("#sheet").dataset.habit === id) openHabitSheet(h);
+      toast(`記録した: ${h.name}`, async () => {
+        try {
+          await api(`/api/habits/log/${j.log.id}/undo`, { method: "POST" });
+          h.logs = h.logs.filter((l) => l.id !== j.log.id);
+          if (tDone) await api(`/api/tasks/${t.id}/reopen`, { method: "POST" }).catch(() => {});
+          lastSig = ""; render(todayStr); toast("取り消した: " + h.name);
+        } catch (e) { toast("取り消せませんでした: " + e.message); }
+      });
+      if (tDone) load(view, { silent: true });
+    } catch (e) { toast("記録できませんでした: " + e.message); if (btn) { btn.disabled = false; btn.textContent = "記録"; } }
+    loadHabits(true);
+  }
+  const habitIcon = (h) => h.icon ? h.icon + " " : "";
+  const habitMark = (h) => `<em class="hm ${h.method === "自動" ? "a" : h.method === "半自動" ? "s" : "m"}" title="${esc(h.method || "手動")}"></em>`; // 記録の取り方: 塗り＝自動、半分＝半自動、輪＝手動
+  function habitProgress(h, ws) { const t = habitTarget(h); return t === 0 ? "毎日" : t == null ? (h.freq || "期間") : `${h.freq} · 今週 ${habitWeekCount(h, ws)}/${t}`; }
+  function habitTapRow(h, ws) {
+    return `<div class="hrow tap"><button type="button" class="hname" data-hid="${h.id}">${habitIcon(h)}${esc(h.name)}<small>${esc(habitProgress(h, ws))}${h.method ? " · " + esc(h.method) : ""}</small></button><button type="button" class="hbtn" data-hlog="${h.id}">記録</button></div>`;
+  }
+  // 今日やる の「今日の習慣」帯: 押して記録するものと、自動の結果を小さく
+  function habitStripHtml(today) {
+    if (!habitsData) return "";
+    const ws = habitsData.weekStart, act = habitsData.habits.filter(HABIT_ACTIVE);
+    const tap = act.filter((h) => habitNeedsTap(h, today, ws));
+    const auto = act.filter((h) => h.method === "自動");
+    if (!tap.length && !auto.length) return "";
+    const chip = (h) => {
+      const t = habitTarget(h);
+      if (t === 0) { const last = [...(h.logs || [])].reverse()[0]; const txt = last ? (last.memo || (last.done ? "達成" : "未達")).replace(/\s*\(.*\)$/, "") : "まだ"; return `<button type="button" class="hchip${last && last.done ? " ok" : ""}" data-hid="${h.id}">${habitIcon(h)}${esc(txt)}${last && last.date !== today ? `<small>${hmd(last.date)}</small>` : ""}</button>`; }
+      const n = habitWeekCount(h, ws); return `<button type="button" class="hchip${t && n >= t ? " ok" : ""}" data-hid="${h.id}">${habitIcon(h)}${esc(h.name)} 今週 ${n}/${t || 1}</button>`;
+    };
+    return `<section class="hstrip" aria-label="今日の習慣"><div class="hsh"><b>今日の習慣</b><small>つけるもの ${tap.length} ・ 自動 ${auto.length}</small><button type="button" class="lnk" data-goview="habits">習慣へ ›</button></div>
+      ${tap.map((h) => habitTapRow(h, ws)).join("")}
+      ${auto.length ? `<div class="hchips">${auto.map(chip).join("")}</div>` : ""}</section>`;
+  }
+  function renderHabits(today) {
+    const list = $("#list");
+    if (!habitsData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
+    const d = habitsData, ws = d.weekStart, td = today || d.today;
+    const sig = JSON.stringify([td, habitsAt, d.habits.map((h) => [h.id, h.state, (h.logs || []).length])]);
+    if (sig === lastSig && list.children.length) return;
+    lastSig = sig;
+    const act = d.habits.filter(HABIT_ACTIVE), rest = d.habits.filter((h) => !HABIT_ACTIVE(h));
+    const daily = act.filter((h) => habitTarget(h) === 0), weekly = act.filter((h) => habitTarget(h) > 0), other = act.filter((h) => habitTarget(h) == null);
+    const tap = act.filter((h) => habitNeedsTap(h, td, ws));
+    const weeks = [addDays(ws, -14), addDays(ws, -7), ws];
+    const wkOk = weekly.filter((h) => habitWeekCount(h, ws) >= habitTarget(h)).length;
+    const days = Array.from({ length: 15 }, (_, i) => addDays(td, i - 14));
+    const dailyRow = (h) => {
+      const m = habitByDate(h), past = days.slice(0, -1).filter((x) => m.has(x)), ok = past.filter((x) => m.get(x).done).length;
+      const cells = days.map((x) => { const l = m.get(x); const c = l ? (l.done ? "y" : "n") : x === td ? "t" : "u"; return `<i class="hc ${c}" title="${hmd(x)}${l && l.memo ? " " + esc(l.memo) : ""}"></i>`; }).join("");
+      return `<button type="button" class="hrow hd" data-hid="${h.id}"><span class="hn">${habitMark(h)}${habitIcon(h)}${esc(h.name)}</span><span class="hcells">${cells}</span><span class="hr">${ok}/${past.length}</span></button>`;
+    };
+    const weeklyRow = (h) => {
+      const t = habitTarget(h);
+      return `<button type="button" class="hrow hw" data-hid="${h.id}"><span class="hn">${habitMark(h)}${habitIcon(h)}${esc(h.name)} <small>${esc(h.freq || "")}</small></span>${weeks.map((w, i) => { const n = habitWeekCount(h, w); return `<span class="hwc${n >= t ? " ok" : i === 2 ? " cur" : ""}">${n}/${t}</span>`; }).join("")}</button>`;
+    };
+    const otherRow = (h) => { const last = [...(h.logs || [])].reverse().find((l) => l.done); return `<button type="button" class="hrow hd" data-hid="${h.id}"><span class="hn">${habitMark(h)}${habitIcon(h)}${esc(h.name)}</span><span class="hr">${last ? "最後 " + hmd(last.date) : "記録なし"}</span></button>`; };
+    list.innerHTML = `<div class="rsum"><span>今週 ${hmd(ws)}〜 ・ 週ごとの達成 ${wkOk} / ${weekly.length}</span><span class="hlegend"><em class="hm a"></em>自動 <em class="hm s"></em>半自動 <em class="hm m"></em>手動</span></div>
+      ${tap.length ? `<section class="sec"><h2>今日つける <small style="text-transform:none;font-weight:400">押すと記録（↩ で取り消し）</small></h2><div class="group">${tap.map((h) => habitTapRow(h, ws)).join("")}</div></section>` : ""}
+      ${daily.length ? `<section class="sec"><h2>毎日 <small style="text-transform:none;font-weight:400">${hmd(days[0])}〜今日</small></h2><div class="group">${daily.map(dailyRow).join("")}</div></section>` : ""}
+      ${weekly.length ? `<section class="sec"><h2>週ごと</h2><div class="group"><div class="hrow hw hwh"><span class="hn"></span>${weeks.map((w, i) => `<span>${i === 2 ? "今週" : hmd(w) + "週"}</span>`).join("")}</div>${weekly.map(weeklyRow).join("")}</div></section>` : ""}
+      ${other.length ? `<section class="sec"><h2>そのほか <small style="text-transform:none;font-weight:400">判定ルールが期間を決める</small></h2><div class="group">${other.map(otherRow).join("")}</div></section>` : ""}
+      ${rest.length ? `<div class="hint">${["提案中", "停止"].map((s) => { const n = rest.filter((h) => h.state === s).length; return n ? `${s} ${n}` : ""; }).filter(Boolean).join(" ・ ")} — 有効化・停止は月次の習慣棚卸しで</div>` : ""}
+      <div class="hint">自動・半自動の判定は各 Worker と夜間の振り返りが書く。ここで押せるのは本人が申告する習慣だけ</div>`;
+  }
+  function openHabitSheet(h) {
+    const today = todayStr || habitsData.today, ws = habitsData.weekStart, t = habitTarget(h);
+    const logs = [...(h.logs || [])].reverse();
+    const vals = (h.logs || []).filter((l) => typeof l.value === "number");
+    const stat = t === 0 ? (() => { const m = habitByDate(h), past = [...m.keys()].filter((x) => x < today); return `${past.filter((x) => m.get(x).done).length} / ${past.length} 日`; })() : t == null ? `${logs.filter((l) => l.done).length} 回` : `今週 ${habitWeekCount(h, ws)} / ${t}`;
+    const avg = vals.length ? (vals.reduce((a, l) => a + l.value, 0) / vals.length) : null;
+    const max = vals.length ? Math.max(...vals.map((l) => l.value)) : 0;
+    const bars = vals.length > 1 ? `<div class="hbars">${vals.slice(-21).map((l) => `<i class="${l.done ? "ok" : ""}" style="height:${Math.max(3, Math.round(l.value / max * 100))}%" title="${hmd(l.date)} ${l.value}"></i>`).join("")}</div><div class="sub">${hmd(vals[Math.max(0, vals.length - 21)].date)}〜${hmd(vals[vals.length - 1].date)} の値（青＝達成）</div>` : "";
+    $("#sheet").dataset.habit = h.id;
+    $("#sheet").innerHTML = `
+      <div class="grab"></div>
+      <div class="head"><h3>${habitIcon(h)}${esc(h.name)}</h3><button class="close" id="sheetClose" aria-label="閉じる"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="sub">${[h.method, h.freq, h.state, ...(h.roles || [])].filter(Boolean).map(esc).join(" · ")}</div>
+      ${h.rule ? `<div class="desc"><div class="dtext">${esc(h.rule)}</div></div>` : ""}
+      <div class="grid dg"><div class="hstat"><small>${t === 0 ? "直近" : "達成"}</small><b>${stat}</b></div>${avg != null ? `<div class="hstat"><small>平均</small><b>${Math.round(avg * 100) / 100}</b></div><div class="hstat"><small>最新</small><b>${vals[vals.length - 1].value}</b></div>` : ""}</div>
+      ${bars}
+      ${habitNeedsTap(h, today, ws) ? `<div class="grid"><button class="pri" data-hlogsheet="${h.id}" style="grid-column:1/-1">${ICONS.check}今日を記録</button></div>` : ""}
+      <div class="sect">記録（直近 3 週）</div>
+      <div class="list hlogs">${logs.length ? logs.slice(0, 21).map((l) => `<div class="hl"><span class="${l.done ? "ok" : ""}">${l.done ? "✓" : "—"}</span><b>${hmd(l.date)}</b><span class="m">${esc(l.memo || (l.done ? "達成" : "未達"))}</span><small>${esc(l.src || "")}</small></div>`).join("") : `<div class="hl"><span class="m">記録なし</span></div>`}</div>
+      ${h.source ? `<div class="sub">データ源: ${esc(h.source)}</div>` : ""}`;
+    $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
+    $("#sheetClose").onclick = closeSheet;
+    const b = $("#sheet").querySelector("[data-hlogsheet]"); if (b) b.onclick = () => logHabit(h.id, b);
+  }
   function renderShop(today) {
     const list = $("#list");
     if (!shopData) { list.innerHTML = '<div class="empty">読み込み中…</div>'; return; }
@@ -1663,6 +1831,7 @@
     reviewFetching = (async () => {
       try {
         const j = await api("/api/review");
+        j.questions = (j.questions || []).filter((q) => q.kind !== "habit"); // 習慣は 🔁 習慣タブと今日やるの帯で記録する (2026-11-05)。決めるには出さない
         reviewData = j; reviewStale = false; reviewPos = Math.min(reviewPos, Math.max(0, j.questions.length - 1));
         try { localStorage.setItem("review:data", JSON.stringify(j)); } catch (e) {}
         $("#n-review").textContent = reviewList().length || "";
@@ -2159,6 +2328,15 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       catch (e) { setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
       return;
     }
+    if (v === "habits") { // 🔁 習慣 (2026-11-05): /api/habits。端末の控えをすぐ出し、裏で最新に差し替える
+      const switching = v !== view; view = v; localStorage.setItem("view", v);
+      if (switching) lastSig = "";
+      render(todayStr || (habitsData && habitsData.today) || "");
+      if (!silent || !habitsData) setBusy(true);
+      try { await loadHabits(true); setBusy(false); $("#stale").hidden = true; if (view === "habits") { lastSig = ""; render(todayStr || habitsData.today); } }
+      catch (e) { setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "取得失敗（表示は前回のもの）"; }
+      return;
+    }
     if (v === "shop") { // 🛒 買い物 (2026-11-02): /api/shopping。キャッシュは直近の応答だけ。行はシート・ページャ用に tasks にも入れる
       const switching = v !== view; view = v; localStorage.setItem("view", v);
       if (!shopData) { try { shopData = JSON.parse(localStorage.getItem("shop:data") || "null"); } catch (e) { shopData = null; } }
@@ -2173,7 +2351,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     if (v === "review") { // 見直し (Phase C-9): 問いは Worker が作る
       // 2026-11-03 遅い件: 前回の問いを端末に置いてすぐ出し、裏で最新に差し替える。差し替わるまでは答えられない (古いカードで決着させない)
       view = v; localStorage.setItem("view", v);
-      if (!reviewData) { try { const c = JSON.parse(localStorage.getItem("review:data") || "null"); if (c && c.today === todayStr) { reviewData = c; reviewStale = true; } } catch (e) {} }
+      if (!reviewData) { try { const c = JSON.parse(localStorage.getItem("review:data") || "null"); if (c && c.today === todayStr) { c.questions = (c.questions || []).filter((q) => q.kind !== "habit"); reviewData = c; reviewStale = true; } } catch (e) {} }
       if (!silent || !reviewData) { $("#stale").hidden = false; $("#stale").textContent = reviewData ? "最新の問いに更新しています…" : "問いを集めています…"; }
       render(todayStr);
       await fetchReview();
@@ -2684,6 +2862,10 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   }
   $("#list").addEventListener("click", (e) => {
     if (swiping) return;
+    // 🔁 習慣 (2026-11-05): 記録・詳細・習慣タブへ。今日やるの帯と習慣タブの両方から
+    const hlg = e.target.closest("[data-hlog]"); if (hlg) { logHabit(hlg.dataset.hlog, hlg); return; }
+    const hid = e.target.closest("[data-hid]"); if (hid) { const hh = habitsData && habitsData.habits.find((x) => x.id === hid.dataset.hid); if (hh) openHabitSheet(hh); return; }
+    const gv = e.target.closest("[data-goview]"); if (gv) { load(gv.dataset.goview); return; }
     // マス目 (2026-11-05): 同じマスをもう一度押すと外す
     const gc = e.target.closest("[data-cell]");
     if (gc) { const [place, col] = gc.dataset.cell.split("|"); const nx = { place: place || null, col: col || null }; doingCell = doingCell && doingCell.place === nx.place && doingCell.col === nx.col ? null : nx; lastSig = ""; render(todayStr); return; }
