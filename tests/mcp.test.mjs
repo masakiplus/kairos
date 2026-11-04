@@ -136,6 +136,36 @@ test('クライアント登録は claude.ai / claude.com / ループバックの
     assert.equal((await registerClient(send, bad)).status, 400, bad);
 });
 
+test('MCP_EXTRA_REDIRECTS に入れた https 完全一致の redirect_uri だけ追加で許す (ミューズ等)', async () => {
+  const extra = 'https://muse.example/oauth/callback';
+  const { send } = setup({ MCP_EXTRA_REDIRECTS: `${extra}, https://other.example/cb http://insecure.example/cb https://wild.example/*` });
+  assert.equal((await registerClient(send, extra)).status, 201);
+  assert.equal((await registerClient(send, 'https://other.example/cb')).status, 201);
+  for (const bad of ['http://insecure.example/cb', 'https://wild.example/anything', 'https://muse.example/oauth/callback?x=1', 'https://muse.example/oauth/other', 'https://evil.example/cb'])
+    assert.equal((await registerClient(send, bad)).status, 400, bad);
+  assert.equal((await registerClient(setup().send, extra)).status, 400, '環境変数が無ければ許さない');
+});
+
+test('追加した redirect_uri でも PKCE つきで最後まで通り、その Origin からの /mcp も通る', async () => {
+  const extra = 'https://muse.example/oauth/callback';
+  const { send } = setup({ MCP_EXTRA_REDIRECTS: extra });
+  const { body: client } = await registerClient(send, extra);
+  const { verifier, challenge } = pkce();
+  const q = new URLSearchParams({ response_type: 'code', client_id: client.client_id, redirect_uri: extra, code_challenge: challenge, code_challenge_method: 'S256', state: 's1' });
+  const page = await send('/authorize?' + q, { headers: { Cookie: 'tp=' + TOKEN } });
+  assert.equal(page.status, 200);
+  const areq = (await page.text()).match(/name="areq" value="([^"]+)"/)[1];
+  const done = await send('/authorize', form({ areq, decision: 'allow' }));
+  assert.equal(done.status, 303);
+  const loc = new URL(done.headers.get('Location'));
+  assert.equal(loc.origin + loc.pathname, extra);
+  const tok = await (await send('/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code: loc.searchParams.get('code'), client_id: client.client_id, redirect_uri: extra, code_verifier: verifier }).toString() })).json();
+  const r = await send('/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://muse.example', Authorization: 'Bearer ' + tok.access_token }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) });
+  assert.equal(r.status, 200);
+  const other = await send('/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example', Authorization: 'Bearer ' + tok.access_token }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'ping' }) });
+  assert.equal(other.status, 403);
+});
+
 test('登録→同意→コード→トークン→MCP の一連が通り、リフレッシュもできる', async () => {
   const { send } = setup();
   const { client, tokens } = await connect(send);
