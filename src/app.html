@@ -89,7 +89,22 @@
   .wipm .wipt span{color:var(--mute)}.wipm .wipt small{color:var(--wait);font-size:12px}
   .wipm .wipb{height:5px;margin-top:6px;border-radius:3px;background:var(--line);overflow:hidden}
   .wipm .wipb i{display:block;height:100%;background:var(--acc)}
-  .wipm.over b{color:var(--over)}.wipm.over .wipb i{background:var(--over)}
+  .wipm.over b{color:var(--over)}
+  /* マス目 (2026-11-05 試作) */
+  .grid3{display:grid;grid-template-columns:minmax(92px,1.5fr) repeat(3,1fr) 34px;gap:4px;margin:0 2px 10px;align-items:stretch}
+  .grid3 button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .grid3 .gh{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;font-size:15px;color:var(--mute);background:none;padding:0 0 2px}
+  .grid3 .gh small{font-size:10.5px}
+  .grid3 div.gh{font-size:11px}
+  .grid3 .gp{text-align:left;padding:8px;border-radius:9px;background:var(--card);color:var(--fg);font-size:13px;display:flex;align-items:center;gap:4px;box-shadow:var(--shadow)}
+  .grid3 .gp small{margin-left:auto;font-size:10px;font-weight:700;color:var(--acc)}
+  .grid3 .gp.now{box-shadow:inset 3px 0 0 var(--acc),var(--shadow)}
+  .grid3 .gc{min-height:38px;border-radius:9px;background:var(--accbg);color:var(--acc);font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .grid3 .gc.z{background:none;color:var(--mute2);font-weight:400}
+  .grid3 .gt{display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--mute)}
+  .grid3 .sel,.grid3 .gc.sel{background:var(--acc);color:#fff}.grid3 .gp.sel small{color:#fff}
+  .gsel{margin:-4px 2px 10px;font-size:12.5px;color:var(--mute);display:flex;align-items:center;gap:8px}
+  .gsel button{font:inherit;border:0;background:var(--seg);color:var(--fg);border-radius:12px;padding:3px 10px;cursor:pointer}.wipm.over .wipb i{background:var(--over)}
   .row.blocked .ring{border-style:dashed;cursor:default}
   .row.blocked .name{color:var(--mute)}
   .grid button:disabled{opacity:.35;pointer-events:none}
@@ -667,6 +682,20 @@
   }
   // 開始日からの日数 (着手日の列は無いので 開始日 で代える)。3 日未満は出さない
   function ageDays(t, today) { if (!t.start || !today) return 0; const d = Math.round((Date.parse(today + "T00:00:00Z") - Date.parse(t.start + "T00:00:00Z")) / 86400000); return d >= 3 ? d : 0; }
+  // マス目 (2026-11-05 試作、Decisions cd967d76): 行=できる場所、列=状態。マスをタップするとその件だけに絞る
+  const GRID_COLS = [["hu", "🧔", "本人"], ["doing", "▶", "進行中"], ["ai", "🤖", "AI"]];
+  function cellCol(t) { return t.aiActive ? "ai" : t.status === "人対応" ? "hu" : "doing"; }
+  // 行は PLACE_GROUPS の順で固定 (毎回並びが変わると指が覚えない)。いまの 📍 でできる行は now>0
+  function placeGrid(ts, phone, why) {
+    const order = [...PLACE_GROUPS.map((x) => x[1]), ANYWHERE], m = new Map();
+    for (const t of ts) {
+      const k = placeKey(t, phone);
+      if (!m.has(k)) m.set(k, { key: k, now: 0, total: 0, cells: { hu: [], doing: [], ai: [] } });
+      const r = m.get(k); r.cells[cellCol(t)].push(t); r.total++; if (!why(t)) r.now++;
+    }
+    return [...m.values()].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+  }
+  function cellMatch(t, cell, phone) { return (!cell.place || placeKey(t, phone) === cell.place) && (!cell.col || cellCol(t) === cell.col); }
   // ---- end 着手中 ----
   let filt = {}; try { filt = cleanFilter(JSON.parse(localStorage.getItem("filter") || "{}")); } catch (e) {} // 端末ごとに覚える。取れなければ「すべて」
   const saveFilt = () => { try { localStorage.setItem("filter", JSON.stringify(filt)); } catch (e) {} };
@@ -1027,6 +1056,17 @@
   }
   // 上部の内訳メーター (2026-11-05)。上限を超えたら赤、待ちにできそうな件数も添える
   let wipLimit = 10;
+  let doingCell = null; // マス目で選んだ {place, col}。もう一度タップ・✕・タブ移動で外す
+  function gridHtml(rows, cell) {
+    if (!rows.length) return "";
+    const on = (p, c) => cell && cell.place === p && cell.col === c;
+    const head = `<div class="gh"></div>${GRID_COLS.map(([c, ic, lab]) => `<button class="gh${cell && !cell.place && cell.col === c ? " sel" : ""}" data-cell="|${c}" aria-label="${lab} を全部">${ic}<small>${lab}</small></button>`).join("")}<div class="gh">計</div>`;
+    const body = rows.map((r) => `<button class="gp${r.now ? " now" : ""}${cell && cell.place === r.key && !cell.col ? " sel" : ""}" data-cell="${esc(r.key)}|" aria-label="${esc(r.key)} を全部">${esc(r.key)}${r.now ? `<small>いま</small>` : ""}</button>` +
+      GRID_COLS.map(([c, , lab]) => { const n = r.cells[c].length; return n ? `<button class="gc${on(r.key, c) ? " sel" : ""}" data-cell="${esc(r.key)}|${c}" aria-label="${esc(r.key)}・${lab} ${n} 件">${n}</button>` : `<div class="gc z">·</div>`; }).join("") +
+      `<div class="gt">${r.total}</div>`).join("");
+    const chip = cell ? `<div class="gsel">絞り込み中: ${esc([cell.place, cell.col && GRID_COLS.find((x) => x[0] === cell.col).slice(1).join(" ")].filter(Boolean).join(" · "))} <button data-cell-clear aria-label="マス目の絞り込みを外す">✕ 全部に戻す</button></div>` : "";
+    return `<div class="grid3">${head}${body}</div>${chip}`;
+  }
   function wipMeterHtml(w) {
     const pct = Math.min(100, Math.round(w.count / wipLimit * 100)), over = w.count > wipLimit;
     return `<div class="wipm${over ? " over" : ""}"><div class="wipt"><b>${w.count} / ${wipLimit}</b> <span>🤖 ${w.ai} · 🧔 ${w.hu} · ▶ ${w.doing}${w.mit ? ` · ⭐ ${w.mit}` : ""}</span>${w.waitish ? `<small>⏸ 待ちにできそう ${w.waitish}</small>` : ""}</div><div class="wipb"><i style="width:${pct}%"></i></div></div>`;
@@ -1051,6 +1091,7 @@
   const sigOf = (ts) => ts.map((t) => [t.id, t.name, t.due, t.start, t.startRaw, t.status, t.done, t.mit, t.owner, t.aiSince, t.aiMode, t.blockedCount, t.priority, t.project, t.carry, (t.predIds || []).length, (t.succIds || []).length, (t.env || []).join(","), (t.parentIds || []).join(","), view === "doing" ? t.rawDesc : ""].join("|")).join("\n");
   function render(today) {
     const viewChanged = lastView !== view; lastView = view;
+    if (viewChanged) doingCell = null;
     document.querySelectorAll(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.v === view); if (viewChanged && b.dataset.v === view && b.scrollIntoView) b.scrollIntoView({ inline: "nearest", block: "nearest" }); });
     $("#ttl").textContent = view === "search" ? "検索" : TITLES[view];
     $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
@@ -1068,14 +1109,19 @@
     if (view === "quad") { $("#add").hidden = true; renderQuad(today); return; }
     const list = $("#list");
     let tasks = applyFilter(allTasks(), filt, view); // 🔍 絞り込み (2026-11-03)。ここから下は絞った後の行だけを見る
-    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, sigOf(tasks)].join("\u0001");
+    const S0 = currentSit(); const sig = [view, today, searchQ, projInfoAt, JSON.stringify(filt), tasks.length, S0.place, S0.tools.join(","), (S0.withs || []).join(","), COMPANIONS.join(","), S0.morning, JSON.stringify(doingCell), sigOf(tasks)].join("\u0001");
     if (sig === lastSig && list.children.length) return; // 同じ中身なら触らない (スクロール位置も保たれる)
     lastSig = sig;
     if (view === "search" && !searchQ.trim()) { list.innerHTML = '<div class="empty">検索語を入れてください</div>'; return; }
     // 着手中 (2026-11-05): 内訳は畳む前の行で数え、親子は 1 行に畳み、重複らしき組を拾う
     const wipSum = view === "doing" ? wipSummary(tasks, today) : null;
     doingCtx = null;
-    if (view === "doing") { const f = foldParents(tasks); tasks = f.shown; doingCtx = { parentOf: f.parentOf, dup: dupPairs(tasks), today }; }
+    let gridH = "";
+    if (view === "doing") {
+      const f = foldParents(tasks); tasks = f.shown; doingCtx = { parentOf: f.parentOf, dup: dupPairs(tasks), today };
+      gridH = gridHtml(placeGrid(tasks, PHONE_ENV, unavailWhy), doingCell); // マス目は絞る前の全行で数える
+      if (doingCell) tasks = tasks.filter((t) => cellMatch(t, doingCell, PHONE_ENV));
+    }
     if (!tasks.length && !(view === "project" && (projInfo || []).some((p) => p.closable || p.stalled))) { list.innerHTML = `<div class="empty">${filterOn(filt) ? "絞り込みに合うタスクはありません" : view === "search" ? "見つかりません" : "なし"}</div>`; return; }
     // 今日やる は 期限切れ／今日 で区切る。他は 期日あり／なし
     let secs;
@@ -1142,7 +1188,7 @@
       }
     }
     const pjOf = new Map((view === "project" && projInfo || []).map((p) => [p.label, p]));
-    list.innerHTML = (wipSum ? wipMeterHtml(wipSum) : "") + secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
+    list.innerHTML = (wipSum ? wipMeterHtml(wipSum) : "") + gridH + secs.filter((s) => s[2].length || (view === "project" && pjOf.has(s[0]))).map(([h, cls, ts]) => {
       if (view === "project" && cls === "prjh") {
         const p = pjOf.get(h);
         const addBtn = p ? `<button class="addrow" data-pjadd="${p.id}" data-pjlabel="${esc(p.label)}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>${p.stalled ? "次のアクションを1件決める" : "この PJ にタスクを足す"}</button>` : "";
@@ -2447,6 +2493,10 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   }
   $("#list").addEventListener("click", (e) => {
     if (swiping) return;
+    // マス目 (2026-11-05): 同じマスをもう一度押すと外す
+    const gc = e.target.closest("[data-cell]");
+    if (gc) { const [place, col] = gc.dataset.cell.split("|"); const nx = { place: place || null, col: col || null }; doingCell = doingCell && doingCell.place === nx.place && doingCell.col === nx.col ? null : nx; lastSig = ""; render(todayStr); return; }
+    if (e.target.closest("[data-cell-clear]")) { doingCell = null; lastSig = ""; render(todayStr); return; }
     const pc = e.target.closest("[data-pjclose]"); if (pc) { closeProject(pc.dataset.pjclose, pc.dataset.pjname); return; }
     const pd = e.target.closest("[data-pjdeps]"); if (pd) { openDeps(pd.dataset.pjdeps); return; }
     if (e.target.closest("[data-quad]")) { e.preventDefault(); openQuad(); return; }
