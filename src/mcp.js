@@ -560,7 +560,7 @@ const TOOLS = [
   {
     name: "kairos_create",
     title: "ページを作る",
-    description: "tasks / decisions / habitlog と、sessions（会話の足跡）・selfreview・daily などの追加 DB に 1 件作る（Roles / Projects / Habits は作れない）。fields は {プロパティ名: 値}（日付は YYYY-MM-DD か ISO 日時、複数選択・リレーションは配列）。icon（絵文字）は tasks で必須。body は Markdown 風の本文。",
+    description: "tasks / decisions / habits / habitlog と、sessions（会話の足跡）・selfreview・daily などの追加 DB に 1 件作る（Roles / Projects は作れない）。habits は 状態 を省くと「提案中」で作る（有効化は習慣棚卸しで本人が決める）。fields は {プロパティ名: 値}（日付は YYYY-MM-DD か ISO 日時、複数選択・リレーションは配列）。icon（絵文字）は tasks で必須。body は Markdown 風の本文。",
     inputSchema: {
       type: "object",
       properties: { database: DB_PROP, fields: { type: "object" }, icon: { type: "string" }, body: { type: "string" } },
@@ -569,8 +569,10 @@ const TOOLS = [
     },
     annotations: WRITE,
     run: async (a, ctx) => {
-      if (["roles", "projects", "habits"].includes(normName(a.database))) throw new Error("この DB には作れません（Roles / Projects / Habits は更新だけ）");
+      if (["roles", "projects"].includes(normName(a.database))) throw new Error("この DB には作れません（Roles / Projects は更新だけ）");
       const ds = await dsOf(ctx, a.database), schema = await schemaOf(ctx, ds);
+      // 習慣は 提案中 で起こし、有効化は月次の習慣棚卸し（habits-qa-review）で本人が決める（2026-11-05）
+      if (normName(a.database) === "habits" && a.fields["状態"] == null) a = { ...a, fields: { ...a.fields, 状態: "提案中" } };
       const props = Object.fromEntries(Object.entries(a.fields).map(([k, v]) => [k, toProp(schema, k, v)]));
       const payload = { parent: { data_source_id: ds }, properties: props };
       if (a.icon) payload.icon = { type: "emoji", emoji: a.icon };
