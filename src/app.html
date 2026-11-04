@@ -800,10 +800,12 @@
     try { navigator.clipboard && navigator.clipboard.writeText(s); } catch (e) { /* 貼れないだけ */ }
     toast("前回のセッションを開きます。文面をコピーしたので貼って送ってください");
   }
-  function goClaude(t, href, mode = "run") {
+  // fresh=true (2026-11-05): 前回のセッションがあっても新しいチャットで始める (シートの data-fresh と同じ)。AIセッション は Worker が空にする
+  function goClaude(t, href, mode = "run", fresh = false) {
     if (href.startsWith("#ai-handoff=")) { openAiHandoff(href); return; }
-    markAi(t, mode, sessionProvider(t.aiSession) === "claude");
-    if (sessionProvider(t.aiSession) === "claude") copyPrompt(t, mode);
+    const resume = !fresh && sessionProvider(t.aiSession) === "claude";
+    markAi(t, mode, resume);
+    if (resume) copyPrompt(t, mode);
     else copyCloudLink(href);
     location.href = href;
     render(todayStr);
@@ -2029,7 +2031,8 @@ ${numbered([...REVIEW_POLICY, goal])}`);
         ${sessionProvider(t.aiSession) ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `AI のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の AI セッションを開く（続きを任せる）"}</a>` : ""}
         <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${aiIcon()}</span><span id="claudeRunLabel">進めてもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : aiProvider === "claude" && isCloudTask(t) ? "（Claude Code クラウドで）" : ""}</span></a>
         <a href="${aiHref(t, "update")}" data-ai data-mode="update"><span class="ic">${ICONS.pen}</span>タスク内容を更新してもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : ""}</a>
-        ${t.aiSession ? `<a href="${claudeHref(t, "run")}" data-ai data-mode="run" data-fresh="1" style="color:var(--mute)"><span class="ic">✨</span>新しいチャットで始める（文面付き）</a>` : ""}
+        ${t.aiSession ? `<a href="${claudeHref(t, "run")}" data-ai data-mode="run" data-fresh="1" style="color:var(--mute)"><span class="ic">✨</span>新しいチャットで始める（文面付き）</a>
+        <a href="${claudeHref(t, "update")}" data-ai data-mode="update" data-fresh="1" style="color:var(--mute)"><span class="ic">✨</span>新しいチャットでタスク内容を更新してもらう（文面付き）</a>` : ""}
       </div>
       <div class="sect">📅 日程を動かす</div>
       <div class="grid">
@@ -2421,6 +2424,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       { m: "done", ic: "✓", t: "完了", off: b },
       { m: "ai", ic: "🤖", t: "AI に進めてもらう" },
       { m: "ai-update", ic: "✎", t: "AI にタスク内容を更新してもらう" }, // シートの「タスク内容を更新してもらう」(AI処理種別=更新)。先行待ちでも押せる
+      t.aiSession ? { m: "ai-update-fresh", ic: "✨", t: "新しいチャットでタスク内容を更新してもらう" } : null, // 前回のセッションがあるときだけ。シートの ✨ と同じ (2026-11-05)
       "-",
       t.mit ? { m: "mit-clear", ic: "⭐", t: "今日の3つから外す" } : { m: "mit", ic: "⭐", t: "今日の3つに入れる", off: b },
       { m: "defer?days=1", ic: "→", t: "明日へ", off: b },
@@ -2439,7 +2443,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     cmTask = t;
     const m = $("#cmenu");
     m.innerHTML = `<div class="cmh">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>` + cmenuItems(t, DELEGATES[0]).map((it) => it === "-" ? "<hr>"
-      : `<button type="button" role="menuitem" data-m="${it.m}"${it.mute ? ' class="mute"' : ""}${it.off ? " disabled" : ""}><span class="ci">${it.ic}</span>${it.m === "ai" ? `${esc(aiName())} に進めてもらう` : it.m === "ai-update" ? `${esc(aiName())} にタスク内容を更新してもらう` : it.t}</button>`).join("");
+      : `<button type="button" role="menuitem" data-m="${it.m}"${it.mute ? ' class="mute"' : ""}${it.off ? " disabled" : ""}><span class="ci">${it.ic}</span>${it.m === "ai" ? `${esc(aiName())} に進めてもらう` : it.m === "ai-update" ? `${esc(aiName())} にタスク内容を更新してもらう` : it.m === "ai-update-fresh" ? `${esc(aiName())} に新しいチャットで更新してもらう` : it.t}</button>`).join("");
     m.hidden = false;
     // 画面からはみ出さないように寄せる (幅 400px の端末でも収まる)
     const W = innerWidth, H = innerHeight, r = m.getBoundingClientRect();
@@ -2462,6 +2466,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     const t = cmTask, m = b.dataset.m; closeCmenu();
     if (m === "open") { openSheet(t, todayStr); return; }
     if (m === "ai-update") { goClaude(t, aiHref(t, "update"), "update"); return; } // 期日・実行環境・説明・サブタスク分割の見直しを AI に頼む
+    if (m === "ai-update-fresh") { goClaude(t, claudeHref(t, "update"), "update", true); return; } // 前回のセッションを使わず新しいチャットで
     if (m === "ai") { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでシートへ (行の 🤖 と同じ)
     if ((m === "done" || m === "skip") && t.aiActive && !confirm("AI が処理中です。それでも完了にしますか？")) return;
     const it = cmenuItems(t, DELEGATES[0]).find((x) => x.m === m);

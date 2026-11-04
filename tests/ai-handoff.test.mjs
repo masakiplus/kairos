@@ -191,3 +191,18 @@ test('更新の続き（前回のセッション）の文面にもサブタス�
   const body = html.slice(html.indexOf('function aiPrompt('), html.indexOf('function copyPrompt('));
   assert.match(body, /サブタスク基準に当たれば確認せずに分けて/);
 });
+
+test('前回のClaudeセッションがあっても、新しいチャットで更新を頼める (2026-11-05)', () => {
+  const h = harness();
+  h.context.copyCloudLink = () => h.calls.push(['cloudcopy']);
+  h.context.prev = { ...task, aiSession:'https://claude.ai/chat/old' };
+  h.run('goClaude(prev, aiHref(prev, "update"), "update")');
+  assert.deepEqual(h.calls[0], ['mark', h.context.prev, 'update', true], '既定は前回のセッションの続き');
+  assert.equal(h.context.location.href, 'https://claude.ai/chat/old');
+  h.calls.length = 0;
+  h.run('goClaude(prev, claudeHref(prev, "update"), "update", true)');
+  assert.deepEqual(h.calls[0], ['mark', h.context.prev, 'update', false], '新しいチャットは resume にしない (AIセッション は Worker が空にする)');
+  assert.ok(!h.calls.some(([k]) => k === 'copy'), '続き用の短い文面はコピーしない');
+  assert.ok(h.context.location.href.startsWith('https://claude.ai/new?q='));
+  assert.match(decodeURIComponent(h.context.location.href), /内容を見直して更新してください/);
+});
