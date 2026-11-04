@@ -26,6 +26,23 @@ const REDIRECTS = [
 ];
 const ORIGINS = [/^https:\/\/(www\.)?claude\.(ai|com)$/, /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/];
 
+// 追加で許す MCP クライアント (例: ミューズ) の redirect_uri。環境変数 MCP_EXTRA_REDIRECTS にカンマ・空白区切りで入れる。
+// ワイルドカードは使えない。https の完全一致だけ (query・fragment・認証情報つきは無視)。
+function extraRedirects(env) {
+  const out = [];
+  for (const raw of String(env?.MCP_EXTRA_REDIRECTS ?? "").split(/[\s,]+/)) {
+    if (!raw) continue;
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== "https:" || u.username || u.password || u.search || u.hash || u.href !== raw) continue;
+      out.push(raw);
+    } catch {}
+  }
+  return out;
+}
+const redirectAllowed = (env, uri) => REDIRECTS.some((re) => re.test(uri)) || extraRedirects(env).includes(uri);
+const originAllowed = (env, origin) => ORIGINS.some((re) => re.test(origin)) || extraRedirects(env).some((u) => new URL(u).origin === origin);
+
 const nowSec = () => Math.floor(Date.now() / 1000);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -123,7 +140,7 @@ async function register(req, env) {
   try { m = JSON.parse(text); } catch { return oauthError("invalid_client_metadata", "JSON が読めません"); }
   const uris = Array.isArray(m.redirect_uris) ? m.redirect_uris.map(String) : [];
   if (!uris.length || uris.length > 5) return oauthError("invalid_redirect_uri", "redirect_uris は 1〜5 件");
-  const bad = uris.filter((u) => !REDIRECTS.some((re) => re.test(u)));
+  const bad = uris.filter((u) => !redirectAllowed(env, u));
   if (bad.length) return oauthError("invalid_redirect_uri", "許可していない redirect_uri: " + bad.join(", ").slice(0, 200));
   const name = String(m.client_name ?? "MCP client").slice(0, 80);
   const iat = nowSec();
@@ -658,7 +675,7 @@ async function rpc(msg, deps) {
 
 async function mcpEndpoint(req, env, url, deps) {
   const origin = req.headers.get("Origin");
-  if (origin && !ORIGINS.some((re) => re.test(origin))) return jsonRes({ error: "forbidden origin" }, 403);
+  if (origin && !originAllowed(env, origin)) return jsonRes({ error: "forbidden origin" }, 403);
   const challenge = (error) => `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"${error ? `, error="${error}"` : ""}`;
   const bearer = (req.headers.get("Authorization") ?? "").match(/^Bearer\s+(.+)$/i)?.[1];
   if (!bearer) return jsonRes({ error: "unauthorized" }, 401, { ...CORS, "WWW-Authenticate": challenge() });
