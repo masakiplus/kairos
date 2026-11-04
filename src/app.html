@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f5f4f0" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Kairos</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <style>
-  /* 生成り地に白カード、藍のアクセント、丸チェック (2026-11-05 ワイド対応で配色を更新)。デザイン正本は Claude Design「Kairos ワイド画面デザイン」(旧「Tasks PWA デザイン」) */
+  /* 生成り地に白カード、藍のアクセント、丸チェック (2026-11-05 ワイド対応で配色を更新。ダークは墨地に同じ藍を明るくしたもの)。デザイン正本は Claude Design「Kairos ワイド画面デザイン」(旧「Tasks PWA デザイン」) */
   :root{--bg:#f5f4f0;--card:#ffffff;--line:#efede7;--sep:#e3e1da;--fg:#1c1b19;--mute:#5f5c55;--mute2:#8c8880;--seg:#eceae3;--segon:#ffffff;--acc:#2f55c8;--accbg:#e8edfb;--over:#b42318;--today:#a86800;--p2:#b45309;--star:#e0a100;--ring:#a8a49b;--shadow:0 1px 2px rgba(28,27,25,.06);--toast:#2c2c2e;--airun:#f1edff;--aiupd:#e8f1ff;--wait:#8e6d00}
   /* テーマ: data-theme が dark なら常にダーク、light なら常にライト、無指定 (auto) は端末設定に追従 */
-  :root[data-theme="dark"],:root:not([data-theme="light"]).sys-dark{--bg:#1c1c1e;--card:#2c2c2e;--line:#3a3a3c;--sep:#3a3a3c;--fg:#f2f2f7;--mute:#aeaeb2;--mute2:#8e8e93;--seg:#2c2c2e;--segon:#48484a;--acc:#4c8dff;--accbg:#1f2f4d;--over:#ff6b5e;--today:#f7c948;--p2:#ff9f3c;--ring:#636366;--shadow:none;--toast:#48484a;--airun:#2d2548;--aiupd:#1f2f4d;--wait:#f7c948}
+  :root[data-theme="dark"],:root:not([data-theme="light"]).sys-dark{--bg:#1b1a18;--card:#262522;--line:#33312d;--sep:#3a3833;--fg:#f2f0ea;--mute:#b0aca3;--mute2:#8c8880;--seg:#2c2b28;--segon:#45433e;--acc:#6d8bff;--accbg:#232b47;--over:#ff8a7a;--today:#f0b84b;--p2:#f0a050;--star:#f0b84b;--ring:#6b6862;--shadow:none;--toast:#45433e;--airun:#2b2540;--aiupd:#232b47;--wait:#f0b84b}
   .theme{margin-left:auto;display:flex;align-items:center;gap:8px}
   .theme button{height:34px;min-width:34px;padding:0 8px;border-radius:17px;border:0;background:var(--seg);color:var(--mute);display:flex;align-items:center;justify-content:center;gap:4px}
   .theme button .auto{font-size:11px;font-weight:600;letter-spacing:.3px}
