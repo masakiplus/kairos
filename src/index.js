@@ -234,6 +234,7 @@ function pageToTask(page) {
     // 先行タスク (2026-09-29)。blocked = 先行に未完了がある (着手可否=先行待ち)
     predIds: (p["先行タスク"]?.relation ?? []).map((r) => r.id),
     succIds: (p["後続タスク"]?.relation ?? []).map((r) => r.id),
+    parentIds: (p["親アイテム"]?.relation ?? []).map((r) => r.id), // 着手中で親子を 1 行にまとめる (2026-11-05)
     blocked: (p["先行未完了数"]?.rollup?.number ?? 0) > 0,
     blockedCount: p["先行未完了数"]?.rollup?.number ?? 0,
     // Claude に渡した時刻 (2026-09-30)。2時間以内なら「🤖 処理中」。Claude 側が終了時に空にする規約 (操作規約 §11)。
@@ -1032,13 +1033,19 @@ async function shopping(env) {
 
 // WIP (着手中) の件数 (Personal Kanban の WIP 制限, 2026-10-06): ステータスが 進行中 か 人対応 の未完了。上限を超えたら Kairos が警告する
 const WIP_LIMIT = 10; // 2026-10-06 夜: 5 → 10 (利用者「同時に実行できるタスクの数は10個ぐらい」)
+// 子が同じく着手中なら親は数えない (同じ仕事が 2 件に数えられていた, 2026-11-05)。画面の foldParents と同じ規則
+function wipRows(rows) {
+  const kidOf = new Set(rows.flatMap((t) => t.parentIds || []));
+  return rows.filter((t) => !kidOf.has(t.id));
+}
 async function wipCount(env) {
   const r = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}/query`, {
     method: "POST",
     body: JSON.stringify({ filter: { and: [NOT_DONE, { or: [{ property: "ステータス", status: { equals: "進行中" } }, { property: "ステータス", status: { equals: "人対応" } }] }] }, page_size: 100 }),
   });
   const today = todayJst();
-  const rows = (r.results ?? []).map(pageToTask).filter((t) => !t.owner && !(t.start && t.start > today)); // 委任中と開始日が先のものは WIP に数えない (2026-10-08)
+  const rows0 = (r.results ?? []).map(pageToTask).filter((t) => !t.owner && !(t.start && t.start > today)); // 委任中と開始日が先のものは WIP に数えない (2026-10-08)
+  const rows = wipRows(rows0);
   return { count: rows.length, limit: WIP_LIMIT, names: rows.slice(0, 8).map((t) => t.name) };
 }
 
