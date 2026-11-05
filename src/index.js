@@ -450,13 +450,6 @@ async function taskGraph(env, id) {
     Promise.all(t.succIds.slice(0, 12).map((sid) => getTask(env, sid).catch(() => null))),
   ]);
   const names = await projectNames(env).catch(() => new Map());
-  // 依存案・日程案が指すタスクを先にまとめて引く (1 件ずつ await すると件数ぶん直列になる)
-  const refIds = new Set();
-  for (const pg of decs.results ?? []) { const p = pg.properties ?? {}, kind = p["種別"]?.select?.name;
-    if (kind === "依存案") { const d = parseDepsRow(p); if (d) { refIds.add(d.predId); refIds.add(d.succId); } }
-    if (kind === "日程案") { const d = parseDatesRow(p); if (d) refIds.add(d.taskId); } }
-  const refTasks = new Map(await Promise.all([...refIds].map(async (id) => [id, await getTask(env, id).catch(() => null)])));
-  const taskOf = async (id) => refTasks.has(id) ? refTasks.get(id) : getTask(env, id).catch(() => null);
   const fill = (x) => { x.project = x.projectIds.map((pid) => names.get(pid)).filter(Boolean).join(" / ") || null; return x; };
   fill(t); preds.filter(Boolean).forEach(fill); succs.filter(Boolean).forEach(fill);
   const roleNames = await rolesNames(env).catch(() => new Map());
@@ -694,6 +687,13 @@ async function reviewQuestions(env) {
       filter: { and: [NOT_DONE, { property: "説明", rich_text: { contains: "[棚卸し滞留 繰越" } }] }, page_size: 50 }) }).catch(() => ({ results: [] })),
   ]);
   const names = await projectNames(env).catch(() => new Map());
+  // 依存案・日程案が指すタスクを先にまとめて引く (1 件ずつ await すると件数ぶん直列になる)
+  const refIds = new Set();
+  for (const pg of decs.results ?? []) { const p = pg.properties ?? {}, kind = p["種別"]?.select?.name;
+    if (kind === "依存案") { const d = parseDepsRow(p); if (d) { refIds.add(d.predId); refIds.add(d.succId); } }
+    if (kind === "日程案") { const d = parseDatesRow(p); if (d) refIds.add(d.taskId); } }
+  const refTasks = new Map(await Promise.all([...refIds].map(async (id) => [id, await getTask(env, id).catch(() => null)])));
+  const taskOf = async (id) => refTasks.has(id) ? refTasks.get(id) : getTask(env, id).catch(() => null);
   // (2) PJ クローズ候補 — その場で決着できる
   for (const p of projects.filter((p) => p.closable)) out.push({
     kind: "project-close", db: "Projects", label: "クローズ可否", id: p.id, url: p.url,
