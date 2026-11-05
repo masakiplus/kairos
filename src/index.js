@@ -111,7 +111,7 @@ function deferCandidates(t, todayStr) {
   const nextDow = (dow) => add(((dow - base.getUTCDay() + 7) % 7) || 7); // 今日より後の直近の曜日
   const WD = ["日", "月", "火", "水", "木", "金", "土"];
   const fmt = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${WD[d.getUTCDay()]})`;
-  const tomorrow = add(1), wed = nextDow(3), sat = base.getUTCDay() === 6 ? add(1) : nextDow(6), mon = nextDow(1);
+  const tomorrow = add(1), wed = nextDow(3), sat = base.getUTCDay() === 6 ? null : nextDow(6), mon = nextDow(1);
   const weekday = (d) => d.getUTCDay() >= 1 && d.getUTCDay() <= 5;
   const nextWeekday = weekday(tomorrow) ? tomorrow : mon;
   const home = (t.env || []).includes("自宅");
@@ -124,8 +124,8 @@ function deferCandidates(t, todayStr) {
     [sat, "土曜", "週末にまとめて"],
     [mon, "来週月曜", "週のはじめに仕切り直し"],
   ];
-  if (home) { push(wed, "水曜", common[0][2]); push(sat, "土曜", common[1][2]); push(tomorrow, "明日", "すぐ再挑戦"); push(mon, "来週月曜", common[2][2]); }
-  else { push(nextWeekday, weekday(tomorrow) ? "明日" : "次の平日", "出社できる日に"); push(wed, "水曜", common[0][2]); push(sat, "土曜", common[1][2]); push(mon, "来週月曜", common[2][2]); }
+  if (home) { push(wed, "水曜", common[0][2]); if (sat) push(sat, "土曜", common[1][2]); push(tomorrow, "明日", "すぐ再挑戦"); push(mon, "来週月曜", common[2][2]); }
+  else { push(nextWeekday, weekday(tomorrow) ? "明日" : "次の平日", "出社できる日に"); push(wed, "水曜", common[0][2]); if (sat) push(sat, "土曜", common[1][2]); push(mon, "来週月曜", common[2][2]); }
   const seen = new Set(); const out = [];
   for (const c of raw) {
     if (seen.has(c.date)) continue;
@@ -938,7 +938,7 @@ async function reviewAnswer(env, kind, id, answer, note) {
     }
     if (answer === "mit") { await patchTask(env, id, { "今日の3つ": { date: { start: today } }, ...(cur.start && cur.start > today ? { "開始日": { date: { start: today } } } : {}) }); return { ok: true }; }
     if (answer === "nextweek" || /^defer:\d{4}-\d{2}-\d{2}$/.test(answer)) {
-      const d = answer === "nextweek" ? deferTo("nextweek") : answer.slice(6); if (d <= today || Number.isNaN(Date.parse(d))) throw new Error("bad date"); const props = { "開始日": { date: { start: d } } };
+      const d = answer === "nextweek" ? deferTo("nextweek") : answer.slice(6); if (d <= today || new Date(d + "T00:00:00Z").toISOString().slice(0, 10) !== d) throw new Error("bad date"); const props = { "開始日": { date: { start: d } } };
       if (cur.due && (cur.due < d || (cur.start && cur.due === cur.start))) props["期日"] = { date: { start: d } }; // 延期と同じ条件 (2026-10-07)
       await patchTask(env, id, props); return { ok: true };
     }
