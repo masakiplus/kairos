@@ -100,6 +100,46 @@ function deferTo(to) {
   return d.toISOString().slice(0, 10);
 }
 
+// <defer-candidates>
+// 「決める」タブの繰り越しカードに出す先送り候補日（2026-11-06、提案のみ。自動では動かさない）。
+// 明日・直近の水曜（在宅）・今週末の土曜・来週月曜・期日の前日から、期日を過ぎない日を最大4つ。
+// 実行環境に「自宅」があれば在宅の水曜と週末を先頭、無ければ出社できる平日を先頭にする。
+function deferCandidates(t, todayStr) {
+  const base = new Date(`${todayStr}T00:00:00Z`);
+  const ymd = (d) => d.toISOString().slice(0, 10);
+  const add = (n) => { const d = new Date(base); d.setUTCDate(d.getUTCDate() + n); return d; };
+  const nextDow = (dow) => add(((dow - base.getUTCDay() + 7) % 7) || 7); // 今日より後の直近の曜日
+  const WD = ["日", "月", "火", "水", "木", "金", "土"];
+  const fmt = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${WD[d.getUTCDay()]})`;
+  const tomorrow = add(1), wed = nextDow(3), sat = base.getUTCDay() === 6 ? add(1) : nextDow(6), mon = nextDow(1);
+  const weekday = (d) => d.getUTCDay() >= 1 && d.getUTCDay() <= 5;
+  const nextWeekday = weekday(tomorrow) ? tomorrow : mon;
+  const home = (t.env || []).includes("自宅");
+  const due = t.due && t.due >= todayStr ? t.due : null;
+  const raw = [];
+  const push = (d, label, why) => raw.push({ date: ymd(d), label: `${label} ${fmt(d)}`, why });
+  if (due && due > ymd(tomorrow)) { const dd = new Date(`${due}T00:00:00Z`); dd.setUTCDate(dd.getUTCDate() - 1); if (ymd(dd) > todayStr) push(dd, "期日の前日", "期日に間に合う最後の余裕日"); }
+  const common = [
+    [wed, "水曜", "在宅の日。自宅・Mac の作業向き"],
+    [sat, "土曜", "週末にまとめて"],
+    [mon, "来週月曜", "週のはじめに仕切り直し"],
+  ];
+  if (home) { push(wed, "水曜", common[0][2]); push(sat, "土曜", common[1][2]); push(tomorrow, "明日", "すぐ再挑戦"); push(mon, "来週月曜", common[2][2]); }
+  else { push(nextWeekday, weekday(tomorrow) ? "明日" : "次の平日", "出社できる日に"); push(wed, "水曜", common[0][2]); push(sat, "土曜", common[1][2]); push(mon, "来週月曜", common[2][2]); }
+  const seen = new Set(); const out = [];
+  for (const c of raw) {
+    if (seen.has(c.date)) continue;
+    if (due && c.date > due) continue; // 期日を過ぎる日は出さない
+    seen.add(c.date); out.push(c);
+  }
+  if (!out.length) out.push({ date: ymd(tomorrow), label: `明日 ${fmt(tomorrow)}`, why: "期日が近いので最短で" });
+  // 期日の前日は先頭にしない（余裕日は最後の保険）
+  const i = out.findIndex((c) => c.label.startsWith("期日の前日"));
+  if (i === 0 && out.length > 1) out.push(out.shift());
+  return out.slice(0, 4);
+}
+// </defer-candidates>
+
 // Notion 側に同じフィルタのビューを 3 本置いて突き合わせられるようにしてある。式プロパティは文字列一致で引く。
 const NOT_DONE = { property: "完了", checkbox: { equals: false } };
 // 📱 スマホの選択肢名 (2026-10-15): 「iPhone」を「スマホ」にリネームした。書くときはスキーマに実在する方を使う (Notion 側のリネーム前後どちらでも動く。無い名前を書くと別の選択肢が勝手に生える)
@@ -765,7 +805,7 @@ async function reviewQuestions(env) {
       meta: { carry: t.carry, due: t.due, start: t.start, priority: t.priority, firstDue: ((t.rawDesc || "").match(/初回期日 (\d{4}-\d{2}-\d{2})/) || [])[1] || null },
       q: `「${t.name}」は棚卸しで ${t.carry} 回繰り越されています。まだやりますか？`,
       ctx: [["期日", t.due || "なし"], ["PJ", t.projectIds.map((id) => names.get(id)).filter(Boolean).join("・")], ["優先度", t.priority]].filter((x) => x[1]),
-      options: [{ a: "skip-done", t: "やめる（見送りで完了）", s: "説明に見送りの根拠を残す" }, { a: "mit", t: "⭐ 今日の3つに入れて片付ける", s: "今日やる" }, { a: "nextweek", t: "来週に送る", s: "開始日を来週の月曜に", }, { a: "skip", t: "今は決めない", s: "次回また聞く" }],
+      options: [{ a: "skip-done", t: "やめる（見送りで完了）", s: "説明に見送りの根拠を残す" }, { a: "mit", t: "⭐ 今日の3つに入れて片付ける", s: "今日やる" }, ...deferCandidates(t, todayJst()).map((c) => ({ a: "defer:" + c.date, t: "先送り: " + c.label, s: c.why })), { a: "skip", t: "今は決めない", s: "次回また聞く" }],
       name: t.name, task: t,
     });
   }
@@ -897,8 +937,8 @@ async function reviewAnswer(env, kind, id, answer, note) {
       return { ok: true };
     }
     if (answer === "mit") { await patchTask(env, id, { "今日の3つ": { date: { start: today } }, ...(cur.start && cur.start > today ? { "開始日": { date: { start: today } } } : {}) }); return { ok: true }; }
-    if (answer === "nextweek") {
-      const d = deferTo("nextweek"); const props = { "開始日": { date: { start: d } } };
+    if (answer === "nextweek" || /^defer:\d{4}-\d{2}-\d{2}$/.test(answer)) {
+      const d = answer === "nextweek" ? deferTo("nextweek") : answer.slice(6); if (d <= today || Number.isNaN(Date.parse(d))) throw new Error("bad date"); const props = { "開始日": { date: { start: d } } };
       if (cur.due && (cur.due < d || (cur.start && cur.due === cur.start))) props["期日"] = { date: { start: d } }; // 延期と同じ条件 (2026-10-07)
       await patchTask(env, id, props); return { ok: true };
     }
