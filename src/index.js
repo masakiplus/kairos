@@ -330,6 +330,19 @@ async function resolveChain(env, id) {
 // 各 DB のデータソース ID は wrangler.toml の [vars] (PROJECTS_DATA_SOURCE_ID / ROLES_DATA_SOURCE_ID / DECISIONS_DATA_SOURCE_ID / HABITS_DATA_SOURCE_ID / HABIT_LOG_DATA_SOURCE_ID)
 const PROJECT_CLOSED = ["完了", "アーカイブ"];
 const RT_TEXT = (p) => (p?.rich_text ?? []).map((t) => t.plain_text).join("");
+// 小さな DB (Projects・Roles) は全タスクを含むスナップショットを組まず、その DB の行だけを SQL で読む (2026-11-06: スナップショットの組み直しで /api/projects・/api/review が約20秒かかっていた)。
+// 失敗したら従来どおり notion() 経由。url は loadState と同じ形に揃える
+async function smallCollection(env, dsId, pageSize = 100) {
+  if (env.DATA_BACKEND === "d1" && env.DB) {
+    try {
+      const ds = String(dsId || "").replace(/-/g, "").toLowerCase();
+      const r = await env.DB.prepare("SELECT id,payload FROM entities WHERE ds=? AND COALESCE(json_extract(payload,'$.archived'),0)=0 AND COALESCE(json_extract(payload,'$.in_trash'),0)=0 ORDER BY rowid").bind(ds).all();
+      const results = (r.results || []).map((x) => { const pg = JSON.parse(x.payload); pg.url = (env.KAIROS_ORIGIN || "") + "/?page=" + x.id; return pg; });
+      if (results.length) return { results, has_more: false, next_cursor: null };
+    } catch (e) { /* 従来の経路へ */ }
+  }
+  return notion(env, `/data_sources/${dsId}/query`, { method: "POST", body: JSON.stringify({ page_size: pageSize }) });
+}
 let projectCache = { at: 0, map: new Map(), rows: [] };
 // Phase B (2026-10-06): 名前だけでなく 対応ゴール／完了条件／ステータス／役割 も一緒に持つ。Kairos が書き換えるのは ステータス だけ (設計ページ §3)
 async function projectsAll(env) {
@@ -337,10 +350,10 @@ async function projectsAll(env) {
   const map = new Map(), rows = [];
   let cursor;
   do {
-    const r = await notion(env, `/data_sources/${env.PROJECTS_DATA_SOURCE_ID}/query`, {
+    const r = cursor ? await notion(env, `/data_sources/${env.PROJECTS_DATA_SOURCE_ID}/query`, {
       method: "POST",
-      body: JSON.stringify({ page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }),
-    });
+      body: JSON.stringify({ page_size: 100, start_cursor: cursor }),
+    }) : await smallCollection(env, env.PROJECTS_DATA_SOURCE_ID);
     for (const pg of r.results ?? []) {
       const p = pg.properties ?? {};
       const name = (p["名前"]?.title ?? []).map((t) => t.plain_text).join("");
@@ -452,7 +465,7 @@ async function projectsInfo(env) {
 let rolesCache = { at: 0, rows: [] };
 async function rolesAll(env) {
   if (Date.now() - rolesCache.at < 2 * 60_000 && rolesCache.rows.length) return rolesCache.rows;
-  const r = await notion(env, `/data_sources/${env.ROLES_DATA_SOURCE_ID}/query`, { method: "POST", body: JSON.stringify({ page_size: 50 }) });
+  const r = await smallCollection(env, env.ROLES_DATA_SOURCE_ID, 50);
   const rows = (r.results ?? []).map((pg) => {
     const p = pg.properties ?? {};
     return {
