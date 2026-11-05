@@ -2839,11 +2839,19 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     const pj = (projInfo || []).find((x) => x.id === id), left = pj && pj.open ? `未完了タスクが ${pj.open} 件残っています。` : "";
     const note = prompt(`「${name}」をクローズします。${left}結論を1行（空でも可）`, "");
     if (note === null) return;
+    // 先に画面から外す (2026-11-06: サーバーの応答と一覧の取り直しを待たず、押した瞬間に反応させる)。失敗したら戻す
+    const keep = { projInfo, tasks };
+    projInfo = (projInfo || []).filter((x) => x.id !== id);
+    tasks = (tasks || []).filter((t) => !(t.projectIds || []).includes(id));
+    lastSig = ""; render(todayStr); toast(`クローズ中: ${name}`);
     try {
       const j = await api(`/api/projects/${id}/close`, { method: "POST", body: JSON.stringify({ note }) });
       toast(`クローズ: ${j.project.name}（Decisions に決着行）`);
       projInfoAt = 0; localStorage.removeItem(K("project")); load("project", { silent: true });
-    } catch (e) { toast("クローズ失敗: " + e.message); }
+    } catch (e) {
+      projInfo = keep.projInfo; tasks = keep.tasks; lastSig = ""; render(todayStr);
+      toast("クローズ失敗: " + e.message);
+    }
   }
   // 今週の石を選ぶシート: その役割の PJ に属する未完了 (期日順 10 件)。候補に無ければ Claude へ
   function openPickSheet(r) {
