@@ -458,6 +458,8 @@ async function guardUpdate(ctx, ds, fields) {
   return coll;
 }
 
+const PROJECT_CREATE_FIELDS = ["名前", "役割", "ステータス", "テーマ", "対応ゴール", "完了条件", "関係者", "開始日", "ローカルパス"];
+
 const RULES = [
   "Kairos の D1 が正本。Notion は更新しない。",
   "タスクの完了は kairos_task_action の done で行う（完了日とステータスが一緒に入り、AI処理開始も空になる）。",
@@ -560,7 +562,7 @@ const TOOLS = [
   {
     name: "kairos_create",
     title: "ページを作る",
-    description: "tasks / decisions / habits / habitlog と、sessions（会話の足跡）・selfreview・daily などの追加 DB に 1 件作る（Roles / Projects は作れない）。habits は 状態 を省くと「提案中」で作る（有効化は習慣棚卸しで本人が決める）。fields は {プロパティ名: 値}（日付は YYYY-MM-DD か ISO 日時、複数選択・リレーションは配列）。icon（絵文字）は tasks で必須。body は Markdown 風の本文。",
+    description: "tasks / projects / decisions / habits / habitlog と、sessions（会話の足跡）・selfreview・daily などの追加 DB に 1 件作る（Roles は作れない）。habits は 状態 を省くと「提案中」で作る（有効化は習慣棚卸しで本人が決める）。projects は 名前（必須）・役割・ステータス・テーマ・対応ゴール・完了条件・関係者・開始日・ローカルパス で作り、ステータスを省くと「未着手」。fields は {プロパティ名: 値}（日付は YYYY-MM-DD か ISO 日時、複数選択・リレーションは配列）。icon（絵文字）は tasks で必須。body は Markdown 風の本文。",
     inputSchema: {
       type: "object",
       properties: { database: DB_PROP, fields: { type: "object" }, icon: { type: "string" }, body: { type: "string" } },
@@ -569,8 +571,15 @@ const TOOLS = [
     },
     annotations: WRITE,
     run: async (a, ctx) => {
-      if (["roles", "projects"].includes(normName(a.database))) throw new Error("この DB には作れません（Roles / Projects は更新だけ）");
+      if (normName(a.database) === "roles") throw new Error("この DB には作れません（Roles は更新だけ）");
       const ds = await dsOf(ctx, a.database), schema = await schemaOf(ctx, ds);
+      // プロジェクトは 名前 が要る。初期値に使える列は PROJECT_CREATE_FIELDS だけ。ステータスを省くと 未着手（2026-11-05）
+      if (normName(a.database) === "projects") {
+        const bad = Object.keys(a.fields).filter((k) => !PROJECT_CREATE_FIELDS.includes(k));
+        if (bad.length) throw new Error(`projects を作るときに指定してよいのは ${PROJECT_CREATE_FIELDS.join("、")} だけです（${bad.join("、")} は不可）`);
+        if (!String(a.fields["名前"] ?? "").trim()) throw new Error("projects を作るには 名前 が要ります");
+        if (a.fields["ステータス"] == null) a = { ...a, fields: { ...a.fields, ステータス: "未着手" } };
+      }
       // 習慣は 提案中 で起こし、有効化は月次の習慣棚卸し（habits-qa-review）で本人が決める（2026-11-05）
       if (normName(a.database) === "habits" && a.fields["状態"] == null) a = { ...a, fields: { ...a.fields, 状態: "提案中" } };
       const props = Object.fromEntries(Object.entries(a.fields).map(([k, v]) => [k, toProp(schema, k, v)]));
