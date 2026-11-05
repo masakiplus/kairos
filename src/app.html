@@ -198,6 +198,8 @@
   .pjh .pbtn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .pjh .pbtn button{padding:11px;border:0;border-radius:10px;background:var(--card);color:var(--fg);font-size:14px;font-weight:600}
   .pjh .pbtn button.pri{background:var(--acc);color:#fff}
+  .pjh .pbtn a{display:flex;align-items:center;justify-content:center;gap:6px;padding:11px;border-radius:10px;background:var(--card);color:var(--fg);font-size:14px;font-weight:600;text-decoration:none}
+  .pjh .pbtn.row{margin-top:2px}
   .pjh .fn{font-size:11px;color:var(--mute)}
   .pjh .n{font-size:12px;font-weight:600;color:var(--mute);background:var(--seg);padding:0 7px;border-radius:9px;flex:none}
   .group button.addrow{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px;border:0;background:transparent;color:var(--acc);font-size:15px;font-weight:600;text-align:left}
@@ -1575,6 +1577,13 @@
     } else return "";
     return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
   }
+  // 📁 PJ を選んだときの 2 ボタン (2026-11-06): 閉じる ／ 進める(Claude に渡す)。閉じる候補では「閉じる」を主ボタンにする
+  function pjActHtml(p, ts) {
+    const pri = p.closable ? " pri" : "";
+    const lines = ts.length ? taskLines(ts) : "未完了タスクなし";
+    const q = `プロジェクト「${p.name}」を進めたいです。Kairos のページ: ${p.url} 。対応ゴール: ${p.goal || "未記入"} ／ 完了条件: ${p.cond || "未記入"} ／ 進捗: ${p.done} / ${p.done + p.open} 完了。未完了: ${lines}。まず現状を確認し、次に着手すべきタスクを 1 つ決めて進めてください（Claude に任せられるものは実行し、人の手が要るものは 人対応 に、大きいものはサブタスクに分ける）。タスクが無ければ次のアクションを 1 件起票し、対応ゴール・完了条件が未記入なら一問一答で決めてください。全部終わっていればクローズの可否を聞いてください。${META_TAIL}`;
+    return `<div class="pbtn row"><button class="${pri.trim()}" data-pjclose="${p.id}" data-pjname="${esc(p.name)}">${p.closable ? "クローズする" : "閉じる"}</button><a href="${claudeLink(q)}" data-ext>${aiIcon()} 進める</a></div>`;
+  }
   // 📁 PJ の見出し (Phase B-7/8, 2026-10-06)。情報がまだ無ければ従来の名前＋件数だけ
   function pjHeadHtml(label, p, ts) {
     if (!p) return `<h2 class="prjh">${esc(label)}<span class="n">${ts.length}</span></h2>`;
@@ -1584,15 +1593,17 @@
       <div class="pt"><div class="pn">${esc(p.label)}</div><span class="bdg cl">クローズ候補</span></div>
       ${p.cond ? `<div class="pg">完了条件: ${esc(p.cond)}</div>` : `<div class="pg">完了条件は未記入${p.lastDone ? ` — 最後の完了: ${esc(p.lastDone)}${p.lastDoneAt ? ` (${fmtDate(p.lastDoneAt)})` : ""}` : ""}</div>`}
       <div class="pb"><div class="bar"><i class="full" style="width:100%"></i></div><span class="pc">${p.done} / ${total} 完了</span></div>
-      <div class="pbtn"><button class="pri" data-pjclose="${p.id}" data-pjname="${esc(p.name)}">クローズする</button><button data-pjadd="${p.id}" data-pjlabel="${esc(p.label)}">次のアクションを足す</button></div>
+      ${pjActHtml(p, ts)}
       <div class="fn">クローズすると Decisions に決着行が1行入ります</div></div>`;
     if (p.stalled) return `<div class="pjh">
       <div class="pt"><div class="pn">${esc(p.label)}</div><span class="bdg st">次のアクションなし</span></div>
-      <div class="pg warn">${p.goal ? "タスクが 0 件 — 止まっています" : "対応ゴールが未記入。タスクも 0 件 — 止まっています"}</div></div>`;
+      <div class="pg warn">${p.goal ? "タスクが 0 件 — 止まっています" : "対応ゴールが未記入。タスクも 0 件 — 止まっています"}</div>
+      ${pjActHtml(p, ts)}</div>`;
     return `<div class="pjh">
       <div class="pt"><div class="pn">${esc(p.label)}</div>${role}<span class="n">${ts.length}</span>${p.unordered ? `<button class="bdg un" data-pjdeps="${p.id}" title="未完了 ${p.open} 件に依存が 1 本もない">順番未整理</button>` : ""}${ts.length > 1 ? `<button class="lnk" data-pjdeps="${p.id}">🔗</button>` : ""}</div>
       ${p.goal ? `<div class="pg">ゴール: ${esc(p.goal)}</div>` : `<div class="pg warn">対応ゴールが未記入 — 🤖 で決める</div>`}
-      <div class="pb"><div class="bar"><i style="width:${pct}%"></i></div><span class="pc">${p.done} / ${total}</span></div></div>`;
+      <div class="pb"><div class="bar"><i style="width:${pct}%"></i></div><span class="pc">${p.done} / ${total}</span></div>
+      ${pjActHtml(p, ts)}</div>`;
   }
   // 🧭 役割タブ (Phase B-6)
   function renderRoles(today) {
@@ -2825,7 +2836,8 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   }
   $("#addPj").onclick = () => setAddProject(null);
   async function closeProject(id, name) {
-    const note = prompt(`「${name}」をクローズします。結論を1行（空でも可）`, "");
+    const pj = (projInfo || []).find((x) => x.id === id), left = pj && pj.open ? `未完了タスクが ${pj.open} 件残っています。` : "";
+    const note = prompt(`「${name}」をクローズします。${left}結論を1行（空でも可）`, "");
     if (note === null) return;
     try {
       const j = await api(`/api/projects/${id}/close`, { method: "POST", body: JSON.stringify({ note }) });
