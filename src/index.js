@@ -367,8 +367,10 @@ async function projectNames(env) { return (await projectsAll(env)).map; }
 let projStatCache = { at: 0, data: null };
 // PJ ごとの件数を D1 に集計させる (2026-11-06: 全タスクを JS に読み込んで数えると /api/projects が約20秒かかり PJ別 が開けなかった)。
 // 失敗したら null を返し、呼び出し側が従来の全件走査に戻る。完了=チェックボックス、完了日が無ければ最終更新で「最後の完了」を決める
+let statsDiag = { via: null, err: null, ms: null };
 async function projectStatsSql(env, active) {
-  if (env.DATA_BACKEND !== "d1" || !env.DB) return null;
+  if (env.DATA_BACKEND !== "d1" || !env.DB) { statsDiag = { via: "scan", err: "no d1", ms: null }; return null; }
+  const t0 = Date.now();
   const clean = (x) => String(x || "").replace(/-/g, "").toLowerCase();
   const CB = `json_extract(e.payload,'$.properties."完了".checkbox')`;
   const LIVE = `e.collection='tasks' AND COALESCE(json_extract(e.payload,'$.archived'),0)=0 AND COALESCE(json_extract(e.payload,'$.in_trash'),0)=0`;
@@ -391,11 +393,12 @@ async function projectStatsSql(env, active) {
     ]);
     const byPj = new Map((cnt.results || []).map((r) => [r.pj, r]));
     const lastBy = new Map((last.results || []).map((r) => [r.pj, r]));
+    statsDiag = { via: "sql", err: null, ms: Date.now() - t0 };
     return new Map(active.map((p) => {
       const c = byPj.get(clean(p.id)) || {}, l = lastBy.get(clean(p.id));
       return [p.id, { done: c.done || 0, open: c.open || 0, linked: c.linked || 0, lastDone: l ? l.name || null : null, lastDoneAt: l ? String(l.at || "") : "" }];
     }));
-  } catch (e) { return null; }
+  } catch (e) { statsDiag = { via: "scan", err: String(e && e.message || e).slice(0, 300), ms: Date.now() - t0 }; return null; }
 }
 async function projectsInfo(env) {
   if (Date.now() - projStatCache.at < 2 * 60_000 && projStatCache.data) return projStatCache.data;
@@ -1529,7 +1532,7 @@ const kairosWorker = {
         return json({ task: await quickAdd(env, name, projectId, envTags) }, 201);
       }
       // 📁 PJ別の見出し (Phase B-7/8, 2026-10-06): 進行中 PJ の ゴール・完了条件・件数・クローズ候補
-      if (path === "/api/projects" && req.method === "GET") return json(await cachedJson(env, "projects", async () => ({ today: todayJst(), projects: await projectsInfo(env) })));
+      if (path === "/api/projects" && req.method === "GET") return json(await cachedJson(env, "projects", async () => { const projects = await projectsInfo(env); return { today: todayJst(), projects, diag: statsDiag }; }));
       const mpc = path.match(/^\/api\/projects\/([0-9a-f-]{32,36})\/close$/);
       if (mpc && req.method === "POST") {
         const b = await req.json().catch(() => ({}));
