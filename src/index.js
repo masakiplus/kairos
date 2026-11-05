@@ -365,11 +365,45 @@ async function projectNames(env) { return (await projectsAll(env)).map; }
 // 📁 PJ別の見出し用 (Phase B-7/8): 進行中の PJ ごとに 完了／未完了 の件数、最後に完了したタスク、クローズ候補かどうか。
 // クローズ候補 ＝ 未完了 0 件 かつ 完了 1 件以上 (完了条件の充足は人が見る)。止まっている ＝ 未完了 0 件 かつ 完了 0 件、または 対応ゴール 未記入
 let projStatCache = { at: 0, data: null };
+// PJ ごとの件数を D1 に集計させる (2026-11-06: 全タスクを JS に読み込んで数えると /api/projects が約20秒かかり PJ別 が開けなかった)。
+// 失敗したら null を返し、呼び出し側が従来の全件走査に戻る。完了=チェックボックス、完了日が無ければ最終更新で「最後の完了」を決める
+async function projectStatsSql(env, active) {
+  if (env.DATA_BACKEND !== "d1" || !env.DB) return null;
+  const clean = (x) => String(x || "").replace(/-/g, "").toLowerCase();
+  const CB = `json_extract(e.payload,'$.properties."完了".checkbox')`;
+  const LIVE = `e.collection='tasks' AND COALESCE(json_extract(e.payload,'$.archived'),0)=0 AND COALESCE(json_extract(e.payload,'$.in_trash'),0)=0`;
+  try {
+    const [cnt, last] = await env.DB.batch([
+      env.DB.prepare(`SELECT l.to_id AS pj,
+          SUM(CASE WHEN ${CB}=1 THEN 1 ELSE 0 END) AS done,
+          SUM(CASE WHEN ${CB}=0 THEN 1 ELSE 0 END) AS open,
+          SUM(CASE WHEN ${CB}=0 AND (EXISTS(SELECT 1 FROM entity_links x WHERE x.from_id=e.id AND x.prop IN ('先行タスク','後続タスク'))
+                                   OR EXISTS(SELECT 1 FROM entity_links y WHERE y.to_id=e.id AND y.prop='先行タスク')) THEN 1 ELSE 0 END) AS linked
+        FROM entity_links l JOIN entities e ON e.id=l.from_id
+        WHERE l.prop='関連プロジェクト' AND ${LIVE} GROUP BY l.to_id`),
+      env.DB.prepare(`SELECT pj, name, at FROM (
+          SELECT l.to_id AS pj,
+            (SELECT group_concat(json_extract(j.value,'$.plain_text'),'') FROM json_each(e.payload,'$.properties."名前".title') j) AS name,
+            COALESCE(json_extract(e.payload,'$.properties."完了日".date.start'), json_extract(e.payload,'$.last_edited_time'), '') AS at,
+            ROW_NUMBER() OVER (PARTITION BY l.to_id ORDER BY COALESCE(json_extract(e.payload,'$.properties."完了日".date.start'), json_extract(e.payload,'$.last_edited_time'), '') DESC) AS rn
+          FROM entity_links l JOIN entities e ON e.id=l.from_id
+          WHERE l.prop='関連プロジェクト' AND ${LIVE} AND ${CB}=1) WHERE rn=1`),
+    ]);
+    const byPj = new Map((cnt.results || []).map((r) => [r.pj, r]));
+    const lastBy = new Map((last.results || []).map((r) => [r.pj, r]));
+    return new Map(active.map((p) => {
+      const c = byPj.get(clean(p.id)) || {}, l = lastBy.get(clean(p.id));
+      return [p.id, { done: c.done || 0, open: c.open || 0, linked: c.linked || 0, lastDone: l ? l.name || null : null, lastDoneAt: l ? String(l.at || "") : "" }];
+    }));
+  } catch (e) { return null; }
+}
 async function projectsInfo(env) {
   if (Date.now() - projStatCache.at < 2 * 60_000 && projStatCache.data) return projStatCache.data;
   const { rows } = await projectsAll(env);
   const active = rows.filter((p) => !PROJECT_CLOSED.includes(p.status));
   const stat = new Map(active.map((p) => [p.id, { done: 0, open: 0, linked: 0, lastDone: null, lastDoneAt: "" }]));
+  const fast = await projectStatsSql(env, active);
+  if (fast) { for (const [id, v] of fast) stat.set(id, v); } else {
   async function scan(filter, onPage) {
     let cursor, pages = 0;
     do {
@@ -394,6 +428,7 @@ async function projectsInfo(env) {
       for (const r of pg.properties?.["関連プロジェクト"]?.relation ?? []) { const s = stat.get(r.id); if (!s) continue; s.done++; if (at > s.lastDoneAt) { s.lastDoneAt = at; s.lastDone = name; } }
     }),
   ]);
+  }
   const roleNames = await rolesNames(env).catch(() => new Map());
   const data = active.map((p) => {
     const s = stat.get(p.id);
