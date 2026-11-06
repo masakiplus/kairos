@@ -99,6 +99,7 @@ h1{color:var(--head);font-size:34px;margin:24px 0 8px}
   <h1 id="homeHead">ステージ</h1>
   <p class="sub" id="homeSub">よみこみちゅう…</p>
   <button class="big" id="start" disabled>はじめる</button>
+  <button class="small" id="soundBtn" style="margin-top:18px"></button>
   <div class="sync" id="homeSync"></div>
 </section>
 
@@ -141,6 +142,7 @@ h1{color:var(--head);font-size:34px;margin:24px 0 8px}
 const NAMES={saya:'さや',akito:'あきと'};
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const $=id=>document.getElementById(id);
+let soundOn=store.get('kanji:sound',true);
 const NS='http://www.w3.org/2000/svg';
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function uid(){return (crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2))}
@@ -216,9 +218,12 @@ function renderHome(){
   $('start').textContent= done>=n ? 'けっかを 見る' : (done?'つづきから':'はじめる');
   $('start').disabled=false; syncLabel();
 }
-document.querySelectorAll('.kid').forEach(b=>b.onclick=()=>pickKid(b.dataset.kid));
+document.querySelectorAll('.kid').forEach(b=>b.onclick=()=>{ac();pickKid(b.dataset.kid)});
+function soundLabel(){$('soundBtn').textContent=soundOn?'🔔 おと：オン':'🔕 おと：オフ'}
+$('soundBtn').onclick=()=>{soundOn=!soundOn;store.set('kanji:sound',soundOn);soundLabel();ac();if(soundOn)SND.stroke(0)};
+soundLabel();
 $('toKid').onclick=()=>show('s-kid');
-$('start').onclick=()=>{queue=items.filter(it=>!results[it.id]);pos=0;if(!queue.length)return renderResult();startItem()};
+$('start').onclick=()=>{ac();queue=items.filter(it=>!results[it.id]);pos=0;if(!queue.length)return renderResult();startItem()};
 $('back').onclick=()=>{renderHome();show('s-home')};
 
 /* ---------- 問題 ---------- */
@@ -271,19 +276,19 @@ function drawStroke(pts){
 function redraw(){ctx.clearRect(0,0,cv.width,cv.height);guide();strokes.forEach(drawStroke);if(drawing)drawStroke(drawing.pts)}
 function pt(e){const r=cv.getBoundingClientRect();return[Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))]}
 cv.addEventListener('pointerdown',e=>{
-  if(phase!=='write') return;
+  if(phase!=='write'&&phase!=='practice') return;
   if(drawing){drawing=null;redraw();return} // 2本目の指 → 書きかけを捨てる
   cv.setPointerCapture(e.pointerId); drawing={id:e.pointerId,pts:[pt(e)]}; redraw(); e.preventDefault();
 });
 cv.addEventListener('pointermove',e=>{if(!drawing||e.pointerId!==drawing.id)return;const evs=e.getCoalescedEvents?e.getCoalescedEvents():[e];evs.forEach(x=>drawing.pts.push(pt(x)));redraw();e.preventDefault()});
-cv.addEventListener('pointerup',e=>{if(!drawing||e.pointerId!==drawing.id)return;if(drawing.pts.length)strokes.push(drawing.pts);drawing=null;redraw();updateDone()});
+cv.addEventListener('pointerup',e=>{if(!drawing||e.pointerId!==drawing.id)return;if(drawing.pts.length)strokes.push(drawing.pts);drawing=null;redraw();updateDone();liveHint()});
 cv.addEventListener('pointercancel',()=>{drawing=null;redraw()});
 ['touchstart','touchmove'].forEach(t=>cv.addEventListener(t,e=>e.preventDefault(),{passive:false}));
 document.addEventListener('gesturestart',e=>e.preventDefault());
 function updateDone(){$('done').disabled=strokes.length===0}
 let lpT=null, lpFired=false;
 $('erase').addEventListener('pointerdown',()=>{lpFired=false;lpT=setTimeout(()=>{lpFired=true;$('erase').classList.add('danger');strokes=[];redraw();updateDone();setTimeout(()=>$('erase').classList.remove('danger'),300)},600)});
-$('erase').addEventListener('pointerup',()=>{clearTimeout(lpT);if(!lpFired&&phase==='write'){strokes.pop();redraw();updateDone()}});
+$('erase').addEventListener('pointerup',()=>{clearTimeout(lpT);if(!lpFired&&(phase==='write'||phase==='practice')){strokes.pop();redraw();updateDone()}});
 $('erase').addEventListener('pointerleave',()=>clearTimeout(lpT));
 
 /* ---------- お手本 ---------- */
@@ -332,6 +337,74 @@ function normalize(ss){
   return ss.map(st=>st.map(([x,y])=>[(x-cx)/s,(y-cy)/s]));
 }
 function sdist(a,b){let f=0,r=0;for(let i=0;i<N;i++){f+=Math.hypot(a[i][0]-b[i][0],a[i][1]-b[i][1]);r+=Math.hypot(a[i][0]-b[N-1-i][0],a[i][1]-b[N-1-i][1])}return{d:Math.min(f,r)/N,rev:r<f}}
+/* ---------- 音 (Web Audio。ファイルは持たない) ---------- */
+let AC=null;
+function ac(){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();return AC}catch(e){return null}}
+function tone(freq,dur,type='sine',vol=.18,when=0,slide=0){
+  if(!soundOn) return; const a=ac(); if(!a) return;
+  const t=a.currentTime+when, o=a.createOscillator(), g=a.createGain();
+  o.type=type; o.frequency.setValueAtTime(freq,t); if(slide) o.frequency.exponentialRampToValueAtTime(freq*slide,t+dur);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+.015); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t+dur+.02);
+}
+const SND={
+  stroke:(i)=>tone(660*Math.pow(2,Math.min(i,12)/12),.12,'sine',.16,0,1.25),   // 1画ごとに少しずつ高くなる「ぽん」
+  miss:()=>{tone(220,.18,'square',.08,0,.8);tone(180,.22,'square',.07,.12,.8)},  // 「ぶっぶ」
+  ok:()=>[523,659,784,1047].forEach((f,i)=>tone(f,.18,'triangle',.16,i*.09)),   // ファンファーレ
+  hint:()=>tone(440,.2,'triangle',.12,0,1.1),
+  ng:()=>tone(300,.35,'sine',.12,0,.6),
+};
+/* ---------- 1画ずつの その場ヒント (2026-11-07) ----------
+   書いた画 i を、お手本の画 i と比べる。位置と大きさは、それまでに書いた画とお手本の同じ画の外枠から合わせる
+   (1画目はマスそのままの位置)。合わなければ、お手本の i 画目を赤で見せ、書いた画を少しして消す (もう一度書く)。
+   ほかの画の方がよく合うなら「その線は まだ」。ヒントを出した字は ○ でなく △ になる。 */
+const TH_LIVE=0.15, TH_LIVE_FIRST=0.2;
+function liveCheck(i){
+  const ch=chars()[ci], g=glyphs[ch]; if(!g) return {ok:true};
+  const tpl=sampleTpl(ch);
+  if(i>=tpl.length) return {ok:false,kind:'extra',want:tpl.length};
+  const u=resample(strokes[i]);
+  let map=p=>p;
+  if(i>0){
+    const box=ss=>{let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;ss.flat().forEach(([x,y])=>{x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y)});return{x0,y0,x1,y1}};
+    const U=box(strokes.slice(0,i).map(resample)), T=box(tpl.slice(0,i));
+    const su=Math.max(U.x1-U.x0,U.y1-U.y0), st=Math.max(T.x1-T.x0,T.y1-T.y0);
+    const k=su>0.08&&st>0.08?Math.min(2,Math.max(0.5,st/su)):1;
+    const ucx=(U.x0+U.x1)/2, ucy=(U.y0+U.y1)/2, tcx=(T.x0+T.x1)/2, tcy=(T.y0+T.y1)/2;
+    map=([x,y])=>[tcx+(x-ucx)*k, tcy+(y-ucy)*k];
+  }
+  const m=u.map(map);
+  const d=j=>sdist(m,tpl[j]);
+  const here=d(i), th=i===0?TH_LIVE_FIRST:TH_LIVE;
+  if(here.d<th) return {ok:true,rev:here.rev,d:here.d};
+  if(i===0&&phase!=='practice'){ // 1画目は字の位置・大きさがまだ分からないので、形と向きだけで見る (練習中はお手本の上なので位置も見る)
+    const own=x=>normalize([x])[0], sh=sdist(own(u),own(tpl[0]));
+    const len=x=>x.reduce((a,p,j)=>j?a+Math.hypot(p[0]-x[j-1][0],p[1]-x[j-1][1]):0,0);
+    if(sh.d<0.2&&len(u)>0.02) return {ok:true,rev:sh.rev,d:sh.d};
+    return {ok:false,kind:'shape',want:0,d:sh.d};
+  }
+  let best=-1,bd=1e9; for(let j=i+1;j<tpl.length;j++){const x=d(j).d;if(x<bd){bd=x;best=j}}
+  if(best>=0&&bd<th) return {ok:false,kind:'order',want:i,got:best,d:here.d};
+  return {ok:false,kind:'shape',want:i,d:here.d};
+}
+let liveT=null;
+function liveHint(){
+  if((phase!=='write'&&phase!=='practice')||!glyph()) return;
+  const back=phase, i=strokes.length-1, r=liveCheck(i);
+  if(r.ok&&back==='practice'){ SND.stroke(i); if(strokes.length===glyph().d.length) practiceCheck(); return; }
+  if(r.ok){ SND.stroke(i); if(r.rev) $('msg').textContent='かく むきが ぎゃくかも（はじまりを たしかめてね）'; else if(!hintLevel) $('msg').textContent=''; return; }
+  if(back==='write') hintUsed=Math.max(hintUsed,1);
+  SND.miss();
+  const k=glyph(); clearOverlay(); clearTimeout(liveT);
+  if(r.kind==='extra'){ $('msg').textContent=`この字は ${r.want}かくだよ。もう ぜんぶ かいたね`; }
+  else {
+    addPath(k.d[r.want],'#d93025',.9,4); addNum(r.want,'#d93025');
+    $('msg').textContent= r.kind==='order' ? `その線は ${r.got+1}かくめ。${r.want+1}かくめは ここだよ` : `${r.want+1}かくめは こうだよ。もういちど かいてみよう`;
+  }
+  phase='live';
+  liveT=setTimeout(()=>{ strokes.pop(); redraw(); updateDone(); phase=back;
+    if(back==='practice') practiceOverlay(); else if(hintLevel<2) clearOverlay(); else k.d.forEach(d=>addPath(d,'#9aa0a6',.35,4.5)); },1300);
+}
 function judge(){
   const ch=chars()[ci];
   if(!glyphs[ch]) return {grade:null,kind:'self'};
@@ -362,6 +435,7 @@ $('done').onclick=()=>{
   }
   if(hintUsed>0&&verdict.grade==='ok') verdict.grade='hint';
   verdict.auto=verdict.grade;
+  (verdict.grade==='ok'?SND.ok:verdict.grade==='hint'?SND.hint:SND.ng)();
   showVerdict();
 };
 function showVerdict(){
@@ -397,13 +471,50 @@ function playOrder(){
   const k=glyph(); if(!k){$('actNext').style.display='';return}
   let i=0; k.d.forEach(d=>addPath(d,'#dadce0',1,3.2));
   const step=()=>{
-    if(i>=k.d.length){$('actNext').style.display='';return}
+    if(i>=k.d.length){setTimeout(startPractice,700);return}
     const p=addPath(k.d[i],'#111',1,3.6); addNum(i,'#d93025');
     const L=p.getTotalLength(); p.style.strokeDasharray=L; p.style.strokeDashoffset=L;
     p.getBoundingClientRect(); p.style.transition='stroke-dashoffset .45s linear'; p.style.strokeDashoffset=0;
     i++; setTimeout(step,550);
   };
   step();
+}
+/* ---------- まちがえた字の れんしゅう (2026-11-07) ----------
+   × のあと、その字だけを練習する。1・2回目はうすいお手本をなぞる、3回目はお手本なし。1画ずつのヒントと音つき。
+   練習は SRS に入れない (紙の練習ページと同じ)。終わったら「つぎへ」。 */
+const PRACTICE_ROUNDS=3;
+let practiceRound=0;
+function practiceOverlay(){
+  clearOverlay(); const k=glyph(); if(!k) return;
+  if(practiceRound<PRACTICE_ROUNDS-1){ k.d.forEach(d=>addPath(d,'#9aa0a6',.35,4.5)); k.d.forEach((_,i)=>addNum(i,'#b0a99a')); }
+}
+function startPractice(){
+  if(!glyph()){ $('actNext').style.display=''; return; }
+  practiceRound=0; practiceRun();
+}
+function practiceRun(){
+  phase='practice'; strokes=[]; drawing=null; redraw(); updateDone(); practiceOverlay();
+  $('actWrite').style.display='none'; $('actGrade').style.display='none'; $('actNext').style.display='none';
+  $('erase').disabled=false; $('hint').disabled=true;
+  $('msg').textContent = practiceRound<PRACTICE_ROUNDS-1
+    ? `れんしゅう ${practiceRound+1}/${PRACTICE_ROUNDS}：お手本を なぞって かこう`
+    : `れんしゅう ${PRACTICE_ROUNDS}/${PRACTICE_ROUNDS}：こんどは お手本なしで かこう`;
+}
+function practiceCheck(){
+  const v=judge();
+  phase='practice-wait';
+  if(v.grade==='ok'){
+    practiceRound++; SND.ok();
+    if(practiceRound>=PRACTICE_ROUNDS){
+      $('msg').textContent='れんしゅう おわり！ よく がんばったね'; clearOverlay();
+      $('actNext').style.display=''; return;
+    }
+    $('msg').textContent='いいね！ ★'; setTimeout(practiceRun,900);
+  }else{
+    SND.ng(); $('msg').textContent= v.kind==='order' ? 'かきじゅんが ちがうよ。もういちど' : 'おしい！ もういちど かいてみよう';
+    const k=glyph(); clearOverlay(); k.d.forEach((d,i)=>addPath(d,'#d93025',.5,3.2));
+    setTimeout(practiceRun,1400);
+  }
 }
 $('next').onclick=()=>charDone();
 function charDone(){
