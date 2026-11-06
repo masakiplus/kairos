@@ -1,7 +1,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {applyGrade, kanjiNorm, reviewAdd, linesPatch, kanjiPutState, kanjiState, kanjiResults, kanjiPutToday, kanjiToday, kanjiPatchFile, parseKanjiVG, kanjiGlyphs, kanjiRoute, kanjiKey} from '../src/kanji.js';
+import {cleanArt, kanjiPatchArt, kanjiArtFile, applyGrade, kanjiNorm, reviewAdd, linesPatch, kanjiPutState, kanjiState, kanjiResults, kanjiPutToday, kanjiToday, kanjiPatchFile, parseKanjiVG, kanjiGlyphs, kanjiRoute, kanjiKey} from '../src/kanji.js';
 
 function env(t) {
   const sql = new DatabaseSync(':memory:'); t.after(() => sql.close());
@@ -115,4 +115,27 @@ test('route: 合鍵は today/results/glyph だけ、state は admin だけ', asy
   const r = await call('POST', '/api/kanji/results', {key: k, body: {child: 'saya', results: [{id: 'z1', key: '池', grade: 'ok'}]}});
   assert.equal(r.body.applied, 1);
   assert.match((await call('GET', '/api/kanji/link', {admin: true})).body.url, /\/kanji\/#key=[0-9a-f]{32}$/);
+  assert.equal((await call('GET', '/api/kanji/art/000000000000000000000000')).status, 404);
+});
+
+test('正解イラスト: 検査を通った絵だけ置き、出題には id とセリフだけ付く', async t => {
+  const e = env(t);
+  const ok = '<svg viewBox="0 0 400 300"><rect width="10" height="10" fill="#fff"/></svg>';
+  assert.equal(cleanArt(ok), ok);
+  for (const bad of ['<svg><script>alert(1)</script></svg>', '<svg><image href="https://x/y.png"/></svg>', '<svg onload="x()"></svg>', '<svg><rect style="fill:url(https://x)"/></svg>', '<div></div>'])
+    assert.equal(cleanArt(bad), null, bad);
+  assert.notEqual(cleanArt('<svg><linearGradient id="g"/><rect fill="url(#g)"/></svg>'), null);
+  await kanjiPutToday(e, 'saya', '2026-11-07', [{key: '池', ans: '池', sentence: '金魚が □に いる。', reading: 'いけ'}, {key: '注', ans: '注', sentence: '水を □ぐ。', reading: 'そそ'}, {key: '重', ans: '重', sentence: '荷物が □い。', reading: 'おも'}]);
+  const jpg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64');
+  const r = await kanjiPatchArt(e, 'saya', '2026-11-07', {池: {mime: 'image/jpeg', data: jpg, say: 'すいすい〜'}, 注: {mime: 'image/svg+xml', data: '<svg><script/></svg>'}, 重: {mime: 'image/svg+xml', data: ok}});
+  assert.deepEqual(r, {ok: true, attached: 2, rejected: 1});
+  const today = await kanjiToday(e, 'saya', '2026-11-07');
+  assert.match(today.items[0].art, /^[0-9a-f]{24}$/);
+  assert.equal(today.items[0].say, 'すいすい〜');
+  assert.equal(today.items[1].art, undefined);
+  const f = await kanjiArtFile(e, today.items[0].art);
+  assert.equal(f.mime, 'image/jpeg'); assert.deepEqual([...f.body], [0xff, 0xd8, 0xff, 0xd9]);
+  assert.equal((await kanjiArtFile(e, today.items[2].art)).body, ok);
+  assert.equal(await kanjiArtFile(e, 'zz'), null);
+  assert.deepEqual(await kanjiPatchArt(e, 'akito', '2026-11-07', {}), {error: 'no today'});
 });

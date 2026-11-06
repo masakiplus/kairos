@@ -1,6 +1,6 @@
 // かんじ れんしゅう (/kanji/) の service worker。殻だけキャッシュし、/api は常にネットワーク。
 // 出題とお手本は画面側が localStorage に持つので、オフラインでも前回の分で練習できる。
-const CACHE = "kanji-v2";
+const CACHE = "kanji-v3";
 const SHELL = ["/kanji/", "/kanji/manifest.webmanifest", "/kanji/icon-180.png", "/kanji/icon-512.png"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -10,7 +10,12 @@ self.addEventListener("activate", (e) => {
 });
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== "GET" || url.origin !== location.origin || !url.pathname.startsWith("/kanji/")) return;
+  if (e.request.method !== "GET" || url.origin !== location.origin) return;
+  if (url.pathname.startsWith("/api/kanji/art/")) { // 絵は中身が変わらないので cache-first (オフラインでもごほうびが出る)
+    e.respondWith(caches.match(url.pathname).then((hit) => hit || fetch(e.request).then((res) => { if (res.ok) { const cp = res.clone(); caches.open(CACHE).then((c) => c.put(url.pathname, cp)); } return res; })));
+    return;
+  }
+  if (!url.pathname.startsWith("/kanji/")) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => { if (res.ok) { const cp = res.clone(); caches.open(CACHE).then((c) => c.put(url.pathname, cp)); } return res; })
