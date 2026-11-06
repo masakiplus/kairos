@@ -41,6 +41,7 @@
 | `GET /api/roles` ／ `POST /api/roles/:id/goal {taskId}` | 役割タブ・今週の石 |
 | `GET /api/review` ／ `POST /api/review/(decision\|verify\|task-carry\|habit\|deps\|dates)/:id {answer, note, until}` ／ `POST /api/review/decision/:id/undo` | 見直しカード。未決の決着はタスクまで動かす（`docs/rules.md` §9） |
 | `GET /api/shopping` | 🛒 買い物タブ。種類=購入（＋ラベル「買ったつもり」）の未完了・セール窓ごと／引落し月ごと（購入月の翌月27日、線は裁量日割りパラメータの `discretionary_pool`）の予定額・買ったつもり貯金（見送りで閉じた同ラベルの金額）。集計は `src/shopping.js`、列・選択肢・セール窓マスター（追加コレクション `sale_windows`）の追加は `src/d1.js` の `ensureShopping`（起動時に無いときだけ） |
+| `/kanji/` ／ `GET /api/kanji/(today\|glyph\|state\|export\|link)` ／ `POST /api/kanji/results` ／ `PUT /api/kanji/(state\|today)` ／ `PATCH /api/kanji/files` | 漢字書き取り PWA と紙ドリルの SRS 正本（`src/kanji.js`、`docs/kanji.md`）。PWA は認証より前でルーティングし、APP_TOKEN から導いた合鍵（`X-Kanji-Key`）で today・results・glyph だけ使える |
 | `GET /api/quadrant` ／ `GET /api/habits/due` ／ `POST /api/habits/:id/log` | 象限・習慣 |
 | `GET /api/habits` ／ `POST /api/habits/log/:logId/undo` | 🔁 習慣タブ。習慣の一覧と直近 3 週（月曜起算）の Habit Log（読むだけ）。取り消しは記録をごみ箱へ（入れられなければ 達成 を外す） |
 | `GET /api/tasks/:id/(graph\|chain\|detail)` | 3 列グラフ・先行チェーン・詳細 |
