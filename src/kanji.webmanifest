@@ -5,8 +5,8 @@
   "scope": "/kanji/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#2e8b57",
-  "theme_color": "#2e8b57",
+  "background_color": "#f6f1e3",
+  "theme_color": "#f6f1e3",
   "icons": [
     {"src": "/kanji/icon-180.png", "sizes": "180x180", "type": "image/png"},
     {"src": "/kanji/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
