@@ -1465,6 +1465,13 @@ const kairosWorker = {
       });
     }
 
+    // 漢字書き取り (2026-11-07, docs/kanji.md): /kanji/ の殻と /api/kanji/*。PWA は子どもの iPad で Kairos の Cookie を持たないので、
+    // APP_TOKEN から導いた合鍵 (X-Kanji-Key) で入る。認証より前に置く。D1 は rev を進めない素の DB を使う (Kairos のキャッシュを無駄に捨てない)
+    if (path === "/kanji" || path.startsWith("/kanji/") || path.startsWith("/api/kanji/")) {
+      const [{ kanjiRoute }, { KANJI_ASSETS }] = await Promise.all([import("./kanji.js"), import("./kanji-assets.js")]); // 動的 import: 既存テストの連結方式 (import 行を消す) に影響させない
+      const r = await kanjiRoute(req, rawEnv, url, { admin: authed(req, rawEnv), json, assets: KANJI_ASSETS });
+      if (r) return r;
+    }
     // ?t=<APP_TOKEN> で来たら Cookie を焼いて / に戻す (PWA インストール前の初回だけ使う)
     const t = url.searchParams.get("t");
     if (t !== null) {
