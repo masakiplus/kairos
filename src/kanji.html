@@ -62,8 +62,8 @@ h1{color:var(--head);font-size:34px;margin:24px 0 8px}
 .reward .w{color:#fff;font-size:40px;font-weight:600;text-shadow:0 2px 0 rgba(0,0,0,.4)}
 .reward .frame{display:none;position:relative;animation:pop .5s ease-out}
 .reward .art{display:block;width:min(80vw,520px);aspect-ratio:1/1;background:#fff;border-radius:22px;border:5px solid #fff;box-shadow:0 10px 30px rgba(0,0,0,.25);object-fit:cover}
-.reward .say{position:absolute;top:-18px;right:-14px;max-width:62%;background:#fff;color:#3b3a36;font-size:26px;font-weight:600;padding:12px 20px;border-radius:28px;border:3px solid #3b3a36;box-shadow:0 4px 0 rgba(0,0,0,.15)}
-.reward .say::after{content:"";position:absolute;left:26px;bottom:-16px;border:9px solid transparent;border-top:12px solid #3b3a36}
+.reward .say{position:absolute;top:4%;right:4%;max-width:70%;filter:drop-shadow(0 3px 0 rgba(0,0,0,.12))}
+.reward .say svg{display:block;max-width:100%;height:auto}
 .reward.has-art .frame{display:block}.reward.has-art .pic{display:none}
 .reward .sent{color:#fff;font-size:26px;margin-top:14px;text-shadow:0 1px 0 rgba(0,0,0,.4);text-align:center;padding:0 16px}
 .reward .tap{color:#fff;font-size:16px;margin-top:10px;opacity:.85}
@@ -392,6 +392,7 @@ function liveHint(){
   if((phase!=='write'&&phase!=='practice')||!glyph()) return;
   const back=phase, i=strokes.length-1, r=liveCheck(i);
   if(r.ok&&back==='practice'){ SND.stroke(i); if(strokes.length===glyph().d.length) practiceCheck(); return; }
+  if(r.ok&&back==='write'&&strokes.length===glyph().d.length){ SND.stroke(i); phase='grade'; setTimeout(()=>finishChar(true),280); return; }
   if(r.ok){ SND.stroke(i); if(r.rev) $('msg').textContent='かく むきが ぎゃくかも（はじまりを たしかめてね）'; else if(!hintLevel) $('msg').textContent=''; return; }
   if(back==='write') hintUsed=Math.max(hintUsed,1);
   SND.miss();
@@ -425,7 +426,10 @@ function judge(){
 
 /* ---------- 採点 ---------- */
 const RANK={ok:0,hint:1,ng:2};
-$('done').onclick=()=>{
+$('done').onclick=()=>finishChar(false);
+/* 丸つけ。auto=true は最後の画まで書けたときに自動で呼ぶ。○/△ は赤い丸つけを描いて自動で次へ、× は今までどおり */
+function finishChar(auto){
+  if(phase!=='write'&&phase!=='grade') return;
   phase='grade'; verdict=judge();
   $('actWrite').style.display='none'; $('erase').disabled=true; $('hint').disabled=true;
   if(verdict.kind==='self'){ // お手本が取れない字は自己採点
@@ -436,8 +440,23 @@ $('done').onclick=()=>{
   if(hintUsed>0&&verdict.grade==='ok') verdict.grade='hint';
   verdict.auto=verdict.grade;
   (verdict.grade==='ok'?SND.ok:verdict.grade==='hint'?SND.hint:SND.ng)();
+  if(verdict.grade!=='ng'){ maruTsuke(verdict.grade); return; }
   showVerdict();
-};
+}
+function maruTsuke(grade){
+  const k=glyph(); clearOverlay();
+  const mk=document.createElementNS(NS,grade==='ok'?'circle':'path');
+  if(grade==='ok'){mk.setAttribute('cx','54.5');mk.setAttribute('cy','54.5');mk.setAttribute('r','47');mk.setAttribute('transform','rotate(-100 54.5 54.5)')}
+  else mk.setAttribute('d','M54.5,9 L101,96 L8,96 Z');
+  mk.setAttribute('fill','none'); mk.setAttribute('stroke','#e0362c'); mk.setAttribute('stroke-width','6'); mk.setAttribute('stroke-linecap','round'); mk.setAttribute('stroke-linejoin','round'); mk.setAttribute('opacity','.85');
+  ov.appendChild(mk);
+  const L=mk.getTotalLength(); mk.style.strokeDasharray=L; mk.style.strokeDashoffset=L; mk.getBoundingClientRect();
+  mk.style.transition='stroke-dashoffset .45s ease-out'; mk.style.strokeDashoffset=0;
+  const v=verdict;
+  $('msg').textContent = grade==='ok' ? '○ せいかい！' : (v.kind==='order' ? `△ 形は あってる！ かきじゅんに 気をつけよう（${v.bad.map(i=>i+1).join('・')}かくめ）` : '△ ヒントを つかって かけたね');
+  $('actGrade').style.display='none';
+  setTimeout(()=>{ if(phase==='grade') charDone(); }, grade==='ok'?900:1800);
+}
 function showVerdict(){
   const v=verdict, k=glyph(); clearOverlay();
   k.d.forEach((d,i)=>addPath(d,(v.bad||[]).includes(i)?'#1a73e8':'#d93025',.5,3.2));
@@ -535,13 +554,24 @@ function itemDone(){
   if(grade!=='ng') showReward(grade); else nextItem();
 }
 /* 正解のごほうび。夜のうちに描いた例文の絵 (art = id) があれば、絵と吹き出しのセリフと例文を出し、タップかしばらくで次へ */
+/* 吹き出し: 角の丸い楕円と、左下へのびるしっぽを1本の線で描く (線が途切れない)。幅は文字数に合わせる */
+function bubbleSVG(text){
+  const fs=30, c=document.createElement('canvas').getContext('2d');
+  c.font=`600 ${fs}px "Klee One","Hiragino Maru Gothic ProN",sans-serif`;
+  const tw=Math.ceil(c.measureText(text).width), w=Math.max(150,tw+64), h=78, r=h/2, sw=3.5;
+  const x0=sw, y0=sw, x1=w-sw, y1=h-sw, tx=x0+Math.min(70,w*.28);   // しっぽの付け根
+  const d=`M${x0+r},${y0} H${x1-r} A${r-sw},${r-sw} 0 0 1 ${x1-r},${y1} H${tx+26} `+
+          `Q${tx+8},${y1+6} ${tx-22},${y1+30} Q${tx+2},${y1+4} ${tx},${y1} H${x0+r} A${r-sw},${r-sw} 0 0 1 ${x0+r},${y0} Z`;
+  return `<svg width="${Math.round(w*.92)}" viewBox="0 0 ${w} ${h+34}" xmlns="http://www.w3.org/2000/svg"><path d="${d}" fill="#fff" stroke="#3b3a36" stroke-width="${sw}" stroke-linejoin="round"/>`+
+    `<text x="${w/2}" y="${h/2+fs*.36}" text-anchor="middle" font-size="${fs}" font-weight="600" fill="#3b3a36" font-family='"Klee One","Hiragino Maru Gothic ProN",sans-serif'>${esc(text)}</text></svg>`;
+}
 let rewardT=null;
 function showReward(grade){
   const r=$('reward'), art=cur.art;
   $('rewardW').textContent=grade==='ok'?'せいかい！ ★':'できた！ ★';
   if(art){
     $('rewardArt').src='/api/kanji/art/'+art;
-    $('rewardSay').textContent=cur.say||''; $('rewardSay').style.display=cur.say?'':'none';
+    $('rewardSay').innerHTML=cur.say?bubbleSVG(cur.say):''; $('rewardSay').style.display=cur.say?'':'none';
     $('rewardSent').textContent=cur.sentence.replace('□',cur.ans).replace(/\s+/g,' ');
     $('rewardTap').textContent='タップで つぎへ';
     r.classList.add('has-art');
