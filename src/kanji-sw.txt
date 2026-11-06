@@ -1,6 +1,6 @@
 // かんじ れんしゅう (/kanji/) の service worker。殻だけキャッシュし、/api は常にネットワーク。
 // 出題とお手本は画面側が localStorage に持つので、オフラインでも前回の分で練習できる。
-const CACHE = "kanji-v1";
+const CACHE = "kanji-v2";
 const SHELL = ["/kanji/", "/kanji/manifest.webmanifest", "/kanji/icon-180.png", "/kanji/icon-512.png"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
