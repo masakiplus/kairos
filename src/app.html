@@ -655,6 +655,85 @@
   .sheet .hlogs .hl b{font-weight:600;width:40px;flex:none}.sheet .hlogs .hl .m{flex:1;min-width:0;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sheet .hlogs .hl small{color:var(--mute2);font-size:11px}
   @media (min-width:900px){body[data-view="habits"] main{max-width:760px}}
+  /* ---- 2026-11-06 超細幅: Galaxy Z Fold 8 を横にして分割画面の 1/4 に置いた幅 (約 240〜360px)。400px 向けの組みを詰め直す。400px 以上は変えない ---- */
+  @media (max-width:359px){
+    body{overflow-x:clip}
+    header{padding:calc(8px + env(safe-area-inset-top)) 8px 8px;gap:8px}
+    .ttl{flex-wrap:wrap;gap:2px 6px}
+    .ttl h1{font-size:20px;letter-spacing:-.2px}
+    .ttl .theme{margin-left:0;width:100%;flex-wrap:wrap;gap:4px 6px}
+    .ttl .date{margin-left:0;margin-right:auto;font-size:13px}
+    .theme button{height:30px;min-width:30px;padding:0 6px}
+    .trow button{padding:6px 2px;font-size:11px}
+    .trow button .n{margin-left:1px;font-size:10px}
+    .trow.sub{flex-wrap:wrap}
+    .trow.sub button{flex:1 1 28%;font-size:11px;padding:5px 2px}
+    .sitbar{gap:4px;margin-top:0}
+    .sitbar button{padding:3px 8px;font-size:11px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block}
+    .trow.sub{gap:0}
+    .srch{flex-wrap:wrap;gap:6px}
+    .srch input{flex:1 1 100%;font-size:15px;padding:8px 12px}
+    .srch label{font-size:12px}
+    main{padding:4px 8px 116px;gap:14px}
+    .sec h2{padding:0 6px}
+    .row .card{gap:8px;padding:10px 8px 10px 10px}
+    .name{font-size:15px}
+    .meta{gap:2px 6px}
+    .meta .prj{max-width:100%}
+    .go{width:32px;height:32px;border-radius:16px}
+    .desc{padding:10px 10px;font-size:14px}
+    .add{gap:6px;padding:8px 8px calc(10px + env(safe-area-inset-bottom))}
+    .add input{padding:9px 10px;font-size:15px}
+    .add button{width:40px;height:40px;border-radius:20px}
+    .add .pjchip{max-width:34%}
+    .toast{left:6px;right:6px;gap:8px;padding:10px 12px;bottom:calc(68px + env(safe-area-inset-bottom))}
+    .toast button{font-size:14px}
+    .sheet{padding:8px 8px calc(12px + env(safe-area-inset-bottom));gap:8px}
+    .sheet h3{font-size:15px}
+    .sheet .list a{padding:10px 10px;gap:8px;font-size:14px}
+    .sheet .grid,.sheet .grid.dg,.sheet .grid.st4,.sheet .grid.flt,.sheet .grid.sit{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px}
+    .sheet .grid button,.sheet .grid.st4 button,.sheet .grid.flt button{padding:10px 6px;font-size:13px}
+    .sheet .sbar{margin:4px -8px calc(-12px - env(safe-area-inset-bottom));padding:8px 8px calc(10px + env(safe-area-inset-bottom));grid-template-columns:1fr 1fr;gap:6px}
+    .sheet .sbar .pri{grid-column:1/-1;order:-1}
+    .sheet .sbar>*{height:42px;font-size:13px}
+    .sheet .dprow{flex-wrap:wrap}
+    .sheet .pager{flex-wrap:wrap}
+    .sheet details.sitd>summary .sv{max-width:45%}
+    .fcard{padding:12px;gap:10px}
+    .fcard .fn{font-size:17px}
+    .fcard .fb{grid-template-columns:repeat(auto-fit,minmax(84px,1fr))}
+    .fcard .fb button{height:44px;font-size:12px}
+    .fcard .fb .pri{font-size:14px}
+    .pjh .pbtn{grid-template-columns:1fr}
+    .pjh .pbtn button,.pjh .pbtn a{padding:9px;font-size:13px}
+    .pjh .pt{flex-wrap:wrap}
+    .rc{padding:12px 10px 10px}
+    .rc .rt{flex-wrap:wrap}
+    .rsum{flex-wrap:wrap;padding:0 6px}
+    .rvc{padding:14px 12px 12px;gap:10px}
+    .rvc .kb{margin:-14px -12px 0;padding:8px 12px;flex-wrap:wrap}
+    .rvc .rq{font-size:17px}
+    .rvc .opts button{padding:11px 12px;font-size:15px;flex-wrap:wrap}
+    .rvc .opts button small{margin-left:0;flex-basis:100%;text-align:left}
+    .grid3{grid-template-columns:minmax(60px,1.4fr) repeat(3,minmax(0,1fr)) 26px;gap:3px}
+    .grid3 .gp{padding:6px;font-size:12px}
+    .g3{grid-template-columns:1fr;gap:10px}
+    .g3 svg{display:none}
+    .hrow{padding:8px 10px;gap:8px}
+    .hrow.hw{grid-template-columns:minmax(0,1fr) repeat(3,34px);gap:4px}
+    .hbtn{padding:0 12px}
+    .cmenu{min-width:0;width:calc(100vw - 16px)}
+    .cmenu button{white-space:normal}
+    #aiHandoff{width:calc(100% - 12px);padding:14px}
+    .reader .rh{gap:6px;padding:calc(6px + env(safe-area-inset-top)) 8px 6px}
+    .reader .rh button{padding:7px 10px;font-size:14px}
+    .reader .rh a{display:none}
+    .reader .rb{padding:10px 12px calc(20px + env(safe-area-inset-bottom));font-size:14px}
+    .reader .ra{flex-wrap:wrap;padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+    .reader .ra button,.reader .ra a{flex:1 1 40%;padding:10px 4px;font-size:14px}
+    .scard{padding:10px}
+    body[data-view="shop"] .scol .scard{flex-basis:92%}
+  }
 </style>
 </head>
 <body>
