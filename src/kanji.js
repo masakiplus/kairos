@@ -84,6 +84,7 @@ function init(env) {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS kanji_results(id TEXT PRIMARY KEY, child TEXT NOT NULL, key TEXT NOT NULL, source TEXT NOT NULL, grade TEXT NOT NULL, detail TEXT, answered_at TEXT, received_at TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS kanji_today(child TEXT NOT NULL, date TEXT NOT NULL, items TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(child,date))"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS kanji_glyph(ch TEXT PRIMARY KEY, data TEXT NOT NULL)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS kanji_art(id TEXT PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL)"),
   ]).catch((e) => { readyFor.delete(env.DB); throw e; });
   readyFor.set(env.DB, ready);
   return ready;
@@ -186,10 +187,61 @@ export async function kanjiPutToday(env, child, date, items) {
     sentence: String(it.sentence || "").slice(0, 120),
     reading: String(it.reading || "").slice(0, 30),
     emoji: it.emoji ? String(it.emoji).slice(0, 8) : undefined,
+    art: /^[0-9a-f]{24}$/.test(String(it.art || "")) ? it.art : undefined,
+    say: it.say ? String(it.say).slice(0, 16) : undefined,
   })).filter((it) => it.ans && it.sentence.includes("□"));
   await env.DB.prepare("INSERT INTO kanji_today(child,date,items,updated_at) VALUES(?,?,?,?) ON CONFLICT(child,date) DO UPDATE SET items=excluded.items, updated_at=excluded.updated_at")
     .bind(child, date, JSON.stringify(clean), nowIso()).run();
   return { ok: true, items: clean.length };
+}
+
+/** 正解イラスト (SVG) の検査。PWA は <img src="data:image/svg+xml,…"> で出すので台本は動かないが、
+ *  念のため外部参照・台本・埋め込みは弾く。通らなければ null。 */
+export function cleanArt(svg) {
+  const s = String(svg || "").trim();
+  if (!s.startsWith("<svg") || !s.endsWith("</svg>") || s.length > 30000) return null;
+  if (/<script|<foreignObject|<image|<iframe|<use\b|\son\w+\s*=|javascript:|(?:xlink:)?href\s*=\s*["'](?!#)|url\(\s*["']?(?!#)/i.test(s)) return null;
+  return s;
+}
+
+const ART_MIME = ["image/svg+xml", "image/jpeg", "image/png", "image/webp"];
+async function sha16(text) {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...h.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** その日の出題に正解イラストを付ける。art: {key: {mime, data, say?}}。data は SVG の文字列か画像の base64。
+ *  絵は kanji_art に1回だけ置き (id = 中身のハッシュ)、出題には id と吹き出しのセリフ (say) だけを書く。出題そのものは変えない。 */
+export async function kanjiPatchArt(env, child, date, art) {
+  await init(env);
+  const row = await env.DB.prepare("SELECT items FROM kanji_today WHERE child=? AND date=?").bind(child, date).first();
+  if (!row) return { error: "no today" };
+  const items = JSON.parse(row.items || "[]");
+  let n = 0, rejected = 0;
+  for (const [key, a] of Object.entries(art || {})) {
+    const mime = String(a && a.mime || "");
+    let data = String(a && a.data || "");
+    if (!ART_MIME.includes(mime)) { rejected++; continue; }
+    if (mime === "image/svg+xml") data = cleanArt(data) || "";
+    else if (!/^[A-Za-z0-9+/=\s]+$/.test(data) || data.length > 600000) data = "";
+    if (!data) { rejected++; continue; }
+    const id = await sha16(mime + "\n" + data);
+    await env.DB.prepare("INSERT OR IGNORE INTO kanji_art(id,mime,data,created_at) VALUES(?,?,?,?)").bind(id, mime, data, nowIso()).run();
+    const say = a.say ? String(a.say).slice(0, 16) : undefined;
+    for (const it of items) if (it.key === key) { it.art = id; if (say) it.say = say; else delete it.say; n++; }
+  }
+  if (n) await env.DB.prepare("UPDATE kanji_today SET items=?, updated_at=? WHERE child=? AND date=?").bind(JSON.stringify(items), nowIso(), child, date).run();
+  return { ok: true, attached: n, rejected };
+}
+
+/** 絵そのもの。id は中身のハッシュなので変わらない (長くキャッシュしてよい)。 */
+export async function kanjiArtFile(env, id) {
+  if (!/^[0-9a-f]{24}$/.test(id)) return null;
+  await init(env);
+  const r = await env.DB.prepare("SELECT mime, data FROM kanji_art WHERE id=?").bind(id).first();
+  if (!r) return null;
+  const body = r.mime === "image/svg+xml" ? r.data : Uint8Array.from(atob(r.data.replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+  return { mime: r.mime, body };
 }
 
 /** 今日 (JST) の出題。今日の分がまだ無ければ (深夜の生成前)、直近の日の分を返す。 */
@@ -272,6 +324,10 @@ export async function kanjiRoute(req, env, url, { admin, json, assets }) {
     return new Response(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
   }
   if (!path.startsWith("/api/kanji/")) return null;
+  if (path.startsWith("/api/kanji/art/") && req.method === "GET") { // 絵は認証なし (id は中身のハッシュで推測できず、中身も子ども向けの絵だけ)
+    const f = env.DB ? await kanjiArtFile(env, path.slice("/api/kanji/art/".length)) : null;
+    return f ? new Response(f.body, { headers: { "Content-Type": f.mime, "Cache-Control": "public, max-age=31536000, immutable", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" } }) : json({ error: "not found" }, 404);
+  }
 
   if (!env.DB) return json({ error: "no-db" }, 503);
   const key = req.headers.get("X-Kanji-Key") || "";
@@ -283,7 +339,7 @@ export async function kanjiRoute(req, env, url, { admin, json, assets }) {
   const sub = path.slice("/api/kanji/".length);
 
   // PWA と admin の両方
-  if (sub === "today" && req.method === "GET") return needChild() ? json(await kanjiToday(env, child)) : json({ error: "child" }, 400);
+  if (sub === "today" && req.method === "GET") return needChild() ? json(await kanjiToday(env, child, (admin && url.searchParams.get("date")) || jstDate())) : json({ error: "child" }, 400);
   if (sub === "results" && req.method === "POST") {
     const b = await body();
     const c = b.child || child;
@@ -297,6 +353,7 @@ export async function kanjiRoute(req, env, url, { admin, json, assets }) {
   if (sub === "state" && req.method === "GET") return needChild() ? json(await kanjiState(env, child)) : json({ error: "child" }, 400);
   if (sub === "state" && req.method === "PUT") return needChild() ? json(await kanjiPutState(env, child, await body())) : json({ error: "child" }, 400);
   if (sub === "files" && req.method === "PATCH") return needChild() ? json(await kanjiPatchFile(env, child, await body())) : json({ error: "child" }, 400);
+  if (sub === "art" && req.method === "PATCH") return needChild() ? json(await kanjiPatchArt(env, child, url.searchParams.get("date") || jstDate(), (await body()).art)) : json({ error: "child" }, 400);
   if (sub === "today" && req.method === "PUT") return needChild() ? json(await kanjiPutToday(env, child, url.searchParams.get("date") || jstDate(), (await body()).items)) : json({ error: "child" }, 400);
   if (sub === "export" && req.method === "GET") return json(await kanjiExport(env, Number(url.searchParams.get("days")) || 120));
   if (sub === "link" && req.method === "GET") return json({ url: url.origin + "/kanji/#key=" + (await kanjiKey(env)) });

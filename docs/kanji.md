@@ -11,6 +11,7 @@
 | `kanji_results(id, child, key, source, grade, detail, …)` | 採点の履歴。`id` で再送を弾く。`applied=0` は記録だけ（その日の再出題・もういちど） |
 | `kanji_today(child, date, items)` | その日の書き取り。紙ドリルの生成が書く |
 | `kanji_glyph(ch, data)` | KanjiVG（© Ulrich Apel, CC BY-SA 3.0）の画と番号位置のキャッシュ |
+| `kanji_art(id, mime, data)` | 正解イラスト。id は中身のハッシュ。出題の `art` に id、`say` に吹き出しのセリフ |
 
 Kairos 本体の表とは独立で、書き込みで `storage_control.rev` を進めない（一覧キャッシュを捨てない）。
 
@@ -25,6 +26,8 @@ Kairos 本体の表とは独立で、書き込みで `storage_control.rev` を�
 | `GET /api/kanji/state?child=` ／ `PUT …` `{srs:{key:dict\|null}, files:{name:全文}, replace?}` | Kairos | 紙ドリルの読み書き・移行・復元 |
 | `PATCH /api/kanji/files?child=` `{name, add:[行], remove:[行]}` | Kairos | review.txt の差分 |
 | `PUT /api/kanji/today?child=&date=` `{items:[{key,ans,sentence,reading,emoji?}]}` | Kairos | 出題の書き込み（`sentence` の □ が答えの位置） |
+| `PATCH /api/kanji/art?child=&date=` `{art:{key:{mime,data,say?}}}` | Kairos | 正解イラストを付ける。SVG（検査あり）か JPEG/PNG/WebP の base64。Mac の kanji_art.py が夜に描いて送る |
+| `GET /api/kanji/art/<id>` | なし | 絵そのもの（immutable キャッシュ） |
 | `GET /api/kanji/export?days=120` | Kairos | 全員分の SRS・ファイル・履歴（Mac の日次バックアップ用） |
 | `GET /api/kanji/link` | Kairos | iPad に渡すリンク（`/kanji/#key=<合鍵>`） |
 

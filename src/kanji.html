@@ -60,6 +60,13 @@ h1{color:var(--head);font-size:34px;margin:24px 0 8px}
 .reward.on{display:flex}
 .reward .pic{font-size:180px;animation:pop .5s ease-out}
 .reward .w{color:#fff;font-size:40px;font-weight:600;text-shadow:0 2px 0 rgba(0,0,0,.4)}
+.reward .frame{display:none;position:relative;animation:pop .5s ease-out}
+.reward .art{display:block;width:min(80vw,520px);aspect-ratio:1/1;background:#fff;border-radius:22px;border:5px solid #fff;box-shadow:0 10px 30px rgba(0,0,0,.25);object-fit:cover}
+.reward .say{position:absolute;top:-18px;right:-14px;max-width:62%;background:#fff;color:#3b3a36;font-size:26px;font-weight:600;padding:12px 20px;border-radius:28px;border:3px solid #3b3a36;box-shadow:0 4px 0 rgba(0,0,0,.15)}
+.reward .say::after{content:"";position:absolute;left:26px;bottom:-16px;border:9px solid transparent;border-top:12px solid #3b3a36}
+.reward.has-art .frame{display:block}.reward.has-art .pic{display:none}
+.reward .sent{color:#fff;font-size:26px;margin-top:14px;text-shadow:0 1px 0 rgba(0,0,0,.4);text-align:center;padding:0 16px}
+.reward .tap{color:#fff;font-size:16px;margin-top:10px;opacity:.85}
 @keyframes pop{0%{transform:scale(.2) rotate(-20deg);opacity:0}70%{transform:scale(1.15)}100%{transform:scale(1)}}
 .list{width:100%;max-width:720px;background:#fff;border:2px solid #e6dcc3;border-radius:18px;padding:12px 18px;margin:12px 0;overflow:auto;flex:1}
 .li{display:flex;align-items:center;gap:16px;padding:10px 4px;border-bottom:1px solid #eee;font-size:22px}
@@ -123,7 +130,7 @@ h1{color:var(--head);font-size:34px;margin:24px 0 8px}
   <div class="sync" id="resSync"></div>
 </section>
 
-<div class="reward" id="reward"><div class="pic" id="rewardPic"></div><div class="w" id="rewardW">せいかい！</div></div>
+<div class="reward" id="reward"><div class="frame"><img class="art" id="rewardArt" alt=""><div class="say" id="rewardSay"></div></div><div class="pic" id="rewardPic"></div><div class="w" id="rewardW">せいかい！</div><div class="sent" id="rewardSent"></div><div class="tap" id="rewardTap"></div></div>
 <div class="credit">お手本: <a href="https://kanjivg.tagaini.net/" target="_blank" rel="noopener">KanjiVG</a> © Ulrich Apel CC BY-SA 3.0</div>
 
 <script>
@@ -197,6 +204,7 @@ async function pickKid(k){
   day=t.date; items=t.items; loadResults();
   const need=[...new Set(items.map(it=>it.ans).join(''))].filter(c=>!glyphs[c]).join('');
   if(need){try{Object.assign(glyphs,await api('GET','/api/kanji/glyph?ch='+encodeURIComponent(need)));store.set('kanji:glyph',glyphs)}catch(e){}}
+  items.filter(it=>it.art).forEach(it=>{try{fetch('/api/kanji/art/'+it.art).catch(()=>{})}catch(e){}});
   renderHome(); flush();
 }
 function renderHome(){
@@ -413,10 +421,26 @@ function itemDone(){
     override:charGrades.some(c=>c.override),strokes:charGrades.map(c=>c.strokes),answered_at:new Date().toISOString()});
   flush();
   if(grade==='ng'&&!retry) queue.push({...cur,retry:true});
-  if(grade!=='ng'){
-    $('rewardPic').textContent=cur.emoji||'⭐'; $('rewardW').textContent=grade==='ok'?'せいかい！ ★':'できた！ ★';
-    $('reward').classList.add('on'); setTimeout(()=>{$('reward').classList.remove('on');nextItem()},1300);
-  } else nextItem();
+  if(grade!=='ng') showReward(grade); else nextItem();
+}
+/* 正解のごほうび。夜のうちに描いた例文の絵 (art = id) があれば、絵と吹き出しのセリフと例文を出し、タップかしばらくで次へ */
+let rewardT=null;
+function showReward(grade){
+  const r=$('reward'), art=cur.art;
+  $('rewardW').textContent=grade==='ok'?'せいかい！ ★':'できた！ ★';
+  if(art){
+    $('rewardArt').src='/api/kanji/art/'+art;
+    $('rewardSay').textContent=cur.say||''; $('rewardSay').style.display=cur.say?'':'none';
+    $('rewardSent').textContent=cur.sentence.replace('□',cur.ans).replace(/\s+/g,' ');
+    $('rewardTap').textContent='タップで つぎへ';
+    r.classList.add('has-art');
+  }else{
+    $('rewardPic').textContent=cur.emoji||'⭐'; $('rewardSent').textContent=''; $('rewardTap').textContent='';
+    r.classList.remove('has-art');
+  }
+  r.classList.add('on');
+  const go=()=>{clearTimeout(rewardT);r.onclick=null;r.classList.remove('on');nextItem()};
+  rewardT=setTimeout(go,art?5000:1300); r.onclick=go;
 }
 function nextItem(){pos++; if(pos<queue.length) startItem(); else renderResult()}
 
