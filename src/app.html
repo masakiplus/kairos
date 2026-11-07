@@ -658,12 +658,20 @@
   /* ---- 2026-11-06 超細幅: Galaxy Z Fold 8 を横にして分割画面の 1/4 に置いた幅 (約 240〜360px)。400px 向けの組みを詰め直す。400px 以上は変えない ---- */
   @media (max-width:359px){
     body{overflow-x:clip}
+    html{overflow-x:clip}
+    header{min-width:0;max-width:100%}
+    .tabs,.trow{min-width:0}
+    .trow button{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .theme button .auto{display:none}
+    .ttl .date{white-space:nowrap}
+    .stale,.stale.wip{white-space:normal;overflow-wrap:anywhere}
     header{padding:calc(8px + env(safe-area-inset-top)) 8px 8px;gap:8px}
     .ttl{flex-wrap:wrap;gap:2px 6px}
     .ttl h1{font-size:20px;letter-spacing:-.2px}
-    .ttl .theme{margin-left:0;width:100%;flex-wrap:wrap;gap:4px 6px}
+    .ttl .theme{margin-left:0;width:100%;flex-wrap:wrap;gap:4px}
     .ttl .date{margin-left:0;margin-right:auto;font-size:13px}
-    .theme button{height:30px;min-width:30px;padding:0 6px}
+    .theme button{height:30px;min-width:30px;padding:0 5px}
+    .ttl .date{font-size:12px}
     .trow button{padding:6px 2px;font-size:11px}
     .trow button .n{margin-left:1px;font-size:10px}
     .trow.sub{flex-wrap:wrap}
