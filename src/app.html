@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f5f4f0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -40,6 +40,9 @@
   .trow.sub button.on{background:var(--seg);box-shadow:none;color:var(--fg)}
   .trow button .n{margin-left:3px;font-weight:600;color:var(--mute);font-size:11px}
   main{padding:4px 12px 130px;display:flex;flex-direction:column;gap:18px}
+  /* 2026-11-08 Fold 8 展開で右がはみ出す: 横のはみ出しで Android Chrome がレイアウト幅を広げないよう、全幅で横を切る (clip は sticky を壊さない) */
+  html,body{overflow-x:clip}
+  .rvside{display:flex;flex-direction:column;gap:18px}.rvside:empty{display:none}
   .sec{display:flex;flex-direction:column;gap:6px}
   .sec h2{margin:0;padding:0 10px;font-size:13px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.4px}
   .sec h2.over{color:var(--over)}
@@ -547,7 +550,7 @@
     /* 決める: 中央に 1 問、右に「このあと」 */
     body[data-view="review"] main{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 300px;align-items:start;gap:14px;grid-auto-flow:row dense}
     body[data-view="review"] main>*{grid-column:1}
-    body[data-view="review"] main>.rvn{grid-column:2;grid-row:1/span 5;position:sticky;top:16px}
+    body[data-view="review"] main>:is(.rvn,.rvside){grid-column:2;grid-row:1/span 5;position:sticky;top:16px}
     /* 買い物: 一覧と、右にグラフ */
     body[data-view="shop"] main{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 340px;align-items:start;gap:14px}
     body[data-view="shop"] main>*{grid-column:1/-1}
@@ -2067,8 +2070,7 @@ ${reviewItems(ver, 12)}`);
         <div class="opts">${reviewOptions(q)}</div>
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${aiIcon()} 理由を話しながら決める</a>${counts[q.kind] > 1 ? `<a class="rcl" href="#" data-later="${q.kind}" style="color:var(--mute)">${K.ic} この種類は後で（${counts[q.kind]}）</a>` : ""}</div>
       </div>
-      ${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${(KIND[n.kind] || {}).ic || ""} ${(KIND[n.kind] || {}).t || n.db}</span><span>${esc(n.name || n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}
-      ${reviewPrepHtml()}
+      <div class="rvside">${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${(KIND[n.kind] || {}).ic || ""} ${(KIND[n.kind] || {}).t || n.db}</span><span>${esc(n.name || n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}${reviewPrepHtml()}</div>
       <div class="hint">本人が選ぶだけの問いをここに出す。調べればわかるものは「AI が先に調べる」へ回す</div>` + metaHtml("review");
   }
   function reviewClaudeHref(q) {
