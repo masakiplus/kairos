@@ -22,3 +22,16 @@ test('docs/rules.md に §5-2 があり、§5 の依存の例外を明記して�
   assert.match(s, /## 5-2\. サブタスク（分割）/);
   assert.match(s, /§5 の「依存は自動では結ばない」の例外/);
 });
+
+// 2026-11-08 追記（公開後1週間の確認）: 子1件の親・N件のずれ・同時編集の重複を防ぐ3行
+test('§5-2 の追記（読み直し・子1件は分けない・N件の数え直し）が3か所にある', () => {
+  const m = read('../src/mcp.js');
+  for (const w of ['書き込む直前に読み直す', '子が1件にしかならないなら分けない', '後から子を足す・見送るときは N件'])
+    assert.ok(m.includes(w), w);
+  const d = read('../src/d1.js');
+  for (const w of ['re-read it right before writing', 'Do not split into a single child', 'When adding or skipping a child later, update N'])
+    assert.ok(d.includes(w), w);
+  const r = read('../docs/rules.md');
+  for (const w of ['書き込む直前にもう一度読み直す', '子が 1 件にしかならないなら分けない', '「サブタスク N 件」を数え直し'])
+    assert.ok(r.includes(w), w);
+});
