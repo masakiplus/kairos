@@ -206,3 +206,26 @@ test('前回のClaudeセッションがあっても、新しいチャットで�
   assert.ok(h.context.location.href.startsWith('https://claude.ai/new?q='));
   assert.match(decodeURIComponent(h.context.location.href), /内容を見直して更新してください/);
 });
+
+test('追加の指示はシートを開いているタスクの依頼文にだけ足す (2026-11-11)', () => {
+  const h = harness();
+  const base = h.run('taskPrompt(task,"run")');
+  assert.doesNotMatch(base, /追加の指示/, '空なら従来の文面のまま');
+  h.run('aiExtra = { id: task.id, text: "  PR は小さく分ける\\n日本語で  " }');
+  assert.equal(h.run('taskPrompt(task,"run")'), base, 'シートが閉じていれば足さない (一覧の 🤖・スワイプに漏れない)');
+  h.node('#sheetWrap').hidden = false;
+  assert.equal(h.run('taskPrompt(task,"run")'), base + '\n【追加の指示】PR は小さく分ける\n日本語で');
+  assert.match(decodeURIComponent(h.run('claudeHref(task,"update")')), /内容を見直して更新[\s\S]*【追加の指示】PR は小さく分ける/);
+  h.context.other = { ...task, id:'b'.repeat(32) };
+  assert.doesNotMatch(h.run('taskPrompt(other,"run")'), /追加の指示/, '別のタスクには足さない');
+  h.run('aiProvider = "chatgpt"');
+  assert.match(decode(h.run('aiHref(task,"run")')).prompt, /【追加の指示】PR は小さく分ける/);
+  h.run('aiExtra = { id: task.id, text: "x".repeat(2000) }');
+  assert.equal(h.run('extraOf(task)').length, h.run('AI_EXTRA_MAX'));
+  // 続き用の短い文面 (aiPrompt) と、シートの入力欄・閉じたときの消去は source で確かめる
+  const body = html.slice(html.indexOf('function aiPrompt('), html.indexOf('function copyPrompt('));
+  assert.match(body, /storagePrompt\(withExtra\(t, /);
+  assert.match(html, /<textarea id="aiExtra"[^>]*maxlength="\$\{AI_EXTRA_MAX\}"/);
+  assert.match(html.slice(html.indexOf('function closeSheet('), html.indexOf('function closeSheet(') + 300), /aiExtra = \{ id: null, text: "" \}/);
+  assert.ok(!/localStorage\.setItem\([^)]*aiExtra/.test(html), '追加の指示は端末に保存しない');
+});
