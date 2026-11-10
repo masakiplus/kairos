@@ -432,6 +432,7 @@
   .sheet .ic{width:30px;height:30px;border-radius:8px;background:var(--accbg);color:var(--acc);display:flex;align-items:center;justify-content:center;flex:none}
   .sheet .dprow{flex-direction:row;align-items:center;gap:8px;padding:8px 10px}
   .sheet .dpick{flex:1;font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);min-width:0}
+  .sheet textarea.dpick{font-family:inherit;line-height:1.45;resize:vertical;min-height:44px;max-height:40vh}
   .sheet .dprow button{flex:none;padding:9px 14px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600}
   .sheet .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .sheet .grid button.pri{background:var(--acc);color:#fff}
@@ -1044,6 +1045,12 @@
   let aiProvider = "claude";
   try { const saved = localStorage.getItem("kairos_ai_app"); if (Object.hasOwn(AI_APPS, saved)) aiProvider = saved; } catch (e) {}
   const aiName = () => AI_APPS[aiProvider];
+  // 追加の指示 (2026-11-11): タスクのシートの「追加の指示」欄に書いた文を、🤖 の依頼文の末尾に【追加の指示】として足す。
+  // 効くのは開いているシートのタスクだけ。シートを閉じる・別のタスクを開くと消える (依頼文と同じく端末には保存しない)
+  const AI_EXTRA_MAX = 800;
+  let aiExtra = { id: null, text: "" };
+  const extraOf = (t) => (t && aiExtra.id === t.id && !$("#sheetWrap").hidden ? aiExtra.text.trim().slice(0, AI_EXTRA_MAX) : "");
+  const withExtra = (t, s) => { const x = extraOf(t); return x ? s + "\n【追加の指示】" + x : s; };
   // ☁️ クラウド (2026-10-29): 実行環境に「クラウド」を含むタスクの 🤖 は Claude Code のクラウド側 (claude.ai/code) へ。
   // 飛び先は https://claude.ai/code/new?q=<文面>&repo=<owner/name> (Claude ヘルプ「Open the Claude mobile app with a link」に載っている形。q は入力欄に入るだけで送信はしない)。
   // 文面が入らなかったときのために押した瞬間にクリップボードにも入れる (copyCloudLink)。接続先は名前・PJ に Kairos／カイロス／tasks-pwa があれば masakiplus/kairos (2026-10-08 に移管)、saito-workers があれば masakiplus/saito-workers、それ以外は masakiplus/saito-tools
@@ -1108,7 +1115,7 @@
       : provider === "claude"
       ? 'Kairos から渡したので AI処理開始 が立っています。まず read_conversation("current") でこのチャットの URL を取り、タスクの AIセッション に書いてください。'
       : 'Kairos からの依頼です。前のAIが途中まで処理した可能性があるため、現在のタスクを確認し、完了済みの登録や更新を重複実行しないでください。Kairosを更新できる場合は、実行を始めるときに AI処理開始 を記録し、このチャットのURLを取得できる場合は AIセッション に書いてください。必要な接続や操作規約を確認できない場合は質問し、実行していない操作を完了と報告しないでください。';
-    return "「" + t.name + "」" + ask + "（Kairos ✅ Tasks のタスク。ページ: " + page + " ）\n" + handoff + "完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。";
+    return withExtra(t, "「" + t.name + "」" + ask + "（Kairos ✅ Tasks のタスク。ページ: " + page + " ）\n" + handoff + "完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。");
   }
   function claudeHref(t, mode, chain) {
     if (aiProvider === "claude" && isCloudTask(t)) return cloudHref(t, mode, chain);
@@ -1171,9 +1178,9 @@
   function aiHref(t, mode = "run", chain) { return aiProvider !== "claude" ? handoffHref(taskPrompt(t, mode, chain), sessionProvider(t.aiSession) === aiProvider ? t.aiSession : null) : sessionProvider(t.aiSession) === "claude" ? sessionHref(t.aiSession) : claudeHref(t, mode, chain); }
   function aiPrompt(t, mode = "run") {
     const page = t.url || (location.origin + "/?page=" + t.id.replace(/-/g, ""));
-    return storagePrompt(mode === "update"
+    return storagePrompt(withExtra(t, mode === "update"
       ? `「${t.name}」の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。サブタスク基準に当たれば確認せずに分けてください。名前が話題止まりなら動詞＋成果物に直してください。前回の続きです。終わるときに AI処理開始 を空にしてください。（${page}）`
-      : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`);
+      : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`));
   }
   function copyPrompt(t, mode) {
     const s = aiPrompt(t, mode);
@@ -2604,6 +2611,8 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   let sitOpen = false; // 📍 できる状況を開いたまま付け外しできるように (タップのたびにシートを描き直すので覚えておく)
   function openSheet(t, today) {
     if (!sheetTask || sheetTask.id !== t.id) sitOpen = false;
+    if (aiExtra.id !== t.id) aiExtra = { id: t.id, text: "" }; // 別のタスクを開いたら追加の指示は持ち越さない
+    let runChain = null; // 先行チェーン (取れたら「進めてもらう」に入る)。追加の指示でリンクを作り直すときも保つ
     sheetTask = t;
     const sub =[t.due ? (t.due === today ? "今日" : fmtDate(t.due)) : null, t.priority, t.env.join("・") || null, t.project ? "📁 " + esc(t.project) : null].filter(Boolean).join(" · ");
     const order = sheetOrder(), pos = order.indexOf(t.id);
@@ -2632,6 +2641,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="早朝" class="${t.env.includes("早朝") ? "on" : ""}">🌅 早朝向き<small style="font-weight:400;color:${t.env.includes("早朝") ? "rgba(255,255,255,.8)" : "var(--mute)"}">　家で静かに・時間をかけて</small></button></div>
       <div class="grid sit" style="grid-template-columns:1fr;margin-top:6px"><button data-env="${CLOUD_ENV}" class="${t.env.includes(CLOUD_ENV) ? "on" : ""}">☁️ クラウドで<small style="font-weight:400;color:${t.env.includes(CLOUD_ENV) ? "rgba(255,255,255,.8)" : "var(--mute)"}">　Claude Code のクラウドで・Mac 不要</small></button></div></details>`}
       <div class="sect">🤖 ${aiName()} に任せる ${aiSelectHtml()}</div>
+      <div class="list dprow"><textarea id="aiExtra" class="dpick" rows="2" maxlength="${AI_EXTRA_MAX}" placeholder="追加の指示（任意）。書いてから下のボタンを押すと依頼文に足します" aria-label="AI への追加の指示" autocomplete="off" enterkeyhint="enter">${esc(aiExtra.id === t.id ? aiExtra.text : "")}</textarea></div>
       <div class="list">
         ${sessionProvider(t.aiSession) ? `<a href="${sessionHref(t.aiSession)}" class="sess" ${t.aiActive ? "" : "data-resume"}><span class="ic">💬</span>${t.aiActive ? `AI のセッションを開く（${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜）` : "前回の AI セッションを開く（続きを任せる）"}</a>` : ""}
         <a href="${aiHref(t, "run")}" id="claudeRun" data-ai data-mode="run"><span class="ic">${aiIcon()}</span><span id="claudeRunLabel">進めてもらう${aiProvider === "claude" && sessionProvider(t.aiSession) === "claude" ? "（前回のセッションで）" : aiProvider === "claude" && isCloudTask(t) ? "（Claude Code クラウドで）" : ""}</span></a>
@@ -2734,6 +2744,11 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     // 2026-10-04: preventDefault せず、アンカーの既定動作で intent:// へ飛ばす (クリックの文脈をそのまま使うのが一番確実)。印は投げっぱなし、シートは少し遅れて閉じる
     // data-fresh (2026-10-08): 新しいチャットで始める。AIセッション は Worker が空にして、新しい Claude が書き直す。それ以外で AIセッション があれば前回の続き (resume)
     $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => a.onclick = () => { const resume = sessionProvider(t.aiSession) === "claude" && !a.dataset.fresh; markAi(t, a.dataset.mode || "run", resume); if (resume) copyPrompt(t, a.dataset.mode || "run"); setTimeout(() => { closeSheet(); render(todayStr); }, 400); });
+    // 追加の指示 (2026-11-11): 打つたびに 🤖 のリンクを作り直す。アンカーの既定動作で飛ぶので、押す前に href へ入っている必要がある
+    const ex = $("#aiExtra"); if (ex) ex.oninput = () => {
+      aiExtra = { id: t.id, text: ex.value.slice(0, AI_EXTRA_MAX) };
+      $("#sheet").querySelectorAll("a[data-ai]").forEach((a) => { const m = a.dataset.mode || "run"; a.setAttribute("href", a.dataset.fresh ? claudeHref(t, m) : aiHref(t, m, m === "run" ? runChain : undefined)); });
+    };
     // 前回のセッションを開き直す＝続きを Claude に任せるので、これも 🤖 処理中 にする (2026-10-06)。処理中にセッションを開くだけのときは触らない
     const rs = $("#sheet").querySelector("a[data-resume]"); if (rs && sessionProvider(t.aiSession) === "claude") rs.onclick = () => { markAi(t, "run", true); setTimeout(() => { closeSheet(); render(todayStr); }, 400); };
     const clr = $("#aiClear"); if (clr) clr.onclick = async () => { closeSheet(); try { await api(`/api/tasks/${t.id}/ai-clear`, { method: "POST" }); toast("処理中を解除: " + t.name); } catch (e) { toast("失敗: " + e.message); } load(view, { silent: true }); };
@@ -2783,7 +2798,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
             <a href="#" data-copen="${c.id}">開く</a></div>`).join("") +
           (j.cycle ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が循環しています。先行タスクを付け直してください</span></div>` : "") +
           (j.truncated ? `<div class="ch"><span class="nm" style="color:var(--over)">⚠️ 先行が深すぎます（10段まで）</span></div>` : "");
-        $("#claudeRun").href = aiHref(t, "run", j.chain); const crb = $("#claudeRunBar"); if (crb) crb.href = $("#claudeRun").href;
+        runChain = j.chain; $("#claudeRun").href = aiHref(t, "run", j.chain); const crb = $("#claudeRunBar"); if (crb) crb.href = $("#claudeRun").href;
         $("#claudeRunLabel").textContent = `${aiName()} に先行から順に進めてもらう（${j.chain.length} 件先）`;
         // 先行を Kairos のシートで開く (Notion には飛ばない)。戻る導線はシート上部の「後続に戻る」
         box.querySelectorAll("[data-copen]").forEach((a) => a.onclick = (ev) => { ev.preventDefault(); const c = j.chain.find((x) => x.id === a.dataset.copen); if (c) { sheetFrom = t; openSheet(c, today); } });
@@ -2854,7 +2869,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   });
   function closeSheet() {
     if ($("#sheetWrap").hidden) return;
-    $("#sheetWrap").hidden = true; sheetStep = null; sheetFrom = null;
+    $("#sheetWrap").hidden = true; sheetStep = null; sheetFrom = null; aiExtra = { id: null, text: "" };
     if (history.state && history.state.sheet) history.back(); // 積んだ履歴を戻す (popstate は hidden 済みなので何もしない)
   }
   // Mac では ←→ で前後のタスクへ、Esc で閉じる (2026-10-04)
