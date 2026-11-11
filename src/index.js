@@ -1472,6 +1472,12 @@ const kairosWorker = {
       const r = await kanjiRoute(req, rawEnv, url, { admin: authed(req, rawEnv), json, assets: KANJI_ASSETS });
       if (r) return r;
     }
+    // ドリル SRS の共通正本 (2026-11-12, docs/drill.md): /api/drill/*。漢字 (/api/kanji/*) 以外の紙ドリルの state。Kairos の認証のみ。
+    if (path.startsWith("/api/drill/")) {
+      const { drillRoute } = await import("./drill.js");
+      const r = await drillRoute(req, rawEnv, url, { admin: authed(req, rawEnv), json });
+      if (r) return r;
+    }
     // ?t=<APP_TOKEN> で来たら Cookie を焼いて / に戻す (PWA インストール前の初回だけ使う)
     const t = url.searchParams.get("t");
     if (t !== null) {
