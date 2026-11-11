@@ -565,7 +565,8 @@
     body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]) .veil{display:block}
     body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]):has(#sheetWrap:not([hidden])){padding-right:0}
     body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]):has(#sheetWrap:not([hidden])) .add{right:0}
-    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]) .sheet{box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+    /* 2026-11-12: 重ねるときはシートを暗幕 (.veil z-index:10) より上に。横長の .sheet{z-index:7} のままだと暗幕の下に隠れ、触ると暗幕のタップで閉じて「詳細が開かない」になっていた */
+    body:is([data-view="doing"],[data-view="project"],[data-view="roles"],[data-view="review"],[data-view="shop"]) .sheet{box-shadow:-8px 0 30px rgba(0,0,0,.18);z-index:11}
   }
   /* ---- 今日やる「いまの1つ」・今日できる タイル・スマホ／広い画面 (2026-11-05) ---- */
   .row.focus{overflow:visible;content-visibility:visible;contain-intrinsic-size:none}
