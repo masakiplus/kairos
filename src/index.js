@@ -18,6 +18,7 @@
  *   GET  /api/entry/rules  入口の切り分け規則 (launches.js)。POST /api/entry/fill?dry=1 実行環境が空の未完了を規則で埋める (夜間の棚卸し用)
  *   GET  /api/entry/weekly?weeks=4  入口別の本数と使用率ログの週間% を週ごとに。GET /api/entry/log?days=7 打刻の生の行
  *        (2026-11-14) AIセッション が書かれた時刻を session_at に打刻し、weekly の startSec に開始所要時間 (秒) の中央値を出す
+ *   GET  /api/reqlog?days=1&limit=200  要求ログ。失敗 (5xx) と遅い要求だけを D1 の req_log に 30 日ぶん残す (2026-11-14, docs/logging.md)
  *   POST /api/tasks/:id/done     完了チェック + 完了日=今日 + ステータス=完了 (Notion Tasks 操作規約 §4-1)
  *   POST /api/tasks/:id/reopen   done の取り消し (誤スワイプ用)
  *   POST /api/tasks/:id/skip     見送りで完了。done と同じ3点セット + 説明欄の先頭に「見送り (日付, PWA)」を残す
@@ -1439,7 +1440,7 @@ function authed(req, env) {
 }
 
 const kairosWorker = {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const rawEnv = env; // MCP の内部呼び出し用 (revDB で包む前の env)
     env = { ...env, KAIROS_ORIGIN: url.origin, ...(env.DB ? { DB: revDB(env.DB) } : {}) }; // 書き込みごとに storage_control.rev を進める (2026-10-18)
@@ -1454,15 +1455,20 @@ const kairosWorker = {
       return await mcpRoute(req, rawEnv, url, {
         authed: (r) => authed(r, rawEnv),
         safeEq,
-        call: (method, p, body) =>
-          kairosWorker.fetch(
+        // 2026-11-14: MCP の道具が中で呼ぶ API も要求ログに残す (失敗は道具のエラー文になって外側は 200 で返るので、ここで拾わないと追えない)
+        call: async (method, p, body) => {
+          const t0 = Date.now();
+          const res = await kairosWorker.fetch(
             new Request(url.origin + p, {
               method,
               headers: { Authorization: `Bearer ${rawEnv.APP_TOKEN}`, "Content-Type": "application/json" },
               ...(body === undefined || method === "GET" ? {} : { body: JSON.stringify(body) }),
             }),
             rawEnv
-          ),
+          );
+          reqNote(rawEnv, ctx, { method, path: p, status: res.status, ms: Date.now() - t0, src: "mcp", res });
+          return res;
+        },
       });
     }
 
@@ -1595,6 +1601,7 @@ const kairosWorker = {
       if (path === "/api/roles" && req.method === "GET") return json(await cachedJson(env, "roles", () => rolesInfo(env)));
       if (path === "/api/where" && req.method === "GET") return json(await whereNow(env));
       // 📊 ボタンのタップ回数 (2026-10-20): シートのボタン配置を使用頻度で決めるための計測。日 × ボタン名 の回数だけを D1 に持つ (誰が・どのタスクかは持たない)
+      if (path === "/api/reqlog" && req.method === "GET") return json(await reqLogReport(env, Number(url.searchParams.get("days")) || 1, Number(url.searchParams.get("limit")) || 200));
       if (path === "/api/taps" && req.method === "POST") return json(await tapsAdd(env, await req.json().catch(() => ({}))));
       if (path === "/api/taps" && req.method === "GET") return json(await tapsReport(env, Number(url.searchParams.get("days")) || 30));
       // 🔀 入口の切り分け (2026-10-29): 規則・空の実行環境の埋め込み・入口別の週次集計。規則は launches.js の 1 か所
@@ -1806,9 +1813,58 @@ const kairosWorker = {
   },
 };
 
+// ---- 要求ログ (2026-11-14, docs/logging.md) ----
+// 何が起きたかを後から追えるように残す。2 段:
+//  1. 全要求を 1 行の JSON で console.log → Cloudflare の Workers Logs (wrangler.toml の observability。保持と入れ替えは Cloudflare 側)。D1 に負荷をかけない
+//  2. 失敗 (5xx) と遅い要求 (REQLOG_SLOW_MS 以上、既定 3 秒) だけ D1 の req_log に残し、書くたびに REQLOG_KEEP_DAYS (既定 30 日) より古い行を捨てる (ローテーション)
+// パスの ID は :id に丸め、クエリ文字列 (note= などの本文) は残さない。記録は補助で、失敗しても応答には影響させない
+const REQLOG_SLOW_MS = 3000, REQLOG_KEEP_DAYS = 30;
+const reqRoute = (path) => String(path).split("?")[0].replace(/[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/gi, ":id").slice(0, 120);
+let reqLogReady = null;
+function reqLogInit(env) {
+  return (reqLogReady ||= env.DB.prepare("CREATE TABLE IF NOT EXISTS req_log(ts TEXT NOT NULL, method TEXT NOT NULL, route TEXT NOT NULL, status INTEGER NOT NULL, ms INTEGER NOT NULL, src TEXT, err TEXT)").run()
+    .then(() => env.DB.prepare("CREATE INDEX IF NOT EXISTS req_log_ts ON req_log(ts)").run())
+    .catch((e) => { reqLogReady = null; throw e; }));
+}
+async function reqLogAdd(env, row) {
+  await reqLogInit(env);
+  const keep = Math.max(1, Number(env.REQLOG_KEEP_DAYS) || REQLOG_KEEP_DAYS);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO req_log(ts,method,route,status,ms,src,err) VALUES(?,?,?,?,?,?,?)").bind(row.ts, row.method, row.route, row.status, row.ms, row.src, row.err),
+    env.DB.prepare("DELETE FROM req_log WHERE ts<?").bind(new Date(Date.now() - keep * 86400000).toISOString()),
+  ]);
+}
+function reqNote(env, ctx, { method, path, status, ms, src, res }) {
+  try {
+    const route = reqRoute(path), slowMs = Number(env.REQLOG_SLOW_MS ?? REQLOG_SLOW_MS);
+    console.log(JSON.stringify({ kairos: "req", method, route, status, ms, src }));
+    if (!env.DB || route === "/api/reqlog" || !(status >= 500 || ms >= slowMs)) return;
+    const copy = status >= 500 && res ? res.clone() : null; // 本文が読まれる前に複製しておく
+    const task = (async () => {
+      let err = null;
+      if (copy) { try { err = (await copy.text()).slice(0, 300); } catch (e) { /* 本文なし */ } }
+      if (err) console.log(JSON.stringify({ kairos: "err", method, route, status, ms, src, err }));
+      const row = { ts: new Date().toISOString(), method, route, status, ms, src, err };
+      // D1 が過負荷で落ちた要求は、その記録の書き込みも同じ理由で落ちる。10 秒の窓が過ぎるのを待って 1 回だけやり直す
+      try { await reqLogAdd(env, row); } catch (e) { await new Promise((r) => setTimeout(r, 12000)); await reqLogAdd(env, row); }
+    })().catch(() => {});
+    if (ctx?.waitUntil) ctx.waitUntil(task);
+  } catch (e) { /* 記録は補助 */ }
+}
+async function reqLogReport(env, days, limit) {
+  if (!env.DB) return { days, rows: [], routes: [] };
+  await reqLogInit(env);
+  const d = Math.max(1, Math.min(90, days | 0 || 1)), since = new Date(Date.now() - d * 86400000).toISOString();
+  const rows = (await env.DB.prepare("SELECT ts, method, route, status, ms, src, err FROM req_log WHERE ts>=? ORDER BY ts DESC LIMIT ?").bind(since, Math.max(1, Math.min(1000, limit | 0 || 200))).all()).results || [];
+  const routes = (await env.DB.prepare("SELECT method, route, COUNT(*) AS n, SUM(status>=500) AS errors, MAX(ms) AS maxMs, MAX(ts) AS last FROM req_log WHERE ts>=? GROUP BY method, route ORDER BY n DESC LIMIT 50").bind(since).all()).results || [];
+  return { days: d, slowMs: Number(env.REQLOG_SLOW_MS ?? REQLOG_SLOW_MS), keepDays: Math.max(1, Number(env.REQLOG_KEEP_DAYS) || REQLOG_KEEP_DAYS), routes, rows };
+}
+
 export default {
-  async fetch(req, env) {
-    const response = await kairosWorker.fetch(req, env);
+  async fetch(req, env, ctx) {
+    const t0 = Date.now();
+    const response = await kairosWorker.fetch(req, env, ctx);
+    reqNote(env, ctx, { method: req.method, path: new URL(req.url).pathname, status: response.status, ms: Date.now() - t0, src: "http", res: response });
     const headers = new Headers(response.headers);
     headers.set("X-Kairos-Storage", req.headers.get("X-Kairos-Preview") === "d1" ? "d1" : env.DATA_BACKEND || "notion");
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
