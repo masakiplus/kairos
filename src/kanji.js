@@ -47,7 +47,10 @@ export function applyGrade(child, st, grade, today) {
     s.last_miss = today;
   } else s.stage = stage;
   if (r.shown) s.shown = 0;
-  if (grade === "hint") s.due = addDays(today, 1);
+  if (grade === "hint") {
+    s.due = addDays(today, 1);
+    s.last_hint = today; // 2026-11-15: 紙ドリルの直近ミス枠が △ を翌朝のＡに入れるため
+  }
   else s.due = s.stage >= grad ? null : addDays(today, r.intervals[s.stage]);
   return s;
 }
