@@ -218,8 +218,9 @@ export async function loadState(env,only=null) {
   const ready=blocked?'先行待ち':!start||start<=today?'着手可':'待機';
   const excluded=(p['親アイテム']?.relation || []).length>0&&p['種類']?.select?.name==='購入';
   const dueClass=!due?'⑤日付なし':due<today?'①期限切れ':due===today?'②今日':due<=inWeek?'③今週':'④先';
+  // 前倒し候補 (2026-11-15): 期日の 7 日窓をやめ、開始日が来ていて (着手可) 期日が今日より後か無いものを全部候補にする。今日できる の入口を開始日基準にするため
   // （画面）の2列は Notion では UTC 基準だった。D1 では JST の値に揃える (2026-10-18)
-  for(const [name,value] of Object.entries({'着手可否':ready,'着手可否（画面）':ready,'期限区分':dueClass,'期限区分（画面）':dueClass,'前倒し候補':ready==='着手可'&&!excluded&&(!due||(due>today&&due<=inWeek))?'候補':''})) if(name in p || !name.includes('（画面）')) p[name]={...(p[name] || {}),type:'formula',formula:{type:'string',string:value}};
+  for(const [name,value] of Object.entries({'着手可否':ready,'着手可否（画面）':ready,'期限区分':dueClass,'期限区分（画面）':dueClass,'前倒し候補':ready==='着手可'&&!excluded&&(!due||due>today)?'候補':''})) if(name in p || !name.includes('（画面）')) p[name]={...(p[name] || {}),type:'formula',formula:{type:'string',string:value}};
   r.page.url=(env.KAIROS_ORIGIN || '')+'/?page='+r.id;
  }
  // Decisions の式 (検証待ち・判断可否) は取り込み時の値のまま止まるので、ここで JST の今日から計算する (2026-10-18)
@@ -336,7 +337,7 @@ async function freshPage(env,id) {
   const today=new Date(Date.now()+9*3600000).toISOString().slice(0,10),week=new Date(Date.parse(today+'T00:00:00Z')+7*86400000).toISOString().slice(0,10),start=p['開始日']?.date?.start?.slice(0,10),due=p['期日']?.date?.start?.slice(0,10);
   const ready=blocked.n?'先行待ち':!start||start<=today?'着手可':'待機',excluded=(p['親アイテム']?.relation || []).length>0&&p['種類']?.select?.name==='購入';
   p['先行未完了数']={type:'rollup',rollup:{type:'number',number:blocked.n}};
-  for(const [name,value] of Object.entries({'着手可否':ready,'期限区分':!due?'⑤日付なし':due<today?'①期限切れ':due===today?'②今日':due<=week?'③今週':'④先','前倒し候補':ready==='着手可'&&!excluded&&(!due||(due>today&&due<=week))?'候補':''}))p[name]={type:'formula',formula:{type:'string',string:value}};
+  for(const [name,value] of Object.entries({'着手可否':ready,'期限区分':!due?'⑤日付なし':due<today?'①期限切れ':due===today?'②今日':due<=week?'③今週':'④先','前倒し候補':ready==='着手可'&&!excluded&&(!due||due>today)?'候補':''}))p[name]={type:'formula',formula:{type:'string',string:value}};
  }
  page.url=(env.KAIROS_ORIGIN || '')+'/?page='+id;return page;
 }
@@ -423,6 +424,13 @@ async function withRelationTargets(env,state,pathname,args,method) {
 }
 // ページの下に子ページを作る (知識文書の「PRJ の下に .md を1本足す」書き手のため。2026-10-29)。
 // Notion と同じく、親の本文の末尾に child_page ブロックを置き、子ページ自身は collection 'pages' の行になる。
+// 開始日の既定 (2026-11-15): 開始日が空のタスクは「できるか未確認」のまま今日できる に素通りしていた。
+// 起票口 (画面・MCP・夜間便の REST) のどこから作っても、開始日が無ければ 今日 (期日が過去ならその日) を入れる。完了で作る行は触らない
+function taskStartDefault(props,defs){
+ if(!defs['開始日']||props['開始日']?.date?.start||props['完了']?.checkbox===true)return props;
+ const today=new Date(Date.now()+9*3600000).toISOString().slice(0,10),due=props['期日']?.date?.start?.slice(0,10);
+ return {...props,'開始日':{date:{start:due&&due<today?due:today}}};
+}
 async function createChildPage(env,args){
  if(env.D1_READ_ONLY)throw new Error('D1 preview is read only');
  const parent=cleanId(args.parent.page_id);
@@ -504,6 +512,7 @@ export async function d1Notion(env,path,init={}) {
  if(path==='/pages'&&method==='POST') {
   const ds=cleanId(args.parent?.data_source_id),definition=state.schemas.get(ds);if(!definition)throw new Error('Unknown D1 data source');
   if(args.properties&&(await collectionOfSource(env,ds))==='tasks')args.properties=taskDoneTriple(args.properties,null,definition.properties || {});
+  if((await collectionOfSource(env,ds))==='tasks')args.properties=taskStartDefault(args.properties || {},definition.properties || {});
   const props={};for(const [name,def] of Object.entries(definition.properties || {})) {
    const defaults={title:[],rich_text:[],relation:[],multi_select:[],checkbox:false};
    props[name]=normalizeProperty(args.properties?.[name] || {[def.type]:defaults[def.type] ?? null},def);

@@ -79,6 +79,7 @@
   @keyframes aipulse{0%,100%{opacity:.25}50%{opacity:1}}
   .sec h2.aih{color:var(--acc)}
   .sec h2.huh{color:var(--today)}
+  .sec h2.nost{color:var(--acc)}
   .meta .huc{color:var(--today);font-weight:600}
   .row.hu .card{box-shadow:inset 3px 0 0 var(--today)}
   /* 着手中の見やすさ (2026-11-05) */
@@ -595,6 +596,7 @@
   body[data-view="can"] .row .card .go{margin-left:auto;width:32px;height:32px}
   body[data-view="can"] .row .name{white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;font-size:14px;line-height:1.45;min-height:4.35em}
   body[data-view="can"] .row .nx{display:none}
+  .meta .stn{border:1px solid var(--acc);color:var(--acc);background:var(--accbg);border-radius:999px;font:inherit;font-size:12px;font-weight:600;padding:2px 10px;min-height:28px;cursor:pointer}
   /* スマホ・細い画面: 買い物のグラフは横にめくる */
   @media (max-width:899px){
     body[data-view="shop"] .scol{flex-direction:row;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -12px;padding:0 12px 4px;-webkit-overflow-scrolling:touch}
@@ -1397,7 +1399,7 @@
         <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
         <div class="body">
           <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
-          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}${doingCtx ? doingChips(t) : ""}</div>${doingCtx && nextStep(t) ? `<div class="nx">→ ${esc(nextStep(t))}</div>` : ""}
+          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${view === "can" && !t.start && !t.done && !t.blocked ? `<button type="button" class="stn" data-startnow aria-label="開始日を今日にする">▶ 今日から</button>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}${doingCtx ? doingChips(t) : ""}</div>${doingCtx && nextStep(t) ? `<div class="nx">→ ${esc(nextStep(t))}</div>` : ""}
         </div>
         ${t.aiActive && sessionProvider(t.aiSession)
           ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="AI のセッションを開く" data-sess>💬</a>`
@@ -1475,13 +1477,16 @@
     } else if (view === "doing") {
       secs = [["▶ 進行中", "", tasks]]; // 🤖 処理中・🧔 人対応 は下で独立した節に分かれる (2026-10-08)
     } else if (view === "can") {
-      // 今日できる (2026-10-15): 前倒し候補を「期日まで」で区切る。なぜ候補か (着手できて期日が 1〜7 日 or 日付なし) を見出しに
+      // 今日できる (2026-10-15 → 2026-11-15 開始日基準): 開始日が来ている (着手可) もの。期日の 7 日窓はやめた。
+      // 開始日が空のものは「できるか未確認」として先頭の節に分け、カードの「今日から」で開始日を置く
       const dd = (t) => dayDiff(t.due, today);
-      const far = (t) => t.env.includes("早朝") && t.due && dd(t) > 7; // 🌅 早朝向きは Worker が期日に関係なく渡す。通常の節には 7 日以内だけ (静かな時間は下の 🌅 節が全部拾う, 2026-10-15)
+      const ok = tasks.filter((t) => t.start);
       secs = [
-        [`期日まで 3 日以内 <small style="font-weight:400;color:var(--mute)">先に片付けると楽</small>`, "", tasks.filter((t) => !far(t) && t.due && dd(t) <= 3)],
-        [`今週中 <small style="font-weight:400;color:var(--mute)">期日まで 4〜7 日</small>`, "", tasks.filter((t) => !far(t) && t.due && dd(t) > 3)],
-        [`日付なし <small style="font-weight:400;color:var(--mute)">着手できる・いつでも</small>`, "", tasks.filter((t) => !t.due)],
+        [`開始日なし <small style="font-weight:400;color:var(--mute)">できるか未確認・開始日を置く</small>`, "nost", tasks.filter((t) => !t.start)],
+        [`期日まで 3 日以内 <small style="font-weight:400;color:var(--mute)">先に片付けると楽</small>`, "", ok.filter((t) => t.due && dd(t) <= 3)],
+        [`今週中 <small style="font-weight:400;color:var(--mute)">期日まで 4〜7 日</small>`, "", ok.filter((t) => t.due && dd(t) > 3 && dd(t) <= 7)],
+        [`期日は先 <small style="font-weight:400;color:var(--mute)">開始日が来ている・期日まで 8 日以上</small>`, "", ok.filter((t) => t.due && dd(t) > 7)],
+        [`期日なし <small style="font-weight:400;color:var(--mute)">開始日が来ている・いつでも</small>`, "", ok.filter((t) => !t.due)],
       ];
     } else {
       secs = [["期日あり", "", tasks.filter((t) => t.due)], ["日付なし", "", tasks.filter((t) => !t.due)]];
@@ -1693,7 +1698,7 @@
     if (v === "can") {
       if (!ts.length) return "";
       return metaBtn("can", ai + " と選んで進める", "今やる価値があるものを選び、そのまま実行",
-        `Kairos「今日できる」（前倒し候補）から、今やるべきものを決めて、実際に進めてください。\n\n${metaList("can", ts)}\n\n進め方\n${metaSteps(["一覧を読み、AI だけで終わるもの・期日が近いもの・後続を塞いでいるものを優先して、多くて 5 件選ぶ。", "選んだものを理由つきで 1 回だけ見せ（「この N 件を進めます。外すものがあれば番号で」）、返事を待たずに AI だけで終わるものから着手する。外すと言われたものは止める。", "手を付けたものは 開始日 を今日にする。選ばなかったものは触らない。", ...META_EXEC()])}`);
+        `Kairos「今日できる」（開始日が来ている着手可。開始日なしは「できるか未確認」）から、今やるべきものを決めて、実際に進めてください。\n\n${metaList("can", ts)}\n\n進め方\n${metaSteps(["一覧を読み、AI だけで終わるもの・期日が近いもの・後続を塞いでいるものを優先して、多くて 5 件選ぶ。", "選んだものを理由つきで 1 回だけ見せ（「この N 件を進めます。外すものがあれば番号で」）、返事を待たずに AI だけで終わるものから着手する。外すと言われたものは止める。", "手を付けたものは 開始日 を今日にする。開始日が空のものは、いま着手できるなら今日、できないなら着手できる日を 開始日 に置く。それ以外の選ばなかったものは触らない。", ...META_EXEC()])}`);
     }
     if (v === "doing") {
       if (!ts.length) return "";
@@ -2634,6 +2639,14 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   $("#undoBtn").onclick = undoLast;
   renderUndo();
 
+  // 開始日なし → 今日から (2026-11-15)。一覧には残したまま節だけ移す。↩ は pushUndo の控え (開始日=空) で戻る
+  async function startNow(t) {
+    const d = todayStr; if (!d) return;
+    pushUndo(t, `今日から: ${t.name}`);
+    t.start = d; t.startRaw = d; markPending(t.id, { patch: { start: d, startRaw: d } }); render(todayStr);
+    try { await api(`/api/tasks/${t.id}/start?date=${d}`, { method: "POST" }); toast(`開始日を今日に: ${t.name}`, undoLast); counts(); setTimeout(() => load(view, { silent: true }), 1500); }
+    catch (e) { toast("失敗: " + e.message); load(view, { silent: true }); }
+  }
   async function act(t, action, label, keep) {
     closeSheet();
     const base0 = action.split("?")[0];
@@ -3149,6 +3162,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     const t = tasks.find((x) => x.id === row.dataset.id); if (!t) return;
     if (e.target.closest("[data-sess]")) return; // 処理中のセッションを開くリンク。シートは開かない
     if (e.target.closest("[data-claude]")) { if (t.blocked) { openSheet(t, todayStr); return; } goClaude(t, aiHref(t, "run")); return; } // 先行待ちはチェーン込みで投げたいのでメニューへ
+    if (e.target.closest("[data-startnow]")) { startNow(t); return; } // 今日できる の 開始日なし 節: 開始日を今日に (2026-11-15)
     if (e.target.closest("[data-fdefer]")) { act(t, "defer?days=1", "明日へ"); return; } // いまの1つ の 明日へ
     if (e.target.closest("[data-fnext]")) { focusSkip.add(t.id); lastSig = ""; render(todayStr); return; } // いまの1つ を後回しにして次へ
     const ring = e.target.closest("[data-done]");

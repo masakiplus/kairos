@@ -52,7 +52,7 @@ if(empty(prop("期日")), "⑤日付なし",
     if(toNumber(formatDate(prop("期日"),"YYYYMMDD")) == toNumber(formatDate(dateAdd(now(),9,"hours"),"YYYYMMDD")), "②今日",
       if(toNumber(formatDate(prop("期日"),"YYYYMMDD")) <= toNumber(formatDate(dateAdd(dateAdd(now(),9,"hours"),7,"days"),"YYYYMMDD")), "③今週", "④先"))))
 
-前倒し候補:
+前倒し候補（D1 では Worker が計算。2026-11-15 から「着手可 かつ 購入の子でない かつ 期日が空か今日より後」。下の Notion 式の 1〜7 日窓は旧仕様）:
 if(prop("着手可否") != "着手可", "",
   if(and(not(empty(prop("親アイテム"))), prop("種類") == "購入"), "",
     if(empty(prop("期日")), "候補",
