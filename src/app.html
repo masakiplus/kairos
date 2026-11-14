@@ -231,8 +231,9 @@
   .rc .stone .ss.done{color:#34a853}.rc .stone .ss.doing{color:#0a84ff}.rc .stone .ss.todo{color:var(--mute)}
   .rc .stone.put{border:1.5px dashed var(--ring);background:transparent;color:var(--acc);font-size:15px;font-weight:600}
   .rc .stone.put small{margin-left:auto;font-size:12px;color:var(--mute);font-weight:400;white-space:nowrap}
-  /* 各タブの一番下に置く「全体を見返す」メタ操作 (2026-10-10 利用者の提案)。役割タブの固定フッターを全タブに広げ、追加欄と重ならないよう一覧の末尾に流し込む */
+  /* 各タブの「全体を見返す」メタ操作 (2026-10-10 利用者の提案)。2026-11-14 に一覧の末尾から各タブの一番上へ移した (利用者「まとめて棚卸しするボタンは各タブの一番上におく」)。上に置くものは .meta.top */
   .meta{margin-top:4px}
+  .meta.top{margin-top:0}
   .meta a{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;background:var(--card);color:var(--fg);font-size:15px;font-weight:600;text-decoration:none;box-shadow:var(--shadow)}
   .meta small{display:block;text-align:center;font-size:11px;color:var(--mute);margin-top:6px}
   .sheet .pick{display:flex;flex-direction:column}
@@ -1523,8 +1524,8 @@
     } else body = shown.map(secHtml).join("");
     if (focus) body = focusHtml(focus, today) + (body ? `<h2 class="nexth">このあと</h2>` : "") + body;
     if (view === "today") body += habitStripHtml(today);
-    list.innerHTML = (wipSum ? wipMeterHtml(wipSum) : "") + gridH + body +
-      `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー ／ 右クリック・長押し＝すぐ操作</div>` + metaHtml(view);
+    list.innerHTML = metaHtml(view) + (wipSum ? wipMeterHtml(wipSum) : "") + gridH + body +
+      `<div class="hint">丸タップ＝完了 ／ 右スワイプ＝🤖 ${aiName()} に進めてもらう ／ 左スワイプ＝明日へ ／ タップ＝メニュー ／ 右クリック・長押し＝すぐ操作</div>`;
     // 横長で今日やるに入ったときは、いまの1つの詳細を右に開いておく (デザイン: いまの1枚＋詳細)
     if (focus && viewChanged && WIDE.matches && $("#sheetWrap").hidden) openSheet(focus, today);
   }
@@ -1642,7 +1643,7 @@
       const mr = ts.filter((t) => t.env.includes("早朝") && !t.blocked);
       label = aiName() + " と早朝の 1 本を決める"; sub = "時間をかける 1 件に絞って段取り";
       q = `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めたいです。候補: ${taskLines(mr)}。1 件に絞り、家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にして、段取りを 3 ステップで組んでください。選んだものは ⭐ 今日の3つ に入れ、残りは触らないでください。${META_TAIL}`;
-      return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
+      return `<div class="meta top"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
     }
     if (v === "today") {
       if (!ts.length) return "";
@@ -1678,7 +1679,7 @@
         ? `Kairos「決める」の残り ${qs.length} 問を片付けたいです。\n\n進め方\n${steps}\n\n問い\n${reviewItems(qs)}`
         : `Kairos 🧠 Decisions の 提案中・提示済み の未決を、古いものから見直したいです。\n\n進め方\n${steps}`;
     } else return "";
-    return `<div class="meta"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
+    return `<div class="meta top"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
   }
   // 📁 PJ を選んだときの 2 ボタン (2026-11-06): 閉じる ／ 進める(Claude に渡す)。閉じる候補では「閉じる」を主ボタンにする
   function pjActHtml(p, ts) {
@@ -1723,7 +1724,7 @@
       const next = st.state === "done" ? `<div class="snext"><button data-rolepick="${r.id}">${ICONS.check} 達成 — 次の石を置く<small>${(r.candidates || []).length ? `この役割の未完了 ${(r.candidates || []).length} 件から` : "候補なし"}</small></button><a href="${nextStoneHref(r)}" data-ext>${aiIcon()} ${aiName()} と決める</a></div>` : "";
       return `<button class="stone ${st.state}" data-rolestone="${r.id}">${ring}<span class="sb"><span class="sl">今週の石${st.until ? ` 〜${esc(st.until)}` : ""}</span><span class="sn">${st.icon ? st.icon + " " : ""}${esc(st.name)}</span></span><span class="ss ${st.state}">${lab}</span></button>${next}`;
     };
-    list.innerHTML = `<div class="rsum"><span>今週の石 ${s.total} 本 — 達成 ${s.done} ・ 進行中 ${s.doing} ・ 未着手 ${s.todo}</span><b>週の実行 ${pct}%</b><a href="#" data-quad>象限 ›</a></div>` +
+    list.innerHTML = metaHtml("roles") + `<div class="rsum"><span>今週の石 ${s.total} 本 — 達成 ${s.done} ・ 進行中 ${s.doing} ・ 未着手 ${s.todo}</span><b>週の実行 ${pct}%</b><a href="#" data-quad>象限 ›</a></div>` +
       rolesData.roles.map((r) => `<div class="rc${!r.stone && !r.mission ? "" : ""}" data-role="${r.id}">
         <div class="rt"><div class="rn">${r.icon ? r.icon + " " : ""}${esc(r.name)}</div><div class="rk" data-rolepj title="PJ の一覧を開く">PJ ${r.pj} · 今日 ${r.today} ▾</div></div>
         <div class="rpj${rolePjOpen.has(r.id) ? " open" : ""}">${(r.projects || []).map((p) => `<button data-rpj="${p.id}"><span class="t">${esc(p.label)}</span><small>${p.closable ? "クローズ候補" : p.stalled ? "停止" : `未完了 ${p.open}`}</small>${p.open > 1 ? "<span style=\"color:var(--acc)\">🔗</span>" : ""}</button>`).join("") || '<button disabled><span class="t" style="color:var(--mute)">進行中の PJ なし</span></button>'}</div>
@@ -1731,7 +1732,7 @@
           : `<div class="rm warn"><a href="${missionHref(r)}" data-ext>ミッション未記入 — タップして ${aiName()} と一問一答で決める</a></div>`}
         ${stoneHtml(r)}
       </div>`).join("") +
-      '<div class="hint">編集は選んだAIで。ここで動かせるのは「今週の石」の置き換えだけ</div>' + metaHtml("roles");
+      '<div class="hint">編集は選んだAIで。ここで動かせるのは「今週の石」の置き換えだけ</div>';
   }
   // 🛒 買い物 (2026-11-02): 種類=購入 の未完了を「買ったつもり」と「その他の購入」に分け、グラフ 3 種を上に置く。
   // 集計は Worker (/api/shopping, src/shopping.js)。ここは描くだけ。行をタップするといつものシート
@@ -2065,14 +2066,14 @@ ${reviewItems(ver, 12)}`);
     const chipBar = Object.keys(counts).length > 1 || reviewLater.size ? `<div class="kchips"><button data-kind="" class="${reviewKind ? "" : "on"}">すべて<span class="n">${all.length}</span></button>${chips}</div>` : "";
     if (!qs.length) {
       const laterN = all.filter((q) => reviewLater.has(q.kind)).length;
-      list.innerHTML = chipBar + `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}${laterN ? `<div style="font-size:13px;color:var(--mute);margin-top:6px">後回しにした ${laterN} 問は、上のチップから戻せます</div>` : ""}</div>` + reviewPrepHtml() + metaHtml("review");
+      list.innerHTML = metaHtml("review") + chipBar + `<div class="empty">${total ? "今日の問いは以上です 🎉" : "いま決める問いはありません"}${laterN ? `<div style="font-size:13px;color:var(--mute);margin-top:6px">後回しにした ${laterN} 問は、上のチップから戻せます</div>` : ""}</div>` + reviewPrepHtml();
       return;
     }
     const q = qs[0], K = KIND[q.kind] || { ic: "❓", t: q.label || "" };
     const fig = reviewFig(q);
     const ctx = fig ? "" : (q.ctx || []).map(([k, v]) => `<div><b>${esc(k)}</b>${esc(String(v))}</div>`).join("");
     const needNote = q.kind !== "project-close";
-    list.innerHTML = chipBar + `<div class="rvp"><div class="bar"><i style="width:${total ? Math.round(done / total * 100) : 0}%"></i></div><span>${done + 1} / ${total} 問</span></div>
+    list.innerHTML = metaHtml("review") + chipBar + `<div class="rvp"><div class="bar"><i style="width:${total ? Math.round(done / total * 100) : 0}%"></i></div><span>${done + 1} / ${total} 問</span></div>
       <div class="rvc in" data-qid="${q.id}" data-kind="${q.kind}">
         <div class="kb ${q.kind}"><span>${K.ic} ${K.t}</span><small>${esc(q.db)}${q.label && q.label !== K.t ? " · " + esc(q.label) : ""}</small><a href="${q.url}" target="_blank" rel="noopener" style="color:rgba(255,255,255,.85);text-decoration:none;font-weight:500">開く ↗</a></div>
         <div class="rq">${reviewAsk(q)}</div>
@@ -2084,7 +2085,7 @@ ${reviewItems(ver, 12)}`);
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><a class="rcl" href="${reviewClaudeHref(q)}" data-ext>${aiIcon()} 理由を話しながら決める</a>${counts[q.kind] > 1 ? `<a class="rcl" href="#" data-later="${q.kind}" style="color:var(--mute)">${K.ic} この種類は後で（${counts[q.kind]}）</a>` : ""}</div>
       </div>
       <div class="rvside">${qs.length > 1 ? `<div class="rvn"><h2>このあと<small>タップでその問いから</small></h2><div class="group">${qs.slice(1, reviewShowAll ? 40 : 4).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span class="db ${n.db}" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none">${(KIND[n.kind] || {}).ic || ""} ${(KIND[n.kind] || {}).t || n.db}</span><span>${esc(n.name || n.q)}</span></div>`).join("")}${qs.length > 4 && !reviewShowAll ? `<div data-rvmore style="justify-content:center;color:var(--acc)">残り ${qs.length - 4} 件も見る</div>` : ""}</div></div>` : ""}${reviewPrepHtml()}</div>
-      <div class="hint">本人が選ぶだけの問いをここに出す。調べればわかるものは「AI が先に調べる」へ回す</div>` + metaHtml("review");
+      <div class="hint">本人が選ぶだけの問いをここに出す。調べればわかるものは「AI が先に調べる」へ回す</div>`;
   }
   function reviewClaudeHref(q) {
     const where = q.db === "Tasks" ? "✅ Tasks のタスク" : q.db === "Projects" ? "📁 Projects のプロジェクト" : q.db === "Habits" ? "🔁 Habits の習慣" : "🧠 Decisions の決定";
