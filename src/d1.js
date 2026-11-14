@@ -140,6 +140,32 @@ function normalizeProperty(value, definition={}) {
  if(type==='relation') {p.relation=(value.relation || []).map(x=>({id:x.id}));p.has_more=false;}
  return p;
 }
+// タスクの完了は 完了✓・完了日・ステータス=完了 の 3 点がそろう (docs/rules.md §2)。MCP の作成・PWA・互換 API の直接 PATCH のどこから来ても、ここで片肺完了を作らせない (2026-11-14)
+const tripleDayJst = () => new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+function taskDoneTriple(input, current, definition={}) {
+ const touchDone='完了' in input,touchSt='ステータス' in input;
+ if(!touchDone&&!touchSt)return input;
+ const has=k=>!!(definition[k] || current?.[k] || input[k]),out={...input};
+ const curDone=current?.['完了']?.checkbox===true;
+ const st=touchSt?(input['ステータス']?.status?.name ?? null):(current?.['ステータス']?.status?.name ?? null);
+ let done;
+ if(touchDone)done=input['完了']?.checkbox===true;
+ else if(st==='完了')done=true;
+ else if(curDone)throw new Error('完了済みのタスクのステータスは変えられません。未完了に戻すなら reopen（完了・完了日・ステータスを一緒に戻します）');
+ else return input;
+ if(done) {
+  if(touchSt&&st!=='完了')throw new Error('完了 を立てるなら ステータス は 完了 だけです（完了・完了日・ステータスは 3 点セット）');
+  if(has('完了'))out['完了']={checkbox:true};
+  if(has('ステータス'))out['ステータス']={status:{name:'完了'}};
+  const keep=input['完了日']?.date?.start || (!('完了日' in input)&&curDone&&current?.['完了日']?.date?.start);
+  if(has('完了日')&&!keep)out['完了日']={date:{start:tripleDayJst()}};
+ } else {
+  if(touchSt&&st==='完了')throw new Error('ステータス を 完了 にするなら 完了 も立てます（完了・完了日・ステータスは 3 点セット）');
+  if(has('完了日'))out['完了日']={date:null};
+  if(st==='完了'&&has('ステータス'))out['ステータス']={status:{name:'未着手'}};
+ }
+ return out;
+}
 function normalizeBlock(input) {
  const b=structuredClone(input),type=b.type || Object.keys(b).find(k=>['paragraph','heading_1','heading_2','heading_3','bulleted_list_item','numbered_list_item','to_do','quote','callout','toggle','code','divider','table','table_row','image','file','pdf'].includes(k));
  if(!type)throw new Error('Block type required');
@@ -444,6 +470,7 @@ export async function d1Notion(env,path,init={}) {
   if(method!=='PATCH')throw new Error('Unsupported D1 page operation');
   if(row.collection==='roles'&&Object.keys(args.properties || {}).some(k=>k!=='今週の目標'))throw new Error('Roles only allow 今週の目標');
   if(row.collection==='projects'&&Object.keys(args.properties || {}).some(k=>!['ステータス','対応ゴール','完了条件','役割','名前'].includes(k)))throw new Error('Projects only allow ステータス, 対応ゴール, 完了条件, 役割, 名前');
+  if(row.collection==='tasks'&&args.properties)args.properties=taskDoneTriple(args.properties,row.page.properties || {},state.schemas.get(row.ds)?.properties || {});
   const definition=state.schemas.get(row.ds)?.properties || {},stmts=[],paths=[],values=[];
   const okKeys=Object.keys(collectionVars).includes(row.collection)?['properties','icon']:['properties','icon','archived','in_trash'];  for(const key of Object.keys(args))if(!okKeys.includes(key))throw new Error('Unsupported D1 page field: '+key);  for(const k of ['archived','in_trash'])if(k in args){paths.push('?,json(?)');values.push('$.'+k,JSON.stringify(!!args[k]));}
   if('icon' in args){paths.push('?,json(?)');values.push('$.icon',JSON.stringify(args.icon ?? null));}
@@ -476,6 +503,7 @@ export async function d1Notion(env,path,init={}) {
  if(path==='/pages'&&method==='POST'&&args.parent?.page_id)return createChildPage(env,args);
  if(path==='/pages'&&method==='POST') {
   const ds=cleanId(args.parent?.data_source_id),definition=state.schemas.get(ds);if(!definition)throw new Error('Unknown D1 data source');
+  if(args.properties&&(await collectionOfSource(env,ds))==='tasks')args.properties=taskDoneTriple(args.properties,null,definition.properties || {});
   const props={};for(const [name,def] of Object.entries(definition.properties || {})) {
    const defaults={title:[],rich_text:[],relation:[],multi_select:[],checkbox:false};
    props[name]=normalizeProperty(args.properties?.[name] || {[def.type]:defaults[def.type] ?? null},def);
