@@ -51,7 +51,10 @@ export function launchEntry(t, provider, resumeUrl) {
 const jstDay = (ms) => new Date(ms + 9 * 3600000).toISOString().slice(0, 10);
 let ready = null;
 function init(env) {
-  return (ready ||= env.DB.prepare("CREATE TABLE IF NOT EXISTS launch_log(ts TEXT NOT NULL, day TEXT NOT NULL, task_id TEXT NOT NULL, entry TEXT NOT NULL, repo TEXT, mode TEXT, resume INTEGER NOT NULL DEFAULT 0, device TEXT, rule TEXT)").run().catch((e) => { ready = null; throw e; }));
+  return (ready ||= env.DB.prepare("CREATE TABLE IF NOT EXISTS launch_log(ts TEXT NOT NULL, day TEXT NOT NULL, task_id TEXT NOT NULL, entry TEXT NOT NULL, repo TEXT, mode TEXT, resume INTEGER NOT NULL DEFAULT 0, device TEXT, rule TEXT)").run()
+    // 2026-11-14: 開始の打刻 (受けた AI が AIセッション を書いた時刻) の列。既存の表にも足す。既にあれば失敗するだけなので握る
+    .then(() => env.DB.prepare("ALTER TABLE launch_log ADD COLUMN session_at TEXT").run().catch(() => {}))
+    .catch((e) => { ready = null; throw e; }));
 }
 export async function launchAdd(env, row) {
   if (!env.DB) return { ok: true, stored: 0 };
@@ -61,6 +64,33 @@ export async function launchAdd(env, row) {
   await env.DB.prepare("INSERT INTO launch_log(ts,day,task_id,entry,repo,mode,resume,device,rule) VALUES(?,?,?,?,?,?,?,?,?)")
     .bind(new Date(now).toISOString(), jstDay(now), String(row.taskId).replace(/-/g, ""), clip(row.entry, 20), clip(row.repo, 80), clip(row.mode, 10), row.resume ? 1 : 0, clip(row.device, 10), clip(row.rule, 20)).run();
   return { ok: true, stored: 1 };
+}
+
+// 開始の打刻 (2026-11-14): 🤖 を押したあと、受けた AI が AIセッション を書いた時刻。
+// 同じタスクの直近 (2 時間以内) の、まだ打刻の無い新規起動の行に 1 回だけ書く。前回の続き (resume) は AIセッション を書き直さないので対象外
+export async function launchStamp(env, taskId, now = Date.now()) {
+  if (!env.DB) return { ok: true, stamped: 0 };
+  await init(env);
+  const r = await env.DB.prepare("UPDATE launch_log SET session_at=?1 WHERE rowid=(SELECT rowid FROM launch_log WHERE task_id=?2 AND resume=0 AND session_at IS NULL AND ts>=?3 AND ts<=?1 ORDER BY ts DESC LIMIT 1)")
+    .bind(new Date(now).toISOString(), String(taskId).replace(/-/g, ""), new Date(now - 2 * 3600000).toISOString()).run();
+  return { ok: true, stamped: r?.meta?.changes ?? r?.changes ?? 0 };
+}
+// 開始所要時間 (秒): 押してから AIセッション が入るまで。打刻のある新規起動だけを、全体 (all) と端末別に
+export function startStats(rows) {
+  const by = {};
+  for (const x of rows) {
+    if (!x.session_at || x.resume) continue;
+    const sec = (Date.parse(x.session_at) - Date.parse(x.ts)) / 1000;
+    if (!(sec >= 0)) continue;
+    for (const k of ["all", x.device || "other"]) (by[k] ||= []).push(sec);
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(by)) {
+    v.sort((a, b) => a - b);
+    const mid = v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+    out[k] = { n: v.length, median: Math.round(mid), p90: Math.round(v[Math.min(v.length - 1, Math.ceil(v.length * 0.9) - 1)]) };
+  }
+  return out;
 }
 
 // ---- 使用率ログの表 ----
@@ -107,13 +137,13 @@ export function weeklyReport(launches, usage, weeks, now = Date.now()) {
       days.push({ from: label, dow: DOW[new Date(Date.parse(label + "T00:00:00Z")).getUTCDay()], launches: by, usagePct: du.length ? du[du.length - 1].pct : null, usageAt: du.length ? du[du.length - 1].at : null });
     }
     const last = U.length ? U[U.length - 1] : null;
-    out.push({ start: new Date(s + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") + " JST", credit: s < credit, launches: total, cloudShare: L.length ? Math.round(((total.cloud || 0) / L.length) * 100) : null, lastUsagePct: last ? last.pct : null, lastUsageAt: last ? last.at : null, days });
+    out.push({ start: new Date(s + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") + " JST", credit: s < credit, launches: total, cloudShare: L.length ? Math.round(((total.cloud || 0) / L.length) * 100) : null, lastUsagePct: last ? last.pct : null, lastUsageAt: last ? last.at : null, startSec: startStats(L), days });
   }
   return { creditUntil: CREDIT_UNTIL, note: "credit=true の週はクラウドセッションのクレジット期間で、クラウドの消費が週間枠に乗らないので比較に使わない", weeks: out };
 }
 export async function launchRows(env, sinceMs) {
   if (!env.DB) return [];
   await init(env);
-  const r = await env.DB.prepare("SELECT ts, day, task_id, entry, repo, mode, resume, device, rule FROM launch_log WHERE ts>=? ORDER BY ts").bind(new Date(sinceMs).toISOString()).all();
+  const r = await env.DB.prepare("SELECT ts, day, task_id, entry, repo, mode, resume, device, rule, session_at FROM launch_log WHERE ts>=? ORDER BY ts").bind(new Date(sinceMs).toISOString()).all();
   return r.results || [];
 }

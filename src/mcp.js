@@ -8,7 +8,7 @@
 // - 認可の同意は人が行う: 既存の Kairos Cookie がある端末なら「許可」ボタンだけ、無ければ APP_TOKEN を入力。
 
 const ENC = new TextEncoder();
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const ACCESS_TTL = 60 * 60; // 秒
 const REFRESH_TTL = 60 * 60 * 24 * 60;
@@ -478,6 +478,7 @@ const RULES = [
 const INSTRUCTIONS =
   "Kairos は齋藤さんのタスク・プロジェクト・役割・判断・習慣の正本（Cloudflare D1）です。" +
   "一覧は kairos_list_tasks、探すのは kairos_search_tasks、1件の詳細と本文は kairos_get。" +
+  "🤖 で渡されたタスクは、最初に kairos_begin を1回呼ぶ（AIセッション の記録と、本文・親・サブタスク・先行の読み込みが1回で済む）。規約は以下で全部なので、kairos_rules を読み直す必要はない。" +
   "規約:\n- " + RULES.join("\n- ");
 
 const ID_PROP = { type: "string", description: "ページ ID（32 桁の 16 進、ハイフン可）" };
@@ -485,11 +486,16 @@ const DB_PROP = { type: "string", description: "中核は tasks / projects / rol
 const READ = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
+// kairos_begin (2026-11-14): 🤖 で渡された直後の前置き (AIセッション を書く → 規約を読む → タスクを読む → 親子を読む) を 1 回にまとめる
+const BEGIN_REL_MAX = 15;
+const BEGIN_REL_COLS = ["名前", "ステータス", "完了", "開始日", "期日", "実行環境", "担当"];
+const BEGIN_NEXT = "規約は接続時の説明のとおり（kairos_rules の読み直しは不要）。成果は本文へ kairos_append_body。終わるときは kairos_task_action の done、人の手が要るなら human、それ以外で止まるなら ai_clear。";
+
 const TOOLS = [
   {
     name: "kairos_rules",
     title: "Kairos の操作規約を読む",
-    description: "Kairos の操作規約（正本は D1、完了は done 経由、など）と、API 側の最新の規約を返す。操作の前に一度読む。",
+    description: "Kairos の操作規約（正本は D1、完了は done 経由、など）と、API 側の最新の規約を返す。同じ規約は接続時の説明に入っているので、通常は呼ばなくてよい（文面を確かめたいときだけ）。",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: READ,
     run: async (_a, ctx) => ({ mcpRules: RULES, api: await api(ctx, "GET", "/api/storage/agent") }),
@@ -520,6 +526,24 @@ const TOOLS = [
       const id = reqId(a.id), out = flat(await api(ctx, "GET", `/api/data/pages/${id}`));
       if (a.include_body !== false) out.body = (await bodyMd(ctx, id)).join("\n");
       return out;
+    },
+  },
+  {
+    name: "kairos_begin",
+    title: "渡されたタスクを始める（AIセッション の記録と読み込みを 1 回で）",
+    description: "🤖 で渡されたタスクの最初に 1 回だけ呼ぶ。session（このチャットの URL）を AIセッション に書き、プロパティ・本文・親・サブアイテム・先行タスクの名前と状態をまとめて返す。規約は接続時の説明に入っているので kairos_rules を読み直さなくてよい。",
+    inputSchema: { type: "object", properties: { id: ID_PROP, session: { type: "string", maxLength: 300, description: "このチャットの URL（https://claude.ai/chat/… など）。取れなければ省く" } }, required: ["id"], additionalProperties: false },
+    annotations: { ...WRITE, idempotentHint: true },
+    run: async (a, ctx) => {
+      const id = reqId(a.id), session = String(a.session ?? "").trim();
+      if (session && !/^https:\/\/[^\s"<>]{1,290}$/.test(session)) throw new Error("session は https:// で始まる URL で指定してください");
+      if (session) await api(ctx, "PATCH", `/api/data/pages/${id}`, { properties: { "AIセッション": { url: session } } });
+      const page = await api(ctx, "GET", `/api/data/pages/${id}`);
+      const rel = (prop) => Promise.all((plain(page.properties?.[prop]) ?? []).slice(0, BEGIN_REL_MAX).map(async (rid) => {
+        try { return flat(await api(ctx, "GET", `/api/data/pages/${clean(rid)}`), { cols: BEGIN_REL_COLS, truncate: 200 }); } catch { return { id: rid, error: "読めませんでした" }; }
+      }));
+      const [body, parents, children, preds] = await Promise.all([bodyMd(ctx, id), rel("親アイテム"), rel("サブアイテム"), rel("先行タスク")]);
+      return { ok: true, sessionSaved: !!session, task: flat(page), body: body.join("\n"), 親: parents, サブアイテム: children, 先行タスク: preds, next: BEGIN_NEXT };
     },
   },
   {

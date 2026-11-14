@@ -229,3 +229,16 @@ test('追加の指示はシートを開いているタスクの依頼文にだ�
   assert.match(html.slice(html.indexOf('function closeSheet('), html.indexOf('function closeSheet(') + 300), /aiExtra = \{ id: null, text: "" \}/);
   assert.ok(!/localStorage\.setItem\([^)]*aiExtra/.test(html), '追加の指示は端末に保存しない');
 });
+
+// 2026-11-14: Claude のチャットは前置きを減らす。kairos_begin を案内し、規約の読み直し (/api/storage/agent) を求めない
+test('Claude向けのD1依頼文は kairos_begin を案内し、規約の読み直しを求めない',()=>{
+ const h=harness();
+ h.context.window={KAIROS_STORAGE:'d1'};h.context.location.origin='https://kairos.test';
+ h.context.task={...task,url:'https://kairos.test/?page='+task.id};
+ const q=decodeURIComponent(h.run('claudeHref(task,"run")').split('?q=')[1]);
+ assert.match(q,/kairos_begin/);assert.match(q,/read_conversation\("current"\)/);
+ assert.match(q,/kairos_rules は読み直さない/);
+ assert.match(q,/【保存先: Kairos D1】/);
+ assert.doesNotMatch(q,/api\/storage\/agent/);
+ assert.equal((q.match(/【保存先: Kairos D1】/g)||[]).length,1);
+});

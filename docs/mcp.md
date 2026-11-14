@@ -31,10 +31,11 @@ Kairos を **リモート MCP サーバー**として公開する。claude.ai �
 
 | 名前 | 内容 |
 |---|---|
-| `kairos_rules` | 操作規約と、API 側の最新の規約 |
+| `kairos_rules` | 操作規約と、API 側の最新の規約。同じ規約は接続時の説明（instructions）に入っているので、通常は呼ばなくてよい |
 | `kairos_list_tasks` | 画面別の一覧（today / can / phone / cloud / doing / project / delegated） |
 | `kairos_search_tasks` | 名前・説明で検索（完了を含めるか選べる） |
 | `kairos_get` | 1 件のプロパティと本文（Markdown 風） |
+| `kairos_begin` | 🤖 で渡されたタスクの最初に 1 回。`session`（チャットの URL）を AIセッション に書き、プロパティ・本文・親・サブアイテム・先行タスクの名前と状態をまとめて返す。規約は返さない（接続時の説明に入っている）。2026-11-14 |
 | `kairos_query` | DB の行（open_only・where・columns・limit）。where・open_only は D1 側の filter に渡して全行から絞る（select・status=一致、multi_select・relation=含む、checkbox=true/false。それ以外の型は全ページを読んで手元で絞る） |
 | `kairos_schema` | プロパティ名・型・選択肢 |
 | `kairos_create` | tasks / decisions / habitlog と、sessions（会話の足跡）などの追加 DB に 1 件作る |
