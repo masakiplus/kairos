@@ -81,7 +81,7 @@ test('開始からの日数は 3 日以上だけ',()=>{
 });
 test('画面: 着手中だけに次の一手・メーター・場所の小見出しを出す',()=>{
  assert.match(html,/doingCtx && nextStep\(t\) \? `<div class="nx">/);
- assert.match(html,/list\.innerHTML = \(wipSum \? wipMeterHtml\(wipSum\) : ""\)/);
+ assert.match(html,/list\.innerHTML = metaHtml\(view\) \+ \(wipSum \? wipMeterHtml\(wipSum\) : ""\)/);
  assert.match(html,/view === "doing" \? groupByPlace\(hu, PHONE_ENV, unavailWhy\)/);
  assert.match(html,/v === "doing" \? foldParents\(r\)\.shown\.length/,'タブの件数も親子を 1 件に');
 });
