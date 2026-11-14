@@ -529,7 +529,9 @@ async function setRoleGoal(env, roleId, taskId) {
     // 前の石を補足として残す (週次レビューの書き方に合わせる)。長い補足は 80 字で切る
     const prev = (await rolesAll(env)).find((r) => r.id === roleId || r.id.replace(/-/g, "") === roleId.replace(/-/g, ""))?.weekGoalRaw;
     const pm = prev ? prev.match(WEEK_GOAL_RE) : null;
-    text = `〜${weekEndJst()}：${t.name} → Tasks ${t.id}。（${todayJst()} Kairos で指名${pm ? `。前の石「${pm[2].slice(0, 40)}」${pm[3]}` : ""}）`;
+    // 書式外の自由文 (「置かない週」の決定など) も消さずに補足へ残す (2026-11-15: 追加欄から石を置くと自由文が消えていた)
+    const prevNote = pm ? `。前の石「${pm[2].slice(0, 40)}」${pm[3]}` : prev ? `。前の目標「${prev.slice(0, 80)}」` : "";
+    text = `〜${weekEndJst()}：${t.name} → Tasks ${t.id}。（${todayJst()} Kairos で指名${prevNote}）`;
   }
   const pg = await notion(env, `/pages/${roleId}`, { method: "PATCH", body: JSON.stringify({ properties: { "今週の目標": { rich_text: text ? [{ text: { content: text.slice(0, 1900) } }] : [] } } }) });
   rolesCache.at = 0;
