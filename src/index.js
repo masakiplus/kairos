@@ -1387,9 +1387,20 @@ const reopenProps = () => ({
   "ステータス": { status: { name: "未着手" } },
 });
 
-async function quickAdd(env, name, projectId, envTags) {
+// タブごとの追加の既定 (2026-11-15): 追加したタスクがそのタブの条件 (passesView) を満たすように属性を足す。
+// 今日やる=期日を今日 / 着手中=ステータス 進行中 / 委任=担当 / 買い物=種類 購入。受け付けるのはこの 4 つだけ
+const ADD_TAB_DEFAULTS = {
+  today: () => ({ due: true }),
+  doing: () => ({ status: "進行中" }),
+  delegated: (b) => ({ owner: String(b.owner ?? "").trim() || null }),
+  shop: () => ({ kind: "購入" }),
+};
+function addDefaults(tab, body = {}) { const k = String(tab ?? ""); return Object.hasOwn(ADD_TAB_DEFAULTS, k) ? ADD_TAB_DEFAULTS[k](body) : {}; }
+async function quickAdd(env, name, projectId, envTags, opts = {}) {
   const today = todayJst();
   const phoneEnv = await phoneEnvName(env); // スマホ (旧 iPhone) の実在する選択肢名
+  let owner = null;
+  if (opts.owner) { const list = await delegates(env).catch(() => []); if (!list.includes(opts.owner)) throw new Error(`担当の選択肢にありません: ${opts.owner}`); owner = opts.owner; }
   const page = await notion(env, "/pages", {
     method: "POST",
     body: JSON.stringify({
@@ -1399,8 +1410,11 @@ async function quickAdd(env, name, projectId, envTags) {
         "名前": { title: [{ text: { content: name } }] },
         "エリア": { select: { name: env.QUICK_ADD_AREA || "Inbox" } },
         "ソース": { select: { name: "手動" } },
-        "ステータス": { status: { name: "未着手" } },
+        "ステータス": { status: { name: opts.status === "進行中" ? "進行中" : "未着手" } },
         "開始日": { date: { start: today } }, // 原則きょう＝着手可 (2026-08-31)
+        ...(opts.due ? { "期日": { date: { start: today } } } : {}),
+        ...(owner ? { "担当": { select: { name: owner } } } : {}),
+        ...(opts.kind === "購入" ? { "種類": { select: { name: "購入" } } } : {}),
         "実行環境": { multi_select: normEnvTags(envTags && envTags.length ? envTags : [phoneEnv], phoneEnv).map((n) => ({ name: n })) }, // 既定は「いまの状況」(画面が渡す。2026-10-13)。無ければ スマホ
         // PJ別タブの「この PJ にタスクを足す」「次のアクションを1件決める」(Phase B, 2026-10-06) から来たときは PJ に紐づける
         ...(projectId ? { "関連プロジェクト": { relation: [{ id: projectId }] } } : {}),
@@ -1567,7 +1581,10 @@ const kairosWorker = {
         if (!name) return json({ error: "name required" }, 400);
         const projectId = /^[0-9a-f-]{32,36}$/.test(String(body.projectId ?? "")) ? body.projectId : null;
         const envTags = Array.isArray(body.env) ? body.env.map((x) => String(x).trim()).filter(Boolean).slice(0, 6) : null;
-        return json({ task: await quickAdd(env, name, projectId, envTags) }, 201);
+        const opts = addDefaults(body.tab, body);
+        if (body.tab === "delegated" && !opts.owner) return json({ error: "owner required" }, 400);
+        try { return json({ task: await quickAdd(env, name, projectId, envTags, opts) }, 201); }
+        catch (e) { if (/担当の選択肢/.test(e.message)) return json({ error: e.message }, 400); throw e; }
       }
       // 📁 PJ別の見出し (Phase B-7/8, 2026-10-06): 進行中 PJ の ゴール・完了条件・件数・クローズ候補
       if (path === "/api/projects" && req.method === "GET") return json(await cachedJson(env, "projects", async () => { const projects = await projectsInfo(env); return { today: todayJst(), projects, diag: statsDiag }; }));
