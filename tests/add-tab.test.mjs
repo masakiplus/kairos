@@ -58,5 +58,11 @@ test('役割タブ: roleId を確かめてから作り、setRoleGoal で今週�
 });
 test('画面: 役割タブは終わっていない石を置き換える前に確かめる',()=>{
   assert.match(html,/st\.state !== "done" && !confirm\(/);
+  assert.doesNotMatch(html,/st && st\.taskId && st\.state !== "done"/,'自由文の目標も確かめる');
   assert.match(html,/id="addRole"/);
+});
+
+test('setRoleGoal: 書式外の自由文の目標も補足に残す',()=>{
+  const seg=idx.slice(idx.indexOf('async function setRoleGoal'),idx.indexOf('async function setRoleGoal')+1200);
+  assert.match(seg,/前の目標「\$\{prev\.slice\(0, 80\)\}」/);
 });

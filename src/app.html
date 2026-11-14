@@ -3260,7 +3260,8 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     if (tab === "delegated" && !extra.owner) { toast("担当の選択肢がないので委任タブからは追加できません"); $("#addName").value = name; return; }
     if (tab === "roles") { // 今週の石を置く。まだ終わっていない石があれば置き換えてよいか聞く (前の石は 今週の目標 の補足に残る)
       const r = curAddRole(); if (!r || !extra.roleId) { toast("役割を読み込めていません"); $("#addName").value = name; return; }
-      const st = r.stone; if (st && st.taskId && st.state !== "done" && !confirm(`「${r.name}」の今週の石「${st.name}」を「${name}」に置き換えますか？（前の石のタスクは残ります）`)) { $("#addName").value = name; return; }
+      // 自由文の目標 (state=text、「置かない週」など) も置き換え前に確かめる。前の目標は 今週の目標 の補足に残る
+      const st = r.stone; if (st && st.state !== "done" && !confirm(`「${r.name}」の今週の目標「${st.name}」を「${name}」に置き換えますか？（前の目標は補足に残ります）`)) { $("#addName").value = name; return; }
     }
     if (tab === "review" || tab === "habits") { // 判断・習慣はタスクではない。実行環境も送らない
       try {
