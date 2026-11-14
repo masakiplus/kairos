@@ -784,6 +784,7 @@
   <label for="addName" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">タスクを追加</label>
   <button type="button" class="pjchip" id="addPj" hidden title="この PJ に紐づけて追加。タップで解除"></button>
   <button type="button" class="pjchip" id="addOwner" hidden title="委任先。タップで次の人へ"></button>
+  <button type="button" class="pjchip" id="addRole" hidden title="今週の石を置く役割。タップで次の役割へ"></button>
   <input id="addName" placeholder="タイトルだけで追加" autocomplete="off">
   <button type="submit" aria-label="追加"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
 </form>
@@ -829,8 +830,12 @@
     delegated: { ph: "任せるタスクを1件", note: "" },
     shop: { ph: "買うものを1件（種類=購入）", note: "買い物" },
     project: { ph: "PJ の ＋ から足すと紐づきます（ここからは Inbox）", note: "" },
+    review: { ph: "決めたいことを1件（〜するか の形で）", note: "" },
+    habits: { ph: "続けたい習慣を1件（提案中で入ります）", note: "" },
+    roles: { ph: "今週の石にするタスクを1件", note: "" },
   };
   let addOwner = null; try { addOwner = localStorage.getItem("addOwner") || null; } catch (e) {}
+  let addRole = null; try { addRole = localStorage.getItem("addRole") || null; } catch (e) {}
   const ICONS = {
     star: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.5 1.2 6.4L12 17.3l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8L12 2.8z" fill="#f7c948"/></svg>',
     can: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2f7cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
@@ -1414,7 +1419,7 @@
     $("#ttlIcon").innerHTML = view === "search" ? "🔍" : view === "habits" ? "🔁" : view === "shop" ? "🛒" : view === "today" ? ICONS.star : view === "can" ? ICONS.can : view === "doing" ? "▶" : view === "project" ? ICONS.folder : view === "delegated" ? "👥" : view === "roles" ? ICONS.compass : view === "review" ? ICONS.review : view === "deps" || view === "graph" ? "🔗" : view === "quad" ? ICONS.compass : ICONS.phone;
     $("#date").textContent = today ? fmtDate(today) : "";
     $("#tabs").hidden = view === "search"; $("#srch").hidden = view !== "search"; $("#srchBtn").classList.toggle("on", view === "search");
-    $("#add").hidden = view === "roles" || view === "review" || view === "habits"; syncAddBar(); // 買い物タブは 2026-11-15 から追加欄を出す (種類=購入)
+    $("#add").hidden = false; syncAddBar(); // 追加欄は全タブで出す (2026-11-15): 買い物=種類購入、決める=判断の未決、習慣=提案中の習慣、役割=今週の石
     const sitOn = view === "today" || view === "can", fltOn = FILTER_VIEWS.includes(view);
     $("#sitChip").hidden = !sitOn; $("#fltChip").hidden = !fltOn; $("#sitbar").hidden = !sitOn && !fltOn;
     if (sitOn) pollWhere(); renderSit(); renderFilt();
@@ -2995,14 +3000,19 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   // どのタブで足しても同じ Inbox タスクになり、今日やる・着手中・委任ではそのタブの条件を満たさず消えたように見えていた。
   // タブごとに既定の属性を変え、足したタスクがそのタブに残るようにする。サーバー側の受け口は index.js の ADD_TAB_DEFAULTS
   function curAddOwner() { return DELEGATES.includes(addOwner) ? addOwner : (DELEGATES[0] || null); }
+  const addRoles = () => ((rolesData && rolesData.roles) || []);
+  function curAddRole() { const rs = addRoles(); return rs.find((r) => r.id === addRole) || rs[0] || null; }
   function addPlaceholder() {
     if (addProject) return "この PJ の次のアクションを1件";
     if (view === "delegated") { const o = curAddOwner(); return o ? `${o} に任せるタスクを1件` : "担当の選択肢がありません"; }
+    if (view === "roles") { const r = curAddRole(); return r ? `${r.name} の今週の石にするタスクを1件` : "役割を読み込み中…"; }
     return (ADD_TABS[view] || {}).ph || "タイトルだけで追加";
   }
   function syncAddBar() {
     const o = $("#addOwner"), on = view === "delegated" && !addProject;
     o.hidden = !on; if (on) { const n = curAddOwner(); o.innerHTML = n ? `👥 ${esc(n)}` : "👥 —"; }
+    const rc = $("#addRole"), ron = view === "roles" && !addProject;
+    rc.hidden = !ron; if (ron) { const r = curAddRole(); rc.innerHTML = r ? `${esc(r.icon || "🧭")} ${esc(r.name)}` : "🧭 —"; }
     $("#addName").placeholder = addPlaceholder();
   }
   $("#addOwner").onclick = () => {
@@ -3010,10 +3020,16 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     addOwner = DELEGATES[(i + 1) % DELEGATES.length]; try { localStorage.setItem("addOwner", addOwner); } catch (e) {}
     syncAddBar(); $("#addName").focus();
   };
+  $("#addRole").onclick = () => {
+    const rs = addRoles(); if (!rs.length) return; const i = rs.indexOf(curAddRole());
+    addRole = rs[(i + 1) % rs.length].id; try { localStorage.setItem("addRole", addRole); } catch (e) {}
+    syncAddBar(); $("#addName").focus();
+  };
   // POST /api/tasks に足す分。tab はサーバーで既定属性に読み替える (期日・ステータス・担当・種類)
   function addBody(tab) {
     const b = { tab };
     if (tab === "delegated") b.owner = curAddOwner();
+    if (tab === "roles") { const r = curAddRole(); b.roleId = r ? r.id : null; }
     return b;
   }
   // ---- end タブごとの追加 ----
@@ -3242,13 +3258,27 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     const pj = addProject; // PJ別の「この PJ にタスクを足す」から来たときは紐づける (Phase B)
     const tab = pj ? "project" : (view === "search" ? "" : view), extra = addBody(tab); // タブごとの既定 (2026-11-15)
     if (tab === "delegated" && !extra.owner) { toast("担当の選択肢がないので委任タブからは追加できません"); $("#addName").value = name; return; }
+    if (tab === "roles") { // 今週の石を置く。まだ終わっていない石があれば置き換えてよいか聞く (前の石は 今週の目標 の補足に残る)
+      const r = curAddRole(); if (!r || !extra.roleId) { toast("役割を読み込めていません"); $("#addName").value = name; return; }
+      const st = r.stone; if (st && st.taskId && st.state !== "done" && !confirm(`「${r.name}」の今週の石「${st.name}」を「${name}」に置き換えますか？（前の石のタスクは残ります）`)) { $("#addName").value = name; return; }
+    }
+    if (tab === "review" || tab === "habits") { // 判断・習慣はタスクではない。実行環境も送らない
+      try {
+        const j = await api("/api/tasks", { method: "POST", body: JSON.stringify({ name, ...extra }) });
+        toast(tab === "review" ? `判断に追加: ${(j.decision || {}).name || name}（案が無いので AI が先に調べます）` : `習慣の候補に追加: ${(j.habit || {}).name || name}（提案中。有効化は月次の習慣棚卸しで）`);
+        if (tab === "habits") { habitsAt = 0; lastSig = ""; } load(view, { silent: true });
+      } catch (err) { toast("追加失敗: " + err.message); $("#addName").value = name; }
+      return;
+    }
     try {
       // 実行環境の既定は「いまの状況」(2026-10-13): 端末 (Mac か スマホ) ＋ 場所。シートの「できる状況」で直せる
       const S = currentSit(); const envTags = [isMac ? "Mac" : PHONE_ENV, S.place];
       const j = await api("/api/tasks", { method: "POST", body: JSON.stringify({ name, env: envTags, ...extra, ...(pj ? { projectId: pj.id } : {}) }) });
       // PJ に他の未完了があれば、その場で先行を選べるボタンを出す (2026-10-07, 依存の洗い出し D)
       const pjInfo = pj && (projInfo || []).find((p) => p.id === pj.id);
-      if (pj && pjInfo && pjInfo.open > 0) toast(`追加: ${j.task.name} → ${j.task.project || pjInfo.label}`, () => openPredPick(j.task), "先行を選ぶ");
+      if (tab === "roles" && !j.role) toast(`追加はしたが今週の石に置けませんでした: ${j.task.name}（${j.roleError || "理由不明"}）。役割タブの石から選び直してください`);
+      else if (tab === "roles") toast(`今週の石に置いた: ${(curAddRole() || {}).name || "役割"} ← ${j.task.name}`);
+      else if (pj && pjInfo && pjInfo.open > 0) toast(`追加: ${j.task.name} → ${j.task.project || pjInfo.label}`, () => openPredPick(j.task), "先行を選ぶ");
       else { const tn = tab === "delegated" ? `担当=${extra.owner}` : ((ADD_TABS[tab] || {}).note || ""); toast("追加: " + j.task.name + (j.task.project ? ` → ${j.task.project}` : "") + `（${[tn, ...envTags.map((x) => TOOL_LABEL[x] || x)].filter(Boolean).join("・")}）`); }
       if (pj) { setAddProject(null); projInfoAt = 0; } load(view, { silent: true });
     }

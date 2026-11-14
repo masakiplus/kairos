@@ -31,7 +31,32 @@ test('委任は担当が空なら null (受け口が 400 を返す)',()=>{
   assert.equal(addDefaults('delegated',{owner:' 真実 '}).owner,'真実');
 });
 test('画面: 買い物タブで追加欄を出し、tab を送る',()=>{
-  assert.match(html,/\$\("#add"\)\.hidden = view === "roles" \|\| view === "review" \|\| view === "habits";/);
+  assert.match(html,/\$\("#add"\)\.hidden = false; syncAddBar\(\);/);
   assert.match(html,/\.\.\.extra, \.\.\.\(pj \? \{ projectId: pj\.id \} : \{\}\)/);
   assert.match(html,/id="addOwner"/);
+});
+
+// 2026-11-15 (2): 決める=Decisions の未決、習慣=Habits の提案中、役割=タスクを作って今週の石に置く
+const fnBody=(name)=>idx.match(new RegExp('async function '+name+'\\(env, name\\) \\{[\\s\\S]*?\\n}\\n'))[0];
+test('決めるタブの追加は Decisions に 提案中・未決・種別 手動 で作る (案の行なし＝AI が先に調べる)',()=>{
+  const b=fnBody('quickAddDecision');
+  assert.match(b,/DECISIONS_DATA_SOURCE_ID/);
+  for(const k of ['"状態": { select: { name: "提案中" } }','"決定": { select: { name: "未決" } }','"種別": { select: { name: "手動" } }']) assert.ok(b.includes(k),k);
+});
+test('習慣タブの追加は Habits に 提案中 で作る (有効化は棚卸しで本人)',()=>{
+  const b=fnBody('quickAddHabit');
+  assert.match(b,/HABITS_DATA_SOURCE_ID/);
+  assert.ok(b.includes('"状態": { select: { name: "提案中" } }'));
+  assert.ok(!b.includes('"有効"'));
+});
+test('役割タブ: roleId を確かめてから作り、setRoleGoal で今週の石に置く',()=>{
+  const i=idx.indexOf('if (body.tab === "roles") {'); assert.ok(i>0);
+  const seg=idx.slice(i,i+900);
+  assert.ok(seg.indexOf('unknown role')<seg.indexOf('quickAdd('),'役割を確かめてからタスクを作る');
+  assert.match(seg,/setRoleGoal\(env, roleId, task\.id\)/);
+  assert.match(seg,/roleError/,'石を置けなくても 201 で返し、再送で二重にしない');
+});
+test('画面: 役割タブは終わっていない石を置き換える前に確かめる',()=>{
+  assert.match(html,/st\.state !== "done" && !confirm\(/);
+  assert.match(html,/id="addRole"/);
 });
