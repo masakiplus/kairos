@@ -1396,6 +1396,37 @@ const ADD_TAB_DEFAULTS = {
   shop: () => ({ kind: "購入" }),
 };
 function addDefaults(tab, body = {}) { const k = String(tab ?? ""); return Object.hasOwn(ADD_TAB_DEFAULTS, k) ? ADD_TAB_DEFAULTS[k](body) : {}; }
+// 決める・習慣タブの追加 (2026-11-15): 追加欄からタスクではなく Decisions の未決／Habits の提案中を 1 件作る。
+// 未決は案の行を持たないので、決めるタブでは「AI が先に調べる」に入る (規約: 案の行が無い未決は人に聞かない)
+async function quickAddDecision(env, name) {
+  const today = todayJst();
+  const pg = await notion(env, "/pages", { method: "POST", body: JSON.stringify({
+    parent: { type: "data_source_id", data_source_id: env.DECISIONS_DATA_SOURCE_ID },
+    properties: {
+      "名前": { title: [{ text: { content: name } }] },
+      "状態": { select: { name: "提案中" } },
+      "決定": { select: { name: "未決" } },
+      "種別": { select: { name: "手動" } },
+      "出所": { rich_text: [{ text: { content: "Kairos 決めるタブの追加欄" } }] },
+      "日付": { date: { start: today } },
+    },
+  }) });
+  return { id: pg.id, url: pg.url, name, db: "Decisions" };
+}
+// 習慣は 提案中 で起こす。有効化は月次の習慣棚卸しで本人が決める (mcp の kairos_create と同じ規則, 2026-11-05)
+async function quickAddHabit(env, name) {
+  const pg = await notion(env, "/pages", { method: "POST", body: JSON.stringify({
+    parent: { type: "data_source_id", data_source_id: env.HABITS_DATA_SOURCE_ID },
+    properties: {
+      "名前": { title: [{ text: { content: name } }] },
+      "状態": { select: { name: "提案中" } },
+      "由来": { select: { name: "本人" } },
+      "頻度": { select: { name: "毎日" } },
+      "計測方法": { select: { name: "手動" } },
+    },
+  }) });
+  return { id: pg.id, url: pg.url, name, db: "Habits" };
+}
 async function quickAdd(env, name, projectId, envTags, opts = {}) {
   const today = todayJst();
   const phoneEnv = await phoneEnvName(env); // スマホ (旧 iPhone) の実在する選択肢名
@@ -1581,6 +1612,20 @@ const kairosWorker = {
         if (!name) return json({ error: "name required" }, 400);
         const projectId = /^[0-9a-f-]{32,36}$/.test(String(body.projectId ?? "")) ? body.projectId : null;
         const envTags = Array.isArray(body.env) ? body.env.map((x) => String(x).trim()).filter(Boolean).slice(0, 6) : null;
+        // 決める・習慣タブ (2026-11-15): タスクではなく判断・習慣を作る
+        if (body.tab === "review") return json({ decision: await quickAddDecision(env, name) }, 201);
+        if (body.tab === "habits") return json({ habit: await quickAddHabit(env, name) }, 201);
+        // 役割タブ (2026-11-15): タスクを作ってその役割の 今週の目標 (今週の石) に置く。Tasks に役割の列は無いので、役割とタスクを結ぶのはこの石だけ
+        if (body.tab === "roles") {
+          const roleId = /^[0-9a-f-]{32,36}$/.test(String(body.roleId ?? "")) ? body.roleId : null;
+          if (!roleId) return json({ error: "roleId required" }, 400);
+          const known = (await rolesAll(env)).some((r) => r.id.replace(/-/g, "") === roleId.replace(/-/g, ""));
+          if (!known) return json({ error: "unknown role" }, 400);
+          const task = await quickAdd(env, name, projectId, envTags, {});
+          // 石を置けなくてもタスクはできている。500 にすると画面が再送して同じタスクが 2 件になるので、201 で失敗を伝える
+          try { return json({ task, role: await setRoleGoal(env, roleId, task.id) }, 201); }
+          catch (e) { return json({ task, role: null, roleError: String(e.message || e).slice(0, 200) }, 201); }
+        }
         const opts = addDefaults(body.tab, body);
         if (body.tab === "delegated" && !opts.owner) return json({ error: "owner required" }, 400);
         try { return json({ task: await quickAdd(env, name, projectId, envTags, opts) }, 201); }
