@@ -374,3 +374,34 @@ test('kairos_query は 1,000 行より後ろの行も where・open_only で拾�
   assert.equal(fw.calls.filter((c) => c.path.endsWith('/query')).length, 1, 'limit に届いたら次のページを読まない');
   assert.equal((await q({ limit: 500 })).length, 500);
 });
+
+// 2026-11-14: 🤖 で渡された直後の前置きを 1 回にまとめる (docs/ai-handoff.md)
+test('kairos_begin: AIセッション を書き、タスク・本文・親子をまとめて返す。規約は読み直させない', async () => {
+  const { send, fw } = setup();
+  const { tokens } = await connect(send);
+  const t = tokens.access_token;
+  const init = await rpc(send, t, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
+  assert.match(init.json.result.instructions, /kairos_begin を1回/);
+  const list = (await rpc(send, t, 'tools/list', undefined, 2)).json.result.tools;
+  assert.ok(list.some((x) => x.name === 'kairos_begin'));
+  assert.doesNotMatch(list.find((x) => x.name === 'kairos_rules').description, /操作の前に一度読む/, '規約の読み直しを促さない');
+  fw.calls.length = 0;
+  const out = await tool(send, t, 'kairos_begin', { id: hex('1'), session: 'https://claude.ai/chat/abc-123' });
+  assert.equal(out.isError, false, out.text);
+  assert.deepEqual(fw.calls[0], { method: 'PATCH', path: `/api/data/pages/${hex('1')}`, body: { properties: { AIセッション: { url: 'https://claude.ai/chat/abc-123' } } } });
+  assert.ok(!fw.calls.some((c) => c.path === '/api/storage/agent'), '規約は取りに行かない');
+  const data = JSON.parse(out.text);
+  assert.equal(data.sessionSaved, true);
+  assert.equal(data.task['名前'], '検証');
+  assert.deepEqual([data.body, data['親'], data['サブアイテム'], data['先行タスク']], ['', [], [], []]);
+  assert.match(data.next, /kairos_rules の読み直しは不要/);
+  // session なしでも読める (URL が取れなかったとき)。書き込みはしない
+  fw.calls.length = 0;
+  const noUrl = JSON.parse((await tool(send, t, 'kairos_begin', { id: hex('1') })).text);
+  assert.equal(noUrl.sessionSaved, false);
+  assert.ok(!fw.calls.some((c) => c.method === 'PATCH'));
+  // https 以外は書かない
+  fw.calls.length = 0;
+  assert.equal((await tool(send, t, 'kairos_begin', { id: hex('1'), session: 'javascript:alert(1)' })).isError, true);
+  assert.equal(fw.calls.length, 0);
+});

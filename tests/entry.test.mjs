@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {initD1} from '../src/d1.js';
-import {classifyEntry,launchEntry,cloudRepo,parseUsageRows,weekStart,weeklyReport,launchAdd,launchRows} from '../src/launches.js';
+import {classifyEntry,launchEntry,cloudRepo,parseUsageRows,weekStart,weeklyReport,launchAdd,launchRows,launchStamp,startStats} from '../src/launches.js';
 // 2026-10-29: 🤖 の入口 (cloud/mac/cowork) の切り分け規則・打刻・週次集計
 const src=name=>readFileSync(new URL('../src/'+name,import.meta.url),'utf8');
 const sys={area:'自動化・システム',kind:'作業',env:[]};
@@ -71,6 +71,28 @@ test('打刻: D1 に 1 行ずつ残し、DB が無ければ何もしない',asyn
  assert.deepEqual(await launchAdd({},{taskId:'x',entry:'cloud'}),{ok:true,stored:0});
 });
 
+test('開始の打刻: AIセッション が入った時刻を直近の新規起動 1 行にだけ書き、開始所要時間の中央値を出す',async t=>{
+ const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
+ const DB={prepare(q){let a=[];return {bind(...v){a=v;return this;},async run(){return sql.prepare(q).run(...a);},async all(){return {results:sql.prepare(q).all(...a)};}};}};
+ // 表づくりはモジュールで 1 回だけなので (上のテストの DB で済んでいる)、ここでは同じ形の表を先に置く。列の追加 (ALTER) は下の本体API のテストが通る
+ sql.exec('CREATE TABLE launch_log(ts TEXT NOT NULL, day TEXT NOT NULL, task_id TEXT NOT NULL, entry TEXT NOT NULL, repo TEXT, mode TEXT, resume INTEGER NOT NULL DEFAULT 0, device TEXT, rule TEXT, session_at TEXT)');
+ const T=Date.parse('2026-11-14T06:00:00Z'),add=(taskId,at,extra={})=>launchAdd({DB},{taskId,entry:'mac',mode:'実行',resume:false,device:'mac',rule:'mac',now:at,...extra});
+ await add('aaaa-0001',T-5*3600000);            // 2 時間より前の起動には書かない
+ await add('aaaa-0001',T);                      // これに書く
+ await add('aaaa-0002',T,{resume:true});        // 前回の続きには書かない
+ await add('aaaa-0003',T,{device:'android'});
+ assert.equal((await launchStamp({DB},'aaaa-0001',T+38000)).stamped,1);
+ assert.equal((await launchStamp({DB},'aaaa-0001',T+90000)).stamped,0,'2 回目は書かない (最初に入った時刻を残す)');
+ assert.equal((await launchStamp({DB},'aaaa-0002',T+10000)).stamped,0);
+ assert.equal((await launchStamp({DB},'aaaa-0003',T+20000)).stamped,1);
+ assert.equal((await launchStamp({DB},'zzzz-9999',T)).stamped,0,'打刻の無いタスクは何もしない');
+ assert.deepEqual(await launchStamp({},'x'),{ok:true,stamped:0});
+ const rows=await launchRows({DB},0);
+ assert.deepEqual(rows.map(r=>[r.task_id,r.session_at]),[['aaaa0001',null],['aaaa0001','2026-11-14T06:00:38.000Z'],['aaaa0002',null],['aaaa0003','2026-11-14T06:00:20.000Z']]);
+ assert.deepEqual(startStats(rows),{all:{n:2,median:29,p90:38},mac:{n:1,median:38,p90:38},android:{n:1,median:20,p90:20}});
+ assert.deepEqual(startStats([{ts:'2026-11-14T06:00:00Z'}]),{},'打刻が無ければ空');
+});
+
 test('本体API: 🤖 で打刻、クラウドで の処理中節はクラウドだけ、実行環境が空のものを規則で埋める',async()=>{
  const ds='d'.repeat(32),ids=['a','b','c','e','f'].map(c=>c.repeat(32));
  const source=src('lab.js')+'\n'+src('d1.js').replace(/^import .*;$/gm,'')+'\n'+src('knowledge.js').replace(/^import .*;$/gm,'').replace(/^export /gm,'')+'\n'+src('icons.js').replaceAll('export const ', 'const ')+'\n'+src('launches.js').replace(/^export /gm,'')+'\n'+['APP_HTML','SW_JS','MANIFEST'].map((name,i)=>'const '+name+'='+JSON.stringify(src(['app.html','sw.txt','manifest.webmanifest'][i]))+';').join('\n')+'\nconst {isMcpPath,mcpRoute}=(()=>{'+src('mcp.js').replace(/^export /gm,'')+'\nreturn {isMcpPath,mcpRoute};})();\n'+src('index.js').replace(/^import .*\n/gm,'');
@@ -114,5 +136,15 @@ test('本体API: 🤖 で打刻、クラウドで の処理中節はクラウド
   assert.equal(wk.weeks.length,2);assert.equal(wk.weeks[1].launches.cloud,1);
   assert.equal(wk.weeks[1].lastUsagePct,12,'本文の表から週間% を拾う');assert.equal(wk.usageSamples,1);
   assert.equal((await api('/api/entry/rules')).data.version,1);
+  // 2026-11-14: AIセッション を書くと launch_log に開始の打刻が入る (kairos_begin・kairos_update・直接 PATCH が同じ道)
+  const patch=await mf.dispatchFetch('https://kairos.test/api/data/pages/'+ids[0],{method:'PATCH',headers:{Authorization:'Bearer test-only-token','Content-Type':'application/json'},body:JSON.stringify({properties:{AIセッション:{url:'https://claude.ai/chat/abc'}}})});
+  assert.equal(patch.status,200,await patch.clone().text());
+  const other=await mf.dispatchFetch('https://kairos.test/api/data/pages/'+ids[1],{method:'PATCH',headers:{Authorization:'Bearer test-only-token','Content-Type':'application/json'},body:JSON.stringify({properties:{ステータス:{status:{name:'進行中'}}}})});
+  assert.equal(other.status,200,await other.clone().text());
+  const log2=(await api('/api/entry/log?days=1')).data.rows;
+  assert.ok(log2.find(r=>r.task_id===ids[0]).session_at,'AIセッション を書いた行に打刻');
+  assert.equal(log2.find(r=>r.task_id===ids[1]).session_at,null,'ほかの列の更新では打刻しない');
+  const wk2=(await api('/api/entry/weekly?weeks=1')).data.weeks[0].startSec;
+  assert.equal(wk2.all.n,1);assert.equal(wk2.mac.n,1);
  }finally{await mf.dispose();}
 });

@@ -1083,9 +1083,13 @@
     return true;
   }
   const aiIcon = () => aiProvider === "claude" ? ICONS.claude : "🤖";
-  function storagePrompt(q) {
+  function storagePrompt(q, conn = false) {
     if (typeof window === "undefined" || window.KAIROS_STORAGE !== "d1" || q.includes("【保存先: Kairos D1】")) return q;
-    return q.replace(/Notion/g, "Kairos D1").replace(/(?:終わったら )?📻 Sessions に足跡を\s*1\s*行。/g, "作業記録はKairosタスクの本文に追記してください。") + "\n【保存先: Kairos D1】正本はKairosのD1です。Notionのコピーを更新しないでください。操作規約とAPIは " + location.origin + "/api/storage/agent を確認してください。APIの認証が使えない場合はユーザーに接続を依頼し、更新済みと報告しないでください。会話の足跡は終わるときKairosのsessionsに1件書いてください（NotionのSessionsは退役）。";
+    return q.replace(/Notion/g, "Kairos D1").replace(/(?:終わったら )?📻 Sessions に足跡を\s*1\s*行。/g, "作業記録はKairosタスクの本文に追記してください。") +
+      // conn=true (2026-11-14): Claude のチャットは Kairos コネクタ経由。規約は接続時の説明で届いているので読み直させない (開始までの往復を減らす)
+      (conn
+        ? "\n【保存先: Kairos D1】正本はKairosのD1です。Notionのコピーを更新しないでください。操作規約はKairosコネクタの説明に入っているので読み直しは不要です。コネクタが使えない場合はユーザーに接続を依頼し、更新済みと報告しないでください。会話の足跡は終わるときKairosのsessionsに1件書いてください（NotionのSessionsは退役）。"
+        : "\n【保存先: Kairos D1】正本はKairosのD1です。Notionのコピーを更新しないでください。操作規約とAPIは " + location.origin + "/api/storage/agent を確認してください。APIの認証が使えない場合はユーザーに接続を依頼し、更新済みと報告しないでください。会話の足跡は終わるときKairosのsessionsに1件書いてください（NotionのSessionsは退役）。");
   }
   function sessionProvider(url) {
     try {
@@ -1114,7 +1118,8 @@
     const handoff = provider === "claude-code"
       ? "Kairos から渡したので AI処理開始 が立っています。まずこのセッションの URL（claude.ai/code/…）をタスクの AIセッション に書いてください。"
       : provider === "claude"
-      ? 'Kairos から渡したので AI処理開始 が立っています。まず read_conversation("current") でこのチャットの URL を取り、タスクの AIセッション に書いてください。'
+      // 2026-11-14: 前置きを 2 往復に (1 手目で URL と道具、2 手目で kairos_begin)。以前は URL → AIセッション → 規約 → タスク の順で、中身を読むまで 3 往復かかっていた
+      ? 'Kairos から渡したので AI処理開始 が立っています。最初の1手で read_conversation("current") と Kairos の道具の読み込み（未読み込みなら kairos_begin・kairos_update・kairos_append_body・kairos_create・kairos_task_action を1回でまとめて）を同時に行い、次に kairos_begin へこのタスクの id とチャットの URL を渡してください。AIセッション の記録と、本文・親・サブタスク・先行の読み込みが1回で済みます。kairos_rules は読み直さないでください（kairos_begin が無いときだけ、kairos_update で AIセッション を書き kairos_get で読む）。'
       : 'Kairos からの依頼です。前のAIが途中まで処理した可能性があるため、現在のタスクを確認し、完了済みの登録や更新を重複実行しないでください。Kairosを更新できる場合は、実行を始めるときに AI処理開始 を記録し、このチャットのURLを取得できる場合は AIセッション に書いてください。必要な接続や操作規約を確認できない場合は質問し、実行していない操作を完了と報告しないでください。';
     return withExtra(t, "「" + t.name + "」" + ask + "（Kairos ✅ Tasks のタスク。ページ: " + page + " ）\n" + handoff + "完了・判断待ちで停止・失敗のいずれでも、終わるときに AI処理開始 を空にし、人の手が要って止まるなら ステータス を 人対応 にしてください＝操作規約 §11。");
   }
@@ -1126,7 +1131,7 @@
   }
   // 役割・見直し・依存など、任意の依頼文も同じアプリ選択を使う。
   function claudeLink(q) {
-    q = storagePrompt(q);
+    q = storagePrompt(q, aiProvider === "claude");
     if (aiProvider !== "claude") return handoffHref(q);
     const web = "https://claude.ai/new?q=" + encodeURIComponent(q);
     if (isAndroid) return "intent://claude.ai/new?q=" + encodeURIComponent(q) +
@@ -1181,7 +1186,7 @@
     const page = t.url || (location.origin + "/?page=" + t.id.replace(/-/g, ""));
     return storagePrompt(withExtra(t, mode === "update"
       ? `「${t.name}」の内容を見直して更新してください（期日・実行環境・説明・サブタスク分割など）。サブタスク基準に当たれば確認せずに分けてください。名前が話題止まりなら動詞＋成果物に直してください。前回の続きです。終わるときに AI処理開始 を空にしてください。（${page}）`
-      : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`));
+      : `「${t.name}」の続きを進めてください。前回の続きです。終わったら操作規約どおり完了処理、止まるなら 人対応 に。（${page}）`), aiProvider === "claude");
   }
   function copyPrompt(t, mode) {
     const s = aiPrompt(t, mode);

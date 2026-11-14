@@ -96,3 +96,15 @@ PR #6（e9af223）をローカルへ取得し、架空のタスクを返す読�
 - 打つたびにシートの 🤖 リンクを作り直す（アンカーの既定動作で飛ぶため）。先行チェーン込みの「進めてもらう」は順番を保つ。
 - 効くのは開いているシートのタスクだけ。シートを閉じる・別のタスクを開くと消え、端末には保存しない（依頼文を保存しない方針と同じ）。一覧の 🤖・スワイプ・長押しメニューからの起動には付かない。
 - Worker API と D1 の列は変えていない。`taskPrompt` と `aiPrompt` が `withExtra(t, 文面)` を通るだけ。
+
+## 2026-11-14 開始までの前置きを減らす（kairos-v131）
+
+🤖 を押してから受けた Claude がタスクの中身を読むまでに、前置きの往復が 3 回あった（URL を取る → AIセッション に書く → 規約とタスクを読む）。実測 1 件で、押下から最初の Kairos 書き込みまで 38 秒。画面側は押下の 0.5 秒後に打刻が済んでいて遅くなかった。
+
+- **`kairos_begin`（MCP）**: `id` と `session` を渡すと AIセッション を書き、プロパティ・本文・親・サブアイテム・先行タスクの名前と状態を 1 回で返す。規約は返さない。
+- **依頼文**: Claude のチャット向けは「最初の 1 手で `read_conversation("current")` と道具の読み込みを同時に → 次に `kairos_begin`」。`kairos_rules` は読み直さないと明記し、【保存先: Kairos D1】の `/api/storage/agent` の案内を外した（規約はコネクタ接続時の instructions で届いている）。ChatGPT／Antigravity と Claude Code のクラウド向けは従来のまま。
+- **`kairos_rules` の説明**: 「操作の前に一度読む」をやめ、通常は呼ばなくてよいと書いた。
+- **開始の打刻**: `PATCH /api/data/pages/:id` で AIセッション に URL が書かれたら、そのタスクの直近 2 時間以内の新規起動（resume でない）の `launch_log` 行に `session_at` を 1 回だけ書く。`kairos_begin`・`kairos_update`・クラウドからの直接 PATCH が同じ道を通る。打刻に失敗しても更新は返す。
+- **集計**: `GET /api/entry/log` の行に `session_at`、`GET /api/entry/weekly` の各週に `startSec`（`all` と端末別の `n`・`median`・`p90`、単位は秒）。
+
+見込みは 3 往復が 2 往復。効いたかは公開 1 週間後に `startSec` で確かめる。

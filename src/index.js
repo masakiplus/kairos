@@ -17,6 +17,7 @@
  *     &provider=<AIアプリ>&dev=android|mac|web を付けると、飛んだ入口 (cloud/mac/cowork) を D1 の launch_log に 1 行残す (2026-10-29)
  *   GET  /api/entry/rules  入口の切り分け規則 (launches.js)。POST /api/entry/fill?dry=1 実行環境が空の未完了を規則で埋める (夜間の棚卸し用)
  *   GET  /api/entry/weekly?weeks=4  入口別の本数と使用率ログの週間% を週ごとに。GET /api/entry/log?days=7 打刻の生の行
+ *        (2026-11-14) AIセッション が書かれた時刻を session_at に打刻し、weekly の startSec に開始所要時間 (秒) の中央値を出す
  *   POST /api/tasks/:id/done     完了チェック + 完了日=今日 + ステータス=完了 (Notion Tasks 操作規約 §4-1)
  *   POST /api/tasks/:id/reopen   done の取り消し (誤スワイプ用)
  *   POST /api/tasks/:id/skip     見送りで完了。done と同じ3点セット + 説明欄の先頭に「見送り (日付, PWA)」を残す
@@ -40,7 +41,7 @@
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
 import { tapsAdd, tapsReport } from "./taps.js";
-import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, launchAdd, launchRows, parseUsageRows, weeklyReport, weekStart } from "./launches.js";
+import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, launchAdd, launchRows, launchStamp, parseUsageRows, weeklyReport, weekStart } from "./launches.js";
 import { d1Notion, d1Task, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
 import { knowledgeRoute } from "./knowledge.js"; // 知識文書 (PRJ・archive・ref) のパス解決・早送りの門 (2026-10-29)
 import { isMcpPath, mcpRoute } from "./mcp.js";
@@ -1525,7 +1526,12 @@ const kairosWorker = {
       if (path.startsWith("/api/knowledge/")) return env.DATA_BACKEND === "d1" ? await knowledgeRoute(req, env, url, json) : json({ error: "Knowledge API needs the D1 backend" }, 409);
       if (path.startsWith("/api/data/") && env.DATA_BACKEND === "d1") {
         if (!(["GET", "POST", "PATCH"].includes(req.method) || (req.method === "DELETE" && path.startsWith("/api/data/blocks/")))) return json({ error: "method not allowed" }, 405);
-        return json(await d1Notion(env, path.slice('/api/data'.length) + url.search, { method: req.method, ...(req.method === "GET" ? {} : { body: await req.text() }) }));
+        const raw = req.method === "GET" ? null : await req.text();
+        const out = await d1Notion(env, path.slice('/api/data'.length) + url.search, { method: req.method, ...(raw === null ? {} : { body: raw }) });
+        // 開始の打刻 (2026-11-14): AIセッション が書かれたら launch_log の session_at へ。MCP の kairos_begin／kairos_update もクラウドの直接 PATCH もここを通る。打刻は補助なので失敗しても応答は返す
+        const sm = req.method === "PATCH" ? path.match(/^\/api\/data\/pages\/([0-9a-f-]{32,36})$/) : null;
+        if (sm) { try { if (JSON.parse(raw).properties?.["AIセッション"]?.url) await launchStamp(env, sm[1]); } catch (e) { /* 打刻は補助 */ } }
+        return json(out);
       }
       if (path.startsWith("/api/lab/")) return env.DATA_BACKEND === "d1" ? json({ error: "Legacy migration API is disabled after D1 cutover" }, 410) : await labRoute(req, env, url, json);
       if (path === "/api/tasks" && req.method === "GET") {
