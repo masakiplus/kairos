@@ -1054,9 +1054,9 @@ function passesView(t, view, today) {
     if (view === "phone") return t.env.some((x) => PHONE_ENV_NAMES.includes(x)) || t.env.includes("電話");
     if (view === "cloud") return t.env.includes(CLOUD_ENV);
     if (t.env.includes("早朝")) return !t.start || t.start.slice(0, 10) <= today; // 🌅 早朝向きは期日に関係なく渡す (開始日が先のものは除く。2026-10-15: 静かな時間の 🌅 節に全部並べる。昼間は画面が 7 日より先を落とす)
-    if (!t.due) return true;
-    const d = Math.round((Date.parse(t.due + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86_400_000);
-    return d >= 1 && d <= 7;
+    // 今日できる (2026-11-15): 期日の 7 日窓をやめて開始日で判定する。開始日が来ている (上で待機を除いた) うち、期日が今日より後か無いもの。
+    // 期日が今日以前は 今日やる 側。開始日が空のものも出すが、画面は「開始日なし（できるか未確認）」の節に分ける
+    return !t.due || t.due > today;
   }
   return true;
 }
