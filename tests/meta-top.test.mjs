@@ -15,11 +15,11 @@ test('画面: まとめてボタン (metaHtml) は各タブの一番上に置く
 });
 
 // 2026-11-15 位置づけの決め直し (docs/rules.md §9-2)。metaHtml とその部品だけを切り出して、タブごとのラベルと依頼文を見張る
-function harness({ provider = 'claude', filtered = false, quiet = false, roles = null } = {}) {
+function harness({ provider = 'claude', filtered = false, quiet = false, roles = null, blockMorning = false } = {}) {
   const pick = (from, to) => html.slice(html.indexOf(from), html.indexOf(to, html.indexOf(from)));
   const src = pick('  const META_TAIL = ', '  // ---- いまの状況') + pick('  function metaList(v, ts) {', '  // 📁 PJ を選んだときの 2 ボタン') +
     '\n  function taskLines(ts, n = 12) { const a = ts.slice(0, n).map((t, i) => `${i + 1}. ${t.name}（${t.url}）`); return a.join("、") + (ts.length > n ? `、…ほか ${ts.length - n} 件` : ""); }';
-  const tasks = Array.from({ length: 23 }, (_, i) => ({ name: 'タスク' + (i + 1), url: 'https://k.test/?page=' + i, done: false, env: i === 0 ? ['早朝'] : [], blocked: false }));
+  const tasks = Array.from({ length: 23 }, (_, i) => ({ name: 'タスク' + (i + 1), url: 'https://k.test/?page=' + i, done: false, env: i === 0 ? ['早朝'] : [], blocked: blockMorning && i === 0 }));
   const context = {
     tasks, aiProvider: provider, filt: {}, filterOn: () => filtered, aiName: () => 'Claude', aiIcon: () => '🤖', claudeLink: (q) => 'Q:' + encodeURIComponent(q),
     currentSit: () => ({ quiet, place: '自宅', tools: ['スマホ'], morning: quiet }), TOOL_LABEL: { 'スマホ': 'スマホ' },
@@ -83,4 +83,10 @@ test('タップ計測: まとめてボタンを meta:<タブ> で数える', () 
   assert.match(html, /if \(b\.dataset\.meta\) return "meta:" \+ b\.dataset\.meta;/);
   assert.match(html, /closest\("button, a\[data-ai\], a\[data-meta\]"\)/);
   assert.match(html, /data-ext data-meta="prep"/);
+});
+
+test('早朝の窓でも、早朝タグのものが全部先行待ちなら早朝のボタンにしない (候補が空のまま渡さない)', () => {
+  const b = harness({ quiet: true, blockMorning: true }).out('today');
+  assert.equal(b.key, 'today'); assert.equal(b.label, 'Claude とまとめて進める');
+  assert.doesNotMatch(harness({ quiet: true }).out('can').q, /候補: \n/);
 });

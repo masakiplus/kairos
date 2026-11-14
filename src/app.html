@@ -1662,8 +1662,9 @@
   function metaHtml(v) {
     const ts = tasks.filter((t) => !t.done);
     const ai = aiName(), skill = aiProvider === "claude";
-    if ((v === "today" || v === "can") && currentSit().quiet && ts.some((t) => t.env.includes("早朝"))) {
-      const mr = ts.filter((t) => t.env.includes("早朝") && !t.blocked);
+    // 早朝の候補は「早朝タグつき・先行待ちでない」もの。1 件も無ければ (全部が先行待ち) 早朝のボタンにせず、タブ本来のボタンを出す (2026-11-15: 候補が空のまま渡っていた)
+    const mr = (v === "today" || v === "can") && currentSit().quiet ? ts.filter((t) => t.env.includes("早朝") && !t.blocked) : [];
+    if (mr.length) {
       return metaBtn("morning", ai + " と早朝の 1 本を進める", "1 件に絞って、そのまま進める",
         `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めて、実際に進めてください。候補: ${taskLines(mr)}\n\n進め方\n${metaSteps(["候補を自分で調べて 1 件に絞る（迷うときだけ 2 択で聞く）。選んだものは ⭐ 今日の3つ に入れ、残りは触らない。", "家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にする。", ...META_EXEC()])}`);
     }
