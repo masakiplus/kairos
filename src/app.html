@@ -231,7 +231,7 @@
   .rc .stone .ss.done{color:#34a853}.rc .stone .ss.doing{color:#0a84ff}.rc .stone .ss.todo{color:var(--mute)}
   .rc .stone.put{border:1.5px dashed var(--ring);background:transparent;color:var(--acc);font-size:15px;font-weight:600}
   .rc .stone.put small{margin-left:auto;font-size:12px;color:var(--mute);font-weight:400;white-space:nowrap}
-  /* 各タブの「全体を見返す」メタ操作 (2026-10-10 利用者の提案)。2026-11-14 に一覧の末尾から各タブの一番上へ移した (利用者「まとめて棚卸しするボタンは各タブの一番上におく」)。上に置くものは .meta.top */
+  /* 各タブ先頭の「まとめて進める／まとめて片付ける」ボタン (2026-10-10 利用者の提案。位置づけは 2026-11-15 に決め直した)。2026-11-14 に一覧の末尾から各タブの一番上へ移した (利用者「まとめて棚卸しするボタンは各タブの一番上におく」)。上に置くものは .meta.top */
   .meta{margin-top:4px}
   .meta.top{margin-top:0}
   .meta a{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;background:var(--card);color:var(--fg);font-size:15px;font-weight:600;text-decoration:none;box-shadow:var(--shadow)}
@@ -1002,6 +1002,7 @@
   // 📊 ボタンのタップ計測 (2026-10-20): シート・一覧のボタンを日×ボタン名で数え、まとめて /api/taps へ送る。配置の見直し (使用頻度順) の根拠にする。失敗しても操作には影響させない
   const tapQ = new Map();
   const tapKey = (b) => {
+    if (b.dataset.meta) return "meta:" + b.dataset.meta; // タブ先頭のまとめてボタン (2026-11-15)。使われないタブのボタンを外す根拠にする
     if (b.closest("#sheet")) {
       const d = b.dataset;
       if (d.a) return "sheet:" + d.a;
@@ -1023,7 +1024,7 @@
     try { fetch("/api/taps", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {}); } catch (e) {}
   };
   document.addEventListener("click", (e) => {
-    const el = e.target && e.target.closest ? e.target.closest("button, a[data-ai]") : null;
+    const el = e.target && e.target.closest ? e.target.closest("button, a[data-ai], a[data-meta]") : null;
     if (!el || el.disabled) return;
     const k = tapKey(el); if (!k) return;
     tapQ.set(k, (tapQ.get(k) || 0) + 1);
@@ -1529,12 +1530,24 @@
     // 横長で今日やるに入ったときは、いまの1つの詳細を右に開いておく (デザイン: いまの1枚＋詳細)
     if (focus && viewChanged && WIDE.matches && $("#sheetWrap").hidden) openSheet(focus, today);
   }
-  // 各タブの一番下: そのタブ全体を Claude と見返すメタ操作 (2026-10-10)。1 件ずつの 🤖 とは別に「一覧ごと」渡す。文面は URL に乗せるので 12 件まで
+  // 一覧を依頼文に貼るときの書き方 (絞り込み中・Claude 以外の AI アプリ・早朝の候補)。文面は URL に乗せるので 12 件まで
   function taskLines(ts, n = 12) {
     const a = ts.slice(0, n).map((t, i) => `${i + 1}. ${t.name}（${t.url}）`);
     return a.join("、") + (ts.length > n ? `、…ほか ${ts.length - n} 件` : "");
   }
-  const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Kairos を更新し、作業記録は関連タスクの本文に追記してください。";
+  const META_TAIL = "判断は一問一答で 1 件ずつ聞いてください。決まったものから操作規約どおり Kairos を更新し、作業記録は関連タスクの本文に追記してください。"; // PJ ごとの「進める」ボタン (pjActHtml) 用。タブ先頭のボタンは META_EXEC／META_TIDY (2026-11-15)
+  const META_ASK = "私に聞くのは本人にしか決められないものだけ。1 問ずつ、短い問い＋選択肢 2〜4 個（推奨を先頭に、各 1 行の理由）で出し、番号で答えられるようにする。削除・見送り・支払い・送信など戻しにくい操作は必ず私に選ばせる。";
+  const META_REPORT = "操作規約どおり Kairos を更新し、作業記録は関連タスクの本文に追記する。最後に「片付けたもの／人対応にしたもの（次の 1 手つき）／手を付けなかったもの（理由）」を一覧で見せる。";
+  const META_EXEC = () => [
+    `1 件ずつ、行の 🤖 で渡されたときと同じ扱いで進める（最初に ${aiProvider === "claude" ? "kairos_begin" : "AIセッション の記録"}、サブタスク基準に当たれば分けて最初の子だけ、成果は本文、終わりに完了か 人対応 にして AI処理開始 を空に）。`,
+    "AI だけで終わるものは終わらせて完了処理する。",
+    "本人の手が要るものは、下調べ・下書き・段取りなど AI にできる所まで進め、本人が次にやる 1 手を本文に書いて 人対応 にする。",
+    META_ASK, META_REPORT,
+  ];
+  const META_TIDY = () => [
+    "機械的に直せるもの（済んでいるものの完了、重複、日付・ステータスの不整合）は聞かずに直す。戻せる操作（起票・本文への追記・日付や順番の変更）は確認せずに進める。",
+    META_ASK, META_REPORT,
+  ];
   // ---- いまの状況 (2026-10-12, OmniFocus のタグ／パースペクティブの「端末に応じて切り替わる」版) ----
   // 実行環境 の選択肢を 4 軸に読む (👥 相手 は 2026-10-12。「〜と」で終わる選択肢＝その人と一緒のときにできる)。タグが付いている軸ごとに 1 つ以上が今の状況と合えば「いまできる」。タグが無い軸は不問
   const SIT_AXES = { place: ["自宅", "職場", "外出"], tool: ["Mac", PHONE_ENV, "電話", "紙・郵送"], time: ["早朝"] }; // tool[1] はスマホ (Worker から来た名前で差し替わる)
@@ -1636,50 +1649,76 @@
     draw();
     $("#sheetWrap").hidden = false; $("#sheet").style.transform = ""; $("#sheet").scrollTop = 0; sheetStep = null; if (!history.state || !history.state.sheet) history.pushState({ sheet: true }, "");
   }
+  // 各タブの一番上: そのタブをまとめて AI に渡す入口 (2026-11-15 に位置づけを決め直した。docs/rules.md §9-2)。
+  // 行の 🤖 が 1 件を進めるボタン、ここはタブ 1 枚をさばくボタン。今日やる・今日できる は実行まで、ほかは「AI が先に片付け、本人にしか決められないものだけ聞く」。
+  // 同じ用途のスキルがあるタブ (PJ別・役割・決める) は手順を書かずスキルを呼ぶだけにする (手順の正本をスキル側 1 か所に)。スキルを持たない AI アプリには従来の文面を渡す
+  // 一覧の渡し方: Claude は Kairos コネクタで画面と同じ一覧を自分で読める (12 件で切れない)。絞り込み中と、ほかの AI アプリには従来どおり名前と URL を貼る
+  function metaList(v, ts) {
+    if (aiProvider === "claude" && !filterOn(filt)) return `対象: Kairos コネクタの kairos_list_tasks（view=${v}）で読める一覧（いま ${ts.length} 件）。ここには貼っていないので、最初に自分で読んでください。`;
+    return `対象 ${ts.length} 件: ${taskLines(ts)}`;
+  }
+  function metaBtn(key, label, sub, q) { return `<div class="meta top"><a href="${claudeLink(q)}" data-ext data-meta="${key}">${aiIcon()} ${label}</a><small>${sub}</small></div>`; }
+  function metaSteps(a) { return a.map((x, i) => `${i + 1}. ${x}`).join("\n"); } // numbered は後ろで定義される const なので、最初の描画から使えるよう関数宣言で持つ
   function metaHtml(v) {
     const ts = tasks.filter((t) => !t.done);
-    let label = "", sub = "", q = "";
+    const ai = aiName(), skill = aiProvider === "claude";
     if ((v === "today" || v === "can") && currentSit().quiet && ts.some((t) => t.env.includes("早朝"))) {
       const mr = ts.filter((t) => t.env.includes("早朝") && !t.blocked);
-      label = aiName() + " と早朝の 1 本を決める"; sub = "時間をかける 1 件に絞って段取り";
-      q = `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めたいです。候補: ${taskLines(mr)}。1 件に絞り、家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にして、段取りを 3 ステップで組んでください。選んだものは ⭐ 今日の3つ に入れ、残りは触らないでください。${META_TAIL}`;
-      return `<div class="meta top"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
+      return metaBtn("morning", ai + " と早朝の 1 本を進める", "1 件に絞って、そのまま進める",
+        `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めて、実際に進めてください。候補: ${taskLines(mr)}\n\n進め方\n${metaSteps(["候補を自分で調べて 1 件に絞る（迷うときだけ 2 択で聞く）。選んだものは ⭐ 今日の3つ に入れ、残りは触らない。", "家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にする。", ...META_EXEC()])}`);
     }
     if (v === "today") {
       if (!ts.length) return "";
-      label = aiName() + " と今日の段取りを決める"; sub = "やる順・明日へ・見送り を 1 件ずつ";
-      q = `今日やるタスク ${ts.length} 件の段取りを決めたいです: ${taskLines(ts)}。各件について「今日やる（順番）／明日へ／週末に／見送りで完了／家族に委任」を決め、やるものは ⭐ 今日の3つ を 3 件まで選んでください。${META_TAIL}`;
-    } else if (v === "can") {
+      const S = currentSit();
+      return metaBtn("today", ai + " とまとめて進める", "上から順に実行。人の手が要るものは次の 1 手を書いて人対応に",
+        `Kairos「今日やる」のタスクを、上から順に実際に進めてください。順番や明日へ回すかは聞かずに着手してください。\n\n${metaList("today", ts)}\nいまの状況: ${S.place}・${S.tools.map((x) => TOOL_LABEL[x] || x).join("・")}${S.morning ? "・早朝" : ""}\n\n進め方\n${metaSteps(META_EXEC())}`);
+    }
+    if (v === "can") {
       if (!ts.length) return "";
-      label = aiName() + " と前倒しを選ぶ"; sub = "今日に引き上げるものを決める";
-      q = `今日できる（前倒し候補）${ts.length} 件から、今日に引き上げるものを決めたいです: ${taskLines(ts)}。空き時間と重要度を聞いて 1〜3 件に絞り、選んだものは 開始日 を今日にし、残りはそのままで構いません。${META_TAIL}`;
-    } else if (v === "doing") {
+      return metaBtn("can", ai + " と選んで進める", "今やる価値があるものを選び、そのまま実行",
+        `Kairos「今日できる」（前倒し候補）から、今やるべきものを決めて、実際に進めてください。\n\n${metaList("can", ts)}\n\n進め方\n${metaSteps(["一覧を読み、AI だけで終わるもの・期日が近いもの・後続を塞いでいるものを優先して、多くて 5 件選ぶ。", "選んだものを理由つきで 1 回だけ見せ（「この N 件を進めます。外すものがあれば番号で」）、返事を待たずに AI だけで終わるものから着手する。外すと言われたものは止める。", "手を付けたものは 開始日 を今日にする。選ばなかったものは触らない。", ...META_EXEC()])}`);
+    }
+    if (v === "doing") {
       if (!ts.length) return "";
-      label = aiName() + " と WIP を整理する"; sub = "本当に進行中か、戻すか、任せるか";
-      q = `着手中（進行中・人対応）${ts.length} 件を整理したいです: ${taskLines(ts)}。各件について「続ける／未着手に戻す／待ちにする（相手）／🤖 で進める／完了」を決めてください。同時に進めるのは 10 件までが目安です。${META_TAIL}`;
-    } else if (v === "project") {
+      return metaBtn("doing", ai + " とまとめて片付ける", "終わっているものを閉じ、続ける・戻すだけ聞く",
+        `Kairos「着手中」（進行中・人対応）をまとめて片付けたいです。同時に進めるのは 10 件までが目安です。\n\n${metaList("doing", ts)}\n\n進め方\n${metaSteps(["各件の本文と AIセッション の結末を読み、実は終わっているものは完了処理する。", "人対応 のものは、本人が次にやる 1 手を本文に 1 行で書く。", "「続ける／未着手に戻す／待ちにする（相手）／🤖 で進める」が割れるものだけ聞く。", ...META_TIDY()])}`);
+    }
+    if (v === "project") {
       const ps = (projInfo || []).filter((p) => !p.closable);
       if (!ps.length) return "";
-      label = aiName() + " と PJ を棚卸しする"; sub = "ゴール・次の一手・順番";
       const lines = ps.slice(0, 12).map((p, i) => `${i + 1}. ${p.label}（${p.url}${p.goal ? "" : "、ゴール未記入"}${p.unordered ? "、順番未整理" : ""}${p.stalled ? "、次のアクションなし" : ""}）`).join("、") + (ps.length > 12 ? `、…ほか ${ps.length - 12} 件` : "");
-      q = `進行中のプロジェクト ${ps.length} 件を棚卸ししたいです: ${lines}。PJ ごとに「対応ゴールは妥当か／次のアクションは 1 件決まっているか／タスクの順番（先行タスク）は整理されているか／保留やクローズにしないか」を確認してください。Projects に書くのは ステータス、Tasks には 先行タスク・開始日・期日 だけ。${META_TAIL}`;
-    } else if (v === "delegated") {
+      return metaBtn("project", ai + " とまとめて片付ける", "PJ の棚卸し（ゴール・次の一手・順番）",
+        skill ? `projects-qa-review スキルで、Kairos の進行中のプロジェクト ${ps.length} 件を棚卸ししてください。進め方はスキルのとおりです（ここには書きません）。`
+          : `進行中のプロジェクト ${ps.length} 件を棚卸ししたいです: ${lines}。PJ ごとに「対応ゴールは妥当か／次のアクションは 1 件決まっているか／タスクの順番（先行タスク）は整理されているか／保留やクローズにしないか」を確認してください。Projects に書くのは ステータス、Tasks には 先行タスク・開始日・期日 だけ。\n\n進め方\n${metaSteps(META_TIDY())}`);
+    }
+    if (v === "delegated") {
       if (!ts.length) return "";
-      label = aiName() + " と委任を確認する"; sub = "進み具合と声のかけ方";
-      q = `家族に委任中のタスク ${ts.length} 件を確認したいです: ${taskLines(ts)}。担当ごとに「終わっていそうか／声をかける文面（1〜2 行）／自分に戻すか」を決め、終わったものは完了処理、戻すものは 担当 を外してください。${META_TAIL}`;
-    } else if (v === "roles") {
-      label = aiName() + " と週次役割レビュー"; sub = "今週の石の達成と来週の石";
-      q = `週次の役割レビューをお願いします。Kairos 🧭 Roles（${rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB"}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。作業記録は関連タスクの本文に追記してください。`;
-    } else if (v === "review") {
+      return metaBtn("delegated", ai + " とまとめて片付ける", "委任の進み具合と声のかけ方",
+        `Kairos「委任」（家族に委任中のタスク）をまとめて片付けたいです。\n\n${metaList("delegated", ts)}\n\n進め方\n${metaSteps(["担当ごとに、本文や関連の記録から終わっていそうかを先に調べ、終わっているものは完了処理する。", "声をかけるものは、Telegram にそのまま貼れる文面（1〜2 行）を用意する（担当者は Kairos を使っていない前提）。", "自分に戻すか迷うものだけ聞き、戻すものは 担当 を外す。", ...META_TIDY()])}`);
+    }
+    if (v === "roles") {
+      const roleList = (rolesData && rolesData.roles) || [], s = (rolesData && rolesData.summary) || {};
+      const db = rolesData && rolesData.dsUrl ? rolesData.dsUrl : "役割の DB";
+      // 全役割に石が置いてあり、まだ達成しきっていない週は「決め直す」ではなく「進み具合を見る」(日曜の統合棚卸しと二重に走って空振りした 2026-11-08 の再発防止)
+      if (roleList.length && roleList.every((r) => r.stone) && (s.done || 0) < (s.total || 0))
+        return metaBtn("roles-progress", ai + " と今週の石の進み具合を見る", `今週の石 ${s.total} 本は決まっています。進めるだけ`,
+          `Kairos 🧭 Roles（${db}）の今週の石（今週の目標）は全役割で決まっています。石は決め直さず、進み具合だけ確認してください。\n\n進め方\n${metaSteps(["各役割の石のタスクの状態と本文を読み、終わっているものは完了処理する。", "未着手・止まっている石は、AI にできる所まで進め、本人が次にやる 1 手を本文に書く。", "達成済みの役割だけ、次の石を" + (skill ? " weekly-role-review スキルの手順で" : "一問一答で") + "決める。", META_ASK, META_REPORT])}`);
+      return metaBtn("roles", ai + " とまとめて片付ける", "週次役割レビュー（今週の石の達成と来週の石）",
+        skill ? `weekly-role-review スキルで、週次の役割レビューをお願いします（Kairos 🧭 Roles: ${db}）。進め方はスキルのとおりです（ここには書きません）。`
+          : `週次の役割レビューをお願いします。Kairos 🧭 Roles（${db}）の各役割について、今週の目標（今週の石）の達成を確認し、来週の石を役割ごとに 1 つ一問一答で決めて、今週の目標 に「〜M/D：<タスク名> → Tasks <page_id>」の書式で書き直してください。石は必ず ✅ Tasks の既存タスク（無ければ起票）に紐づけること。作業記録は関連タスクの本文に追記してください。`);
+    }
+    if (v === "review") {
       const qs = reviewAll();
-      label = qs.length ? aiName() + " と残りをまとめて片付ける" : aiName() + " と Decisions を見直す";
-      sub = qs.length ? `残り ${qs.length} 問。調べてわかることは聞かず、選択肢だけ出してもらう` : "提案中・提示済みの未決を、選ぶだけの形にしてもらう";
-      const steps = numbered([...REVIEW_POLICY, `その場で決めきれない未決は、Decisions の 問い の末尾に選択肢を書いて残す（Kairos の決めるタブでタップで選べる）: ${OPT_FORMAT}`]);
-      q = qs.length
-        ? `Kairos「決める」の残り ${qs.length} 問を片付けたいです。\n\n進め方\n${steps}\n\n問い\n${reviewItems(qs)}`
-        : `Kairos 🧠 Decisions の 提案中・提示済み の未決を、古いものから見直したいです。\n\n進め方\n${steps}`;
-    } else return "";
-    return `<div class="meta top"><a href="${claudeLink(q)}" data-ext>${aiIcon()} ${label}</a><small>${sub}</small></div>`;
+      const label = qs.length ? ai + " と残りをまとめて片付ける" : ai + " と未決をまとめて片付ける";
+      const sub = qs.length ? `残り ${qs.length} 問。調べてわかることは聞かず、選択肢だけ出してもらう` : "提案中・提示済みの未決を、選ぶだけの形にしてもらう";
+      const steps = metaSteps([...REVIEW_POLICY, `その場で決めきれない未決は、Decisions の 問い の末尾に選択肢を書いて残す（Kairos の決めるタブでタップで選べる）: ${OPT_FORMAT}`]);
+      const how = skill ? "進め方はスキルのとおりです（ここには書きません）: 未決と答え合わせは decisions-qa-review、クローズ候補は projects-qa-review、繰り越しは tasks-qa-review。" : `進め方\n${steps}`;
+      return metaBtn("review", label, sub, qs.length
+        ? `Kairos「決める」の残り ${qs.length} 問を片付けたいです。\n\n${how}\n\n問い\n${reviewItems(qs)}`
+        : skill ? "decisions-qa-review スキルで、Kairos 🧠 Decisions の 提案中・提示済み の未決を、古いものから片付けてください。進め方はスキルのとおりです（ここには書きません）。"
+          : `Kairos 🧠 Decisions の 提案中・提示済み の未決を、古いものから見直したいです。\n\n進め方\n${steps}`);
+    }
+    return "";
   }
   // 📁 PJ を選んだときの 2 ボタン (2026-11-06): 閉じる ／ 進める(Claude に渡す)。閉じる候補では「閉じる」を主ボタンにする
   function pjActHtml(p, ts) {
@@ -2000,7 +2039,7 @@ ${reviewItems(ver, 12)}`);
   function reviewPrepHtml() {
     const ps = reviewPrep(); if (!ps.length) return "";
     return `<div class="rvn"><h2>🔎 AI が先に調べる<small>${ps.length} 件 · 選択肢ができたらカードになる</small></h2>
-      <div class="meta" style="margin:0 0 8px"><a href="${claudeLink(reviewPrepPrompt(ps))}" data-ext>${aiIcon()} ${aiName()} にまとめて下ごしらえを頼む</a><small>調べてわかることは聞かず、明らかな答え合わせは閉じ、残りは選択肢と推奨だけ用意してもらう</small></div>
+      <div class="meta" style="margin:0 0 8px"><a href="${claudeLink(reviewPrepPrompt(ps))}" data-ext data-meta="prep">${aiIcon()} ${aiName()} にまとめて下ごしらえを頼む</a><small>調べてわかることは聞かず、明らかな答え合わせは閉じ、残りは選択肢と推奨だけ用意してもらう</small></div>
       <div class="group">${ps.slice(0, reviewShowAll ? 40 : 6).map((n) => `<div data-rvpick="${n.id}${n.kind}"><span>${esc(n.name || n.q)}</span><small style="flex:none;color:var(--mute)">${n.kind === "verify" ? "🔍 " : ""}今決める ›</small></div>`).join("")}</div></div>`;
   }
   function reviewWhy(q) {
