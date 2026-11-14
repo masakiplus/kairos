@@ -25,7 +25,7 @@ test('漢字 SRS: 紗綾の規則 (紙の srs_mark と同じ)', () => {
   assert.deepEqual(applyGrade('saya', null, 'ok', T), {stage: 1, due: '2026-11-10', shown: 0});
   assert.deepEqual(applyGrade('saya', {stage: 3, due: '2026-11-01', shown: 4}, 'ng', T), {stage: 1, due: '2026-11-10', shown: 0, last_miss: T});
   assert.deepEqual(applyGrade('saya', {stage: 4, due: T, shown: 0}, 'ok', T), {stage: 5, due: null, shown: 0});
-  assert.deepEqual(applyGrade('saya', {stage: 2, due: T, shown: 2}, 'hint', T), {stage: 2, due: '2026-11-08', shown: 0});
+  assert.deepEqual(applyGrade('saya', {stage: 2, due: T, shown: 2}, 'hint', T), {stage: 2, due: '2026-11-08', shown: 0, last_hint: T});
   assert.equal(kanjiNorm('saya', '決める'), '決');
   assert.equal(kanjiNorm('akito', 'ア'), 'ア');
 });
