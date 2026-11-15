@@ -828,13 +828,13 @@
   const ADD_TABS = {
     today: { ph: "今日やるを1件（期日=今日）", note: "期日=今日" },
     can: { ph: "今日できるを1件（開始日=今日）", note: "" },
-    doing: { ph: "いま着手しているものを1件（進行中）", note: "進行中" },
+    doing: { ph: "着手中のものを1件", note: "進行中" },
     delegated: { ph: "任せるタスクを1件", note: "" },
     shop: { ph: "買うものを1件（種類=購入）", note: "買い物" },
-    project: { ph: "PJ の ＋ から足すと紐づきます（ここからは Inbox）", note: "" },
-    review: { ph: "決めたいことを1件（〜するか の形で）", note: "" },
-    habits: { ph: "続けたい習慣を1件（提案中で入ります）", note: "" },
-    roles: { ph: "今週の石にするタスクを1件", note: "" },
+    project: { ph: "Inbox へ1件（PJ の＋で紐づく）", note: "" },
+    review: { ph: "「〜するか」を1件", note: "" },
+    habits: { ph: "習慣を1件（提案中）", note: "" },
+    roles: { ph: "今週の石を1件", note: "" },
   };
   let addOwner = null; try { addOwner = localStorage.getItem("addOwner") || null; } catch (e) {}
   let addRole = null; try { addRole = localStorage.getItem("addRole") || null; } catch (e) {}
@@ -3018,7 +3018,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
   function addPlaceholder() {
     if (addProject) return "この PJ の次のアクションを1件";
     if (view === "delegated") { const o = curAddOwner(); return o ? `${o} に任せるタスクを1件` : "担当の選択肢がありません"; }
-    if (view === "roles") { const r = curAddRole(); return r ? `${r.name} の今週の石にするタスクを1件` : "役割を読み込み中…"; }
+    if (view === "roles") { const r = curAddRole(); return r ? "今週の石を1件" : "役割を読み込み中…"; } // 役割名は 🧭 チップに出るので案内文には入れない（375px で切れていた。2026-11-16）
     return (ADD_TABS[view] || {}).ph || "タイトルだけで追加";
   }
   function syncAddBar() {
