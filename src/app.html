@@ -1399,7 +1399,7 @@
         <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
         <div class="body">
           <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
-          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${view === "can" && !t.start && !t.done && !t.blocked ? `<button type="button" class="stn" data-startnow aria-label="開始日を今日にする">▶ 今日から</button>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}${doingCtx ? doingChips(t) : ""}</div>${doingCtx && nextStep(t) ? `<div class="nx">→ ${esc(nextStep(t))}</div>` : ""}
+          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${view === "can" && !t.start && !t.done && !t.blocked && !t.aiActive ? `<button type="button" class="stn" data-startnow aria-label="開始日を今日にする">▶ 今日から</button>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}${doingCtx ? doingChips(t) : ""}</div>${doingCtx && nextStep(t) ? `<div class="nx">→ ${esc(nextStep(t))}</div>` : ""}
         </div>
         ${t.aiActive && sessionProvider(t.aiSession)
           ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="AI のセッションを開く" data-sess>💬</a>`
@@ -1683,11 +1683,11 @@
   function metaHtml(v) {
     const ts = tasks.filter((t) => !t.done);
     const ai = aiName(), skill = aiProvider === "claude";
-    // 早朝の候補は「早朝タグつき・先行待ちでない」もの。1 件も無ければ (全部が先行待ち) 早朝のボタンにせず、タブ本来のボタンを出す (2026-11-15: 候補が空のまま渡っていた)
+    // 静かな時間 (22:00〜05:59) の候補は「早朝タグつき・先行待ちでない」もの。ボタンの呼び名は 2026-11-16 に「早朝の 1 本」→「静かな時間の 1 本」(深夜にも出るため)。1 件も無ければ (全部が先行待ち) 早朝のボタンにせず、タブ本来のボタンを出す (2026-11-15: 候補が空のまま渡っていた)
     const mr = (v === "today" || v === "can") && currentSit().quiet ? ts.filter((t) => t.env.includes("早朝") && !t.blocked) : [];
     if (mr.length) {
-      return metaBtn("morning", ai + " と早朝の 1 本を進める", "1 件に絞って、そのまま進める",
-        `早朝（家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めて、実際に進めてください。候補: ${taskLines(mr)}\n\n進め方\n${metaSteps(["候補を自分で調べて 1 件に絞る（迷うときだけ 2 択で聞く）。選んだものは ⭐ 今日の3つ に入れ、残りは触らない。", "家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にする。", ...META_EXEC()])}`);
+      return metaBtn("morning", ai + " と静かな時間の 1 本を進める", "家族が寝ている間に 1 件に絞って、そのまま進める",
+        `静かな時間（深夜・早朝。家にいて家族は起きていない・音は出せない・時間はかけられる）に取り組む 1 本を決めて、実際に進めてください。候補: ${taskLines(mr)}\n\n進め方\n${metaSteps(["候補を自分で調べて 1 件に絞る（迷うときだけ 2 択で聞く）。選んだものは ⭐ 今日の3つ に入れ、残りは触らない。", "家族に相談が要るものは「相談できる状態にする準備」までを今朝の範囲にする。", ...META_EXEC()])}`);
     }
     if (v === "today") {
       if (!ts.length) return "";
