@@ -72,11 +72,11 @@ test('役割: 全役割に石があり未達成が残る週は「進み具合を
   assert.equal(harness({ roles: alldone }).out('roles').key, 'roles');
 });
 
-test('絞り込み中と Claude 以外には一覧を貼る。早朝の窓は「早朝の 1 本を進める」', () => {
+test('絞り込み中と Claude 以外には一覧を貼る。静かな時間の窓は「静かな時間の 1 本を進める」', () => {
   assert.match(harness({ filtered: true }).out('today').q, /対象 23 件: 1\. タスク1（/);
   assert.match(harness({ provider: 'chatgpt' }).out('doing').q, /対象 23 件: 1\. タスク1（/);
   const m = harness({ quiet: true }).out('today');
-  assert.equal(m.key, 'morning'); assert.equal(m.label, 'Claude と早朝の 1 本を進める'); assert.match(m.q, /実際に進めてください/);
+  assert.equal(m.key, 'morning'); assert.equal(m.label, 'Claude と静かな時間の 1 本を進める'); assert.match(m.q, /実際に進めてください/);
 });
 
 test('タップ計測: まとめてボタンを meta:<タブ> で数える', () => {

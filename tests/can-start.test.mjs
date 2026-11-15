@@ -38,5 +38,6 @@ test('起票時の開始日の既定',()=>{
 test('画面: 開始日なし 節と 今日から チップ',()=>{
  assert.match(html,/"nost", tasks\.filter\(\(t\) => !t\.start\)/);
  assert.match(html,/data-startnow/);
+ assert.match(html,/!t\.start && !t\.done && !t\.blocked && !t\.aiActive \?/,'AI 処理中のカードには出さない');
  assert.match(html,/async function startNow\(t\)/);
 });
