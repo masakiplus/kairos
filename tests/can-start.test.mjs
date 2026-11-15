@@ -41,3 +41,15 @@ test('画面: 開始日なし 節と 今日から チップ',()=>{
  assert.match(html,/!t\.start && !t\.done && !t\.blocked && !t\.aiActive \?/,'AI 処理中のカードには出さない');
  assert.match(html,/async function startNow\(t\)/);
 });
+test('開始日なし の一覧 (nostart, 2026-11-16)',()=>{
+ assert.equal(passesView({...base,start:null,due:'2026-11-10'},'nostart',today),true,'期日が過ぎていても出す');
+ assert.equal(passesView({...base,start:null,status:'待ち'},'nostart',today),true,'待ちも出す');
+ assert.equal(passesView({...base,start:null,blocked:true},'nostart',today),true,'先行待ちも出す');
+ assert.equal(passesView({...base,due:null},'nostart',today),false,'開始日があれば出さない');
+ assert.equal(passesView({...base,start:null,owner:'妻'},'nostart',today),false,'委任中は出さない');
+ assert.equal(passesView({...base,start:null,done:true},'nostart',today),false);
+ assert.match(idx,/nostart: \{\n    filter: \{ and: \[NOT_DONE, \{ property: "開始日", date: \{ is_empty: true \} \}\] \}/);
+ const mcp=readFileSync(new URL('../src/mcp.js',import.meta.url),'utf8');
+ assert.match(mcp,/"delegated", "nostart"\]/);
+ assert.match(mcp,/開始日は「着手できる日」/,'MCP の規約に開始日の扱い');
+});

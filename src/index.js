@@ -10,7 +10,7 @@
  * URL:
  *   GET  /                       PWA 本体 (app.html)。初回は ?t=<APP_TOKEN> を付けて開くと Cookie が入る
  *   GET  /manifest.webmanifest, /sw.js, /icon-192.png, /icon-512.png
- *   GET  /api/tasks?view=today|can|phone|cloud   一覧。Notion の 📱ビュー3本と同じフィルタ (cloud は 2026-10-29 追加)
+ *   GET  /api/tasks?view=today|can|phone|cloud|nostart   一覧 (nostart は開始日が空の未完了, 2026-11-16)。Notion の 📱ビュー3本と同じフィルタ (cloud は 2026-10-29 追加)
  *   POST /api/tasks              {name} タイトルだけで起票 (残りは 04:45 の棚卸しが補完)
  *   GET  /api/tasks/:id/detail   概要 (説明プロパティ + 本文の先頭 40 ブロック)。メニューを開いたときだけ (2026-09-30)
  *   POST /api/tasks/:id/ai?mode=run|update  🤖 に渡した印 (AI処理開始=今, AI処理種別=実行/更新)。ai-clear で外す (2026-09-30, 種別 2026-10-03)
@@ -195,6 +195,14 @@ const VIEWS = {
     sorts: [
       { property: "担当", direction: "ascending" },
       { property: "期日", direction: "ascending" },
+    ],
+  },
+  // 開始日なし (2026-11-16): 開始日が空の未完了 (できるか未確認) を期日に関係なく全部。棚卸しで開始日を埋めるための一覧。委任中は除く (passesView)
+  nostart: {
+    filter: { and: [NOT_DONE, { property: "開始日", date: { is_empty: true } }] },
+    sorts: [
+      { property: "期日", direction: "ascending" },
+      { property: "優先度", direction: "ascending" },
     ],
   },
   // クラウドで (2026-10-29): スマホで と同じ要領。着手可否は today/can と同じ式 (着手可・待ちを除く)
@@ -1042,6 +1050,7 @@ function passesView(t, view, today) {
   if (view === "delegated") return !!t.owner;
   if (t.owner) return false; // 委任中は自分のタブに出さない (2026-10-01)。PJ別にも出さず「委任」タブで見る
   if (view === "project") return t.projectIds.length > 0; // 待機・待ちも含めて全部
+  if (view === "nostart") return !t.start; // 開始日なし: 待ち・先行待ちも含めて全部 (埋める対象の一覧)
   // 着手中: 開始日が先 (待機) のものは外す (2026-10-08 利用者「開始日が先にあれば着手中から外す・数えない」)。先行待ちは出す
   if (view === "doing") return (t.status === "進行中" || t.status === "人対応") && !(t.start && t.start > today);
   // 開始日が先 (待機) は今日系タブに出さない。先行待ちの判定より先にかける (2026-10-24: 開始日が先でも期日が過ぎた先行待ちが 今日やる に出ていた)
@@ -1099,6 +1108,7 @@ async function listTasks(env, view) {
     const have = new Set(out.map((t) => t.id));
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
+      if (view === "nostart" && t.start) continue; // 開始日なし の一覧には開始日が空のものだけ
       if (view === "cloud" && !t.env.includes(CLOUD_ENV)) continue; // クラウドで の 🤖 処理中 節にはクラウドのものだけ (2026-10-29: 紙・早朝のタスクが混ざっていた)
       if (t.owner && view !== "delegated") continue; // 委任中は 🤖 処理中でも自分のタブに足さない (2026-11-05: 委任済みが今日やるに混ざっていた)。委任タブでは出す
       if (t.aiActive && !have.has(t.id)) { t.aiForeign = true; out.push(t); }
