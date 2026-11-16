@@ -206,9 +206,10 @@ const VIEWS = {
       { property: "優先度", direction: "ascending" },
     ],
   },
-  // クラウドで (2026-10-29): スマホで と同じ要領。着手可否は today/can と同じ式 (着手可・待ちを除く)
+  // クラウドで (2026-10-29): スマホで と同じ要領。着手可否は today/can と同じ式 (着手可・待ちを除く)。
+  // 2026-11-17: 実行環境では絞らず、passesView が入口の判定 (entry === "cloud"＝コードの仕事) で絞る
   cloud: {
-    filter: { and: [NOT_DONE, NOT_WAITING, STARTABLE, { property: "実行環境", multi_select: { contains: CLOUD_ENV } }] },
+    filter: { and: [NOT_DONE, NOT_WAITING, STARTABLE] },
     sorts: [
       { property: "期日", direction: "ascending" },
       { property: "優先度", direction: "ascending" },
@@ -259,9 +260,11 @@ function normEnvTags(tags, phone) { return [...new Set((tags ?? []).map((n) => (
 async function companions(env) { const c = await loadSchemaLists(env); return { list: c.companions, ok: c.ok }; } // ok=false ＝ まだ一度も読めていない (画面は前回の値を保つ)
 const AI_ACTIVE_MS = 2 * 60 * 60 * 1000; // 🤖 処理中とみなす上限 (2026-09-30 決定: 2時間)
 
+// 🤖 の入口 (cloud/cowork, launches.js) を一覧の各タスクに載せる (2026-11-17)。画面の 🤖 はこれで飛び先を決め、クラウドで タブもこれで絞る
+// (classifyEntry が無い組み立て (一部のテストは launches.js を連結しない) では載せず、passesView が実行環境で見る)
 function pageToTask(page) {
   const p = page.properties ?? {};
-  return {
+  const t = {
     id: page.id,
     name: (p["名前"]?.title ?? []).map((t) => t.plain_text).join("") || "(無題)",
     due: (p["期日"]?.date?.start ?? "").slice(0, 10) || null,
@@ -304,6 +307,8 @@ function pageToTask(page) {
     // 繰越回数 (Bullet Journal の Migration, 2026-10-06): 棚卸しが書く「[棚卸し滞留 繰越N回 …]」から
     carry: (() => { const m = ((p["説明"]?.rich_text ?? []).map((t) => t.plain_text).join("")).match(/\[棚卸し滞留 繰越(\d+)回/); return m ? +m[1] : 0; })(),
   };
+  if (typeof classifyEntry === "function") t.entry = classifyEntry(t).entry;
+  return t;
 }
 
 async function getTask(env, id) {
@@ -1094,7 +1099,7 @@ function passesView(t, view, today) {
   if (view === "can" || view === "phone" || view === "cloud") {
     if (t.status === "待ち") return false;
     if (view === "phone") return t.env.some((x) => PHONE_ENV_NAMES.includes(x)) || t.env.includes("電話");
-    if (view === "cloud") return t.env.includes(CLOUD_ENV);
+    if (view === "cloud") return (t.entry ?? (t.env.includes(CLOUD_ENV) ? "cloud" : "cowork")) === "cloud"; // 2026-11-17: 実行環境ではなく入口の判定 (コードの仕事) で絞る
     if (t.env.includes("早朝")) return !t.start || t.start.slice(0, 10) <= today; // 🌅 早朝向きは期日に関係なく渡す (開始日が先のものは除く。2026-10-15: 静かな時間の 🌅 節に全部並べる。昼間は画面が 7 日より先を落とす)
     // 今日できる (2026-11-15): 期日の 7 日窓をやめて開始日で判定する。開始日が来ている (上で待機を除いた) うち、期日が今日より後か無いもの。
     // 期日が今日以前は 今日やる 側。開始日が空のものも出すが、画面は「開始日なし（できるか未確認）」の節に分ける
@@ -1142,7 +1147,7 @@ async function listTasks(env, view) {
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
       if (view === "nostart" && t.start) continue; // 開始日なし の一覧には開始日が空のものだけ
-      if (view === "cloud" && !t.env.includes(CLOUD_ENV)) continue; // クラウドで の 🤖 処理中 節にはクラウドのものだけ (2026-10-29: 紙・早朝のタスクが混ざっていた)
+      if (view === "cloud" && (t.entry ?? (t.env.includes(CLOUD_ENV) ? "cloud" : "cowork")) !== "cloud") continue; // クラウドで の 🤖 処理中 節にはクラウドのものだけ (2026-10-29: 紙・早朝のタスクが混ざっていた)
       if (t.owner && view !== "delegated") continue; // 委任中は 🤖 処理中でも自分のタブに足さない (2026-11-05: 委任済みが今日やるに混ざっていた)。委任タブでは出す
       if (t.aiActive && !have.has(t.id)) { t.aiForeign = true; out.push(t); }
     }
@@ -1372,13 +1377,14 @@ async function entryFill(env, dry) {
     cursor = r.has_more ? r.next_cursor : null;
   } while (cursor && rows.length < 400);
   const names = await projectNames(env).catch(() => new Map());
+  // mac は 2026-11-17 に入口から外した (Cowork から Mac につなぐ)。saito-tools の棚卸しが読むので空の配列だけ残す
   const out = { dry: !!dry, rulesVersion: ENTRY_RULES.version, checked: rows.length, cloud: [], mac: [], cowork: 0, errors: [] };
   for (const t of rows.slice(0, 200)) {
     t.project = t.projectIds.map((pid) => names.get(pid)).filter(Boolean).join(" / ") || null;
     let c = classifyEntry(t);
     if (c.entry === "cowork") c = classifyEntry(t, await bodyText(env, t.id).catch(() => ""));
     if (c.entry === "cowork") { out.cowork++; continue; }
-    const fill = ENTRY_RULES[c.entry].fill;
+    const fill = ENTRY_RULES.cloud.fill;
     const item = { id: t.id, name: t.name, url: t.url, env: fill, why: c.why, ...(c.repo ? { repo: c.repo } : {}) };
     if (!dry) {
       try {
@@ -1389,7 +1395,7 @@ async function entryFill(env, dry) {
     }
     out[c.entry].push(item);
   }
-  out.summary = `クラウドに振った ${out.cloud.length} 本・Mac に振った ${out.mac.length} 本・Cowork のまま ${out.cowork} 本${dry ? " (dry)" : ""}`;
+  out.summary = `クラウドに振った ${out.cloud.length} 本・Cowork のまま ${out.cowork} 本${dry ? " (dry)" : ""}`;
   return out;
 }
 // 週次: 入口別の本数と、使用率ログの週間% を週 (月曜 16:00 区切り) ごとに並べる

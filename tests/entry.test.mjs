@@ -9,26 +9,37 @@ import {classifyEntry,launchEntry,cloudRepo,parseUsageRows,weekStart,weeklyRepor
 const src=name=>readFileSync(new URL('../src/'+name,import.meta.url),'utf8');
 const sys={area:'自動化・システム',kind:'作業',env:[]};
 
-test('規則: Mac の印が先、次にリポジトリの仕事、それ以外は Cowork',()=>{
- assert.equal(classifyEntry({...sys,name:'kairos の launchd を直す'}).entry,'mac','Mac の語はリポジトリ名より先');
- assert.equal(classifyEntry({...sys,name:'何か',env:['紙・郵送']}).entry,'mac');
- assert.equal(classifyEntry({name:'保険の書類をスキャン'}).entry,'mac');
+test('規則 v2 (2026-11-17): コードの仕事は cloud、それ以外は cowork。Mac は入口にしない',()=>{
+ // コードの語があれば Mac が付いていても CC へ
+ const k=classifyEntry({area:'自動化・システム',kind:null,env:['Mac','自宅'],name:'Kairos の 🤖 Claude 起動に追加指示のテキストボックスを追加する'});
+ assert.deepEqual([k.entry,k.repo],['cloud','masakiplus/kairos']);
  const c=classifyEntry({...sys,name:'saito-tools の棚卸しを直す'});
  assert.deepEqual([c.entry,c.repo],['cloud','masakiplus/saito-tools']);
  assert.equal(classifyEntry({...sys,name:'tasks-pwa の表示'}).repo,'masakiplus/kairos');
  assert.equal(classifyEntry({...sys,name:'画面の不具合'},'src は tools/foo.py').entry,'cloud','本文の語でも当たる');
- assert.equal(classifyEntry({...sys,kind:'判断',name:'kairos の方針'}).entry,'cowork','判断はクラウドに振らない');
- assert.equal(classifyEntry({area:'家計・キャッシュフロー',kind:'作業',name:'kairos で家計'}).entry,'cowork','エリア違い');
+ assert.equal(classifyEntry({area:'家計・キャッシュフロー',kind:'作業',name:'Kairos に買い物画面を作る'}).entry,'cloud','エリアが違っても作業なら Kairos で当たる');
+ assert.equal(classifyEntry({name:'ドリル生成スクリプトの出題を直す'}).entry,'cloud','強い語はどこでも当たる');
+ assert.equal(classifyEntry({name:'何でも',env:['クラウド','Mac']}).entry,'cloud','実行環境のクラウドは強い手がかり (Mac は見ない)');
+ // コードでないものは実行環境にクラウドがあっても Cowork
+ assert.equal(classifyEntry({area:'家計・キャッシュフロー',kind:'判断',env:['クラウド'],name:'¥14,530 を必要支出か裁量かに仕分ける'}).entry,'cowork','判断はクラウドに振らない');
+ assert.equal(classifyEntry({area:'子どもの学校',kind:'手続き',env:['スマホ','Mac','クラウド'],name:'水泳の振替日を予約してカレンダーに書く'}).entry,'cowork');
+ assert.equal(classifyEntry({...sys,name:'kairos の方針',kind:'判断'}).entry,'cowork');
+ // Mac の状態・コネクタが本体なら Cowork (Cowork から Mac につなぐ)
+ assert.equal(classifyEntry({...sys,name:'Worker に wrangler secret を入れる',env:['クラウド']}).entry,'cowork');
+ assert.equal(classifyEntry({area:'不動産・経理',kind:'作業',env:['Mac'],name:'freee: 10/30 決済の入出金を登録する'}).entry,'cowork');
+ assert.equal(classifyEntry({name:'保険の書類をスキャン',env:['Mac']}).entry,'cowork','Mac・紙は入口ではない');
+ // 弱い語 (Kairos・API など) は 自動化・システム か 作業・調査 のときだけ。英字は語の境目で当てる
+ assert.equal(classifyEntry({area:'家族・健康',kind:'確認',name:'Kairos の習慣を見直す'}).entry,'cowork');
+ assert.equal(classifyEntry({...sys,name:'Prophet で着地予測を作る'}).entry,'cowork','PR は Prophet に当てない');
  assert.equal(classifyEntry({name:'学校に連絡'}).entry,'cowork');
- assert.equal(classifyEntry({name:'何でも',env:['クラウド']}).entry,'cloud','手で付けたクラウドは勝つ');
- assert.equal(classifyEntry({name:'何でも',env:['クラウド','Mac']}).entry,'mac','Mac の印があれば Mac (規則の順)');
  assert.equal(cloudRepo('saito-workers 移行'),'masakiplus/saito-workers');
 });
 
-test('打刻の入口: 実行環境にクラウドがあれば cloud (画面の飛び先と同じ)、Claude 以外はアプリ名',()=>{
- assert.equal(launchEntry({env:['クラウド','Mac']},'claude'),'cloud','画面は isCloudTask で claude.ai/code へ飛ばす');
- assert.equal(launchEntry({env:['Mac']},'claude'),'mac');
- assert.equal(launchEntry({...sys,name:'kairos の修正'},'claude'),'cowork','実行環境が空なら飛び先は claude.ai/new (判定は rule 列で別に残る)');
+test('打刻の入口: 規則どおりの飛び先 (cloud/cowork)、Claude 以外はアプリ名、再開は URL の種類',()=>{
+ assert.equal(launchEntry({env:['クラウド','Mac']},'claude'),'cloud');
+ assert.equal(launchEntry({env:['Mac']},'claude'),'cowork','Mac は Cowork から');
+ assert.equal(launchEntry({...sys,name:'kairos の修正'},'claude'),'cloud','実行環境が空でも中身がコードなら claude.ai/code');
+ assert.equal(launchEntry({kind:'判断',env:['クラウド'],name:'仕分ける'},'claude'),'cowork');
  assert.equal(launchEntry({env:['クラウド']},'chatgpt'),'chatgpt');
  assert.equal(launchEntry({env:['クラウド']},'claude','https://claude.ai/code/session_x'),'cloud');
  assert.equal(launchEntry({env:['クラウド']},'claude','https://claude.ai/chat/abc'),'cowork','前回のチャットを開き直すならチャット側');
@@ -111,17 +122,18 @@ test('本体API: 🤖 で打刻、クラウドで の処理中節はクラウド
   assert.equal((await api('/api/tasks/'+ids[0]+'/ai?mode=run&provider=claude&dev=mac','POST')).status,200);
   assert.equal((await api('/api/tasks/'+ids[1]+'/ai?mode=update&provider=claude&dev=android','POST')).status,200);
   const log=(await api('/api/entry/log?days=1')).data.rows;
-  assert.deepEqual(log.map(r=>[r.task_id,r.entry,r.repo,r.mode,r.device,r.rule]),[[ids[0],'cloud','masakiplus/kairos','実行','mac','cloud'],[ids[1],'mac',null,'更新','android','mac']]);
-  const cloud=(await api('/api/tasks?view=cloud')).data.tasks.map(t=>t.name);
-  assert.deepEqual(cloud,['Kairos の画面を直す'],'紙の 🤖 処理中 は クラウドで に混ぜない');
+  assert.deepEqual(log.map(r=>[r.task_id,r.entry,r.repo,r.mode,r.device,r.rule]),[[ids[0],'cloud','masakiplus/kairos','実行','mac','cloud'],[ids[1],'cowork',null,'更新','android','cowork']]);
+  const cloudTasks=(await api('/api/tasks?view=cloud')).data.tasks;
+  assert.deepEqual(cloudTasks.map(t=>t.name).sort(),['Kairos の画面を直す','saito-tools の棚卸しを直す','launchd の時刻を変える'].sort(),'クラウドで は入口の判定 (コードの仕事) で絞る。紙の 🤖 処理中 は混ぜない');
+  assert.ok(cloudTasks.every(t=>t.entry==='cloud'),'一覧の各タスクに entry が載る');
   assert.ok((await api('/api/tasks?view=can')).data.tasks.some(t=>t.name==='Apple Watch の Trade In'),'他のタブには従来どおり出す');
   const dry=(await api('/api/entry/fill?dry=1','POST')).data;
-  assert.deepEqual([dry.cloud.map(x=>x.name),dry.mac.map(x=>x.name),dry.cowork],[['saito-tools の棚卸しを直す'],['launchd の時刻を変える'],1]);
+  assert.deepEqual([dry.cloud.map(x=>x.name).sort(),dry.mac,dry.cowork],[['launchd の時刻を変える','saito-tools の棚卸しを直す'],[],1]);
   assert.equal(JSON.parse((await db.prepare('SELECT payload FROM entities WHERE id=?').bind(ids[2]).first()).payload).properties.実行環境.multi_select.length,0,'dry は書かない');
   const fill=(await api('/api/entry/fill','POST')).data;
-  assert.match(fill.summary,/クラウドに振った 1 本・Mac に振った 1 本・Cowork のまま 1 本/);
+  assert.match(fill.summary,/クラウドに振った 2 本・Cowork のまま 1 本/);
   const envOf=async id=>JSON.parse((await db.prepare('SELECT payload FROM entities WHERE id=?').bind(id).first()).payload).properties.実行環境.multi_select.map(o=>o.name);
-  assert.deepEqual(await envOf(ids[2]),['クラウド']);assert.deepEqual(await envOf(ids[3]),['Mac']);assert.deepEqual(await envOf(ids[4]),[]);
+  assert.deepEqual(await envOf(ids[2]),['クラウド']);assert.deepEqual(await envOf(ids[3]),['クラウド']);assert.deepEqual(await envOf(ids[4]),[]);
   assert.deepEqual(await envOf(ids[0]),['クラウド'],'手で付けたものは触らない');
   const again=(await api('/api/entry/fill','POST')).data;
   assert.deepEqual([again.cloud.length,again.mac.length],[0,0],'2 回目は何もしない');
@@ -135,7 +147,7 @@ test('本体API: 🤖 で打刻、クラウドで の処理中節はクラウド
   const wk=(await api('/api/entry/weekly?weeks=2')).data;
   assert.equal(wk.weeks.length,2);assert.equal(wk.weeks[1].launches.cloud,1);
   assert.equal(wk.weeks[1].lastUsagePct,12,'本文の表から週間% を拾う');assert.equal(wk.usageSamples,1);
-  assert.equal((await api('/api/entry/rules')).data.version,1);
+  assert.equal((await api('/api/entry/rules')).data.version,2);
   // 2026-11-14: AIセッション を書くと launch_log に開始の打刻が入る (kairos_begin・kairos_update・直接 PATCH が同じ道)
   const patch=await mf.dispatchFetch('https://kairos.test/api/data/pages/'+ids[0],{method:'PATCH',headers:{Authorization:'Bearer test-only-token','Content-Type':'application/json'},body:JSON.stringify({properties:{AIセッション:{url:'https://claude.ai/chat/abc'}}})});
   assert.equal(patch.status,200,await patch.clone().text());
@@ -145,6 +157,6 @@ test('本体API: 🤖 で打刻、クラウドで の処理中節はクラウド
   assert.ok(log2.find(r=>r.task_id===ids[0]).session_at,'AIセッション を書いた行に打刻');
   assert.equal(log2.find(r=>r.task_id===ids[1]).session_at,null,'ほかの列の更新では打刻しない');
   const wk2=(await api('/api/entry/weekly?weeks=1')).data.weeks[0].startSec;
-  assert.equal(wk2.all.n,1);assert.equal(wk2.mac.n,1);
+  assert.equal(wk2.all.n,1);assert.equal(wk2.mac.n,1,'端末別 (dev=mac) の集計');
  }finally{await mf.dispose();}
 });
