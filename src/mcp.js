@@ -469,6 +469,7 @@ const RULES = [
   "タスクの 説明 は「なぜ: …」「何を: …」の2行だけ（留意は 何を の行に足す）。出所・根拠・手順・経過は本文（kairos_create の body／kairos_append_body）に書く。例外は機械が読み書きする行（完了・見送り・重複・待ちの理由行、[棚卸し …] マーカー、スレッド URL や wallet_txn:<id> のような重複判定の鍵）だけ。",
   "タスクを更新・起票するとき、次のどれかに当たればサブタスクに分ける（確認は要らない。分けた理由は親の本文に書く）: 実行環境・担当・場所が違う工程が混ざる／本人の手番と AI の手番が混ざる／途中に待ち（返事・到着・特定日以降）を挟む／1回で終わらない（目安2時間超・複数日）。1回・1か所で終わるものは分けない。子は2〜5件で名前は①②…、説明は2行、親アイテム に親の id、待ちのある子は 開始日、順番があれば 先行タスク。作る前に親の サブアイテム を見て重複させない（書き込む直前に読み直す）。子が1件にしかならないなら分けない（別タスクと共通の前工程は、ほかの親から 先行タスク で結ぶ）。親の 何を に「サブタスクN件。全部終わったら親を完了」と書き、親の 実行環境・期日 を子の全体に合わせる。後から子を足す・見送るときは N件 と 実行環境・期日 を直す。",
   "タスクを更新・起票・実行するとき、名前が「〜かも」「〜について」のようにアイデア・話題止まりなら、完了の状態が分かる「動詞＋成果物」の名前に直し、元の言い回しは本文の先頭に「元の言い回し: …」として残す。🤖 の「実行」で渡されたタスクが上のサブタスク基準に当たるときも、実行に入る前にサブタスクへ分け（理由は親の本文に書く）、最初の子だけ着手する。Inbox のまるっとしたアイデアは、更新の依頼で名称・期日・実行環境・説明・分割をまとめて整える。",
+  "タスクを完了・見送り・重複で閉じたら、関連タスクを見直す（kairos_task_action の結果の related に、未完了の親・残った子・兄弟・同じ PJ のタスクが入る）。閉じたことで済んだ・不要になったものは done／skip（note に理由）で閉じ、親の allChildrenDone が true なら親も閉じる。状況が変わったものは本文に経過を足し、開始日・期日・説明 を直す。あわせて細かすぎるタスク（同じ用件で、1回・1か所で一緒に終わる複数のタスク。§5-2 の分割基準に当たる子は除く）があれば1件に統合する: 残す1件の名前と 何を を全体に合わせ、ほかの本文の要点を残す1件の本文へ移し、ほかは dup（with に残す1件の名前）で閉じる。判断が要るもの（やめるか・誰がやるか）は閉じずに本文に書いて残す。",
   "開始日は「着手できる日」。今日できる は開始日で判定する（開始日が今日以前で、期日が今日より後か無いもの）。タスクを起票するとき、着手できる日が分かっていれば 開始日 に明示する（待ち・到着・特定日以降は必ずその日）。空で渡すと Worker が今日（期日が過去ならその日）を入れる。今日の提案（⭐ 今日の3つ・朝の提案・Dreamtime）には開始日が先のものを混ぜない。開始日が空の既存タスク（kairos_list_tasks の view=nostart）は、棚卸しで着手できる日を見て埋める（決められないものは空のまま残し、今日できる の「開始日なし」節で本人が置く）。",
   "Decisions に未決を書くときは、先に自分で調べる（タスク・本文・メール・カレンダー・会計など手元で見られるもの）。調べてわかる事実は 問い に書いて、本人に聞く問いにしない。本人にしか決められないものだけを残し、問い の末尾に選択肢を2〜4行「[案 着手|棚上げ|やめる] 案の短い名前 — 1行の理由」で書く（推奨1つは「[案 着手 推奨]」）。Kairos の決めるタブはこの行をそのまま選択肢にし、案の行が無い未決は「AIが先に調べる」に回して人には聞かない。名前は「〜するか」の問いの形にする。",
   "Decisions の答え合わせ（状態=決着・検証日≦今日・検証結果が空）は、AI が先に実績を調べる（関連タスクの完了と本文・家計や口座の数字・メール・カレンダー）。結果が実績から明らかなら 検証結果（当たり／部分的／外れ／検証不要）と 学び（根拠1行）を自分で書いて閉じる。判断が要るものだけ、問い の末尾に調べた実績を書き、「[案 当たり|部分的|外れ|検証不要] 短い名前 — 根拠1行」を2〜3行（推奨1つは「[案 当たり 推奨]」の形）で書いて本人に残す。",
@@ -490,6 +491,7 @@ const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: fals
 // kairos_begin (2026-11-14): 🤖 で渡された直後の前置き (AIセッション を書く → 規約を読む → タスクを読む → 親子を読む) を 1 回にまとめる
 const BEGIN_REL_MAX = 15;
 const BEGIN_REL_COLS = ["名前", "ステータス", "完了", "開始日", "期日", "実行環境", "担当"];
+const CLOSE_NEXT = "related を見て関連タスクを見直す（規約の「閉じたら関連タスクを見直す」）: 済んだ・不要になったものは done／skip、親の allChildrenDone が true なら親も done、状況が変わったものは本文と開始日・期日を直す、細かすぎるものは1件に寄せて残りを dup（with に残す側の名前）。何もしなくてよければそのまま終える。";
 const BEGIN_NEXT = "規約は接続時の説明のとおり（kairos_rules の読み直しは不要）。成果は本文へ kairos_append_body。終わるときは kairos_task_action の done、人の手が要るなら human、それ以外で止まるなら ai_clear。";
 
 const TOOLS = [
@@ -650,20 +652,26 @@ const TOOLS = [
   {
     name: "kairos_task_action",
     title: "タスクの 1 タップ操作",
-    description: "done=完了, skip=見送り, reopen=未完了に戻す, human=人対応で止める（ステータス=人対応、AI処理開始を空に）, ai_clear=AI処理開始を空にする。note は理由 1 行（説明欄の先頭に残る）。",
+    description: "done=完了, skip=見送り, dup=重複・統合で閉じる（with に残す側のタスク名）, reopen=未完了に戻す, human=人対応で止める（ステータス=人対応、AI処理開始を空に）, ai_clear=AI処理開始を空にする。note は理由 1 行（説明欄の先頭に残る）。done・skip・dup の結果の related（未完了の親・残った子・兄弟・同じ PJ）を見て、関連タスクの更新・クローズ・統合を続ける。",
     inputSchema: {
       type: "object",
-      properties: { id: ID_PROP, action: { type: "string", enum: ["done", "skip", "reopen", "human", "ai_clear"] }, note: { type: "string", maxLength: 200 } },
+      properties: { id: ID_PROP, action: { type: "string", enum: ["done", "skip", "dup", "reopen", "human", "ai_clear"] }, note: { type: "string", maxLength: 200 }, with: { type: "string", maxLength: 120, description: "dup のとき、統合先（残す側）のタスク名" } },
       required: ["id", "action"],
       additionalProperties: false,
     },
     annotations: { ...WRITE, idempotentHint: true },
     run: async (a, ctx) => {
       const id = reqId(a.id), action = a.action === "ai_clear" ? "ai-clear" : a.action;
-      if (!["done", "skip", "reopen", "human", "ai-clear"].includes(action)) throw new Error("action が不正です");
+      if (!["done", "skip", "dup", "reopen", "human", "ai-clear"].includes(action)) throw new Error("action が不正です");
       const note = String(a.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
-      const res = await api(ctx, "POST", `/api/tasks/${id}/${action}${note && (action === "done" || action === "skip") ? "?note=" + encodeURIComponent(note) : ""}`, {});
-      return { ok: true, action: a.action, ...res };
+      const closing = action === "done" || action === "skip" || action === "dup";
+      const qs = new URLSearchParams();
+      if (note && closing) qs.set("note", note);
+      if (action === "dup") { const w = String(a.with ?? "").replace(/\s+/g, " ").trim().slice(0, 120); if (w) qs.set("with", w); }
+      if (closing) qs.set("related", "1"); // 関連タスクの見直し (2026-11-17, rules.md §5-4)
+      const q = qs.toString();
+      const res = await api(ctx, "POST", `/api/tasks/${id}/${action}${q ? "?" + q : ""}`, {});
+      return { ok: true, action: a.action, ...res, ...(closing ? { next: CLOSE_NEXT } : {}) };
     },
   },
 ];
