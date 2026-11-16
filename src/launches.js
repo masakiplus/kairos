@@ -1,52 +1,58 @@
-// ---- 🤖 の入口の切り分けと打刻 (2026-10-29) ----
-// 入口は 3 つ: cloud (Claude Code のクラウド, claude.ai/code)・mac (Mac を接続して開く claude.ai/new)・cowork (それ以外の claude.ai/new)。
-// 規則はここ 1 か所に置き、夜間の棚卸し (GET /api/entry/rules・POST /api/entry/fill) と 🤖 の打刻が同じものを読む。
-// 本人が手で付けた実行環境は常に勝つ。自動判定は実行環境が空のときに埋めるだけで、上書きしない。
+// ---- 🤖 の入口の切り分けと打刻 (2026-10-29、2026-11-17 に 2 択へ) ----
+// 入口は 2 つ: cloud (Claude Code のクラウド, claude.ai/code)・cowork (claude.ai/new。Mac にはここからつなぐ)。
+// 2026-11-17: 以前は mac を 3 つ目の入口にし、🤖 の飛び先は「実行環境にクラウドがあるか」だけで決めていた。そのため Mac 付きのコード改修が
+// Cowork へ、クラウド付きの家計の判断が CC へ流れていた (直近 14 日の打刻 194 タスクで確認)。飛び先は中身 (種類・名前・説明・本文) で決め、
+// 実行環境の「クラウド」は強い手がかりの 1 つに下げる。Mac・紙・郵送は入口ではなく Cowork の中の道具なので判定に使わない。
+// 規則はここ 1 か所に置き、夜間の棚卸し (GET /api/entry/rules・POST /api/entry/fill)・🤖 の飛び先 (/api/tasks の entry)・打刻が同じものを読む。
 export const ENTRY_RULES = {
-  version: 1,
-  // 1. Mac の印: 実行環境に Mac・紙・郵送がある、または名前・説明・本文にこの語がある
-  mac: { env: ["Mac", "紙・郵送"], words: [".env", "launchd", "SRS", "印刷", "スキャン", "box.com"], fill: "Mac" },
-  // 2. リポジトリの仕事: エリア・種類が合い、名前・説明・本文にツール名・パス・リポジトリ名がある
-  cloud: { env: ["クラウド"], area: ["自動化・システム"], kinds: ["作業", "調査"], words: ["saito-tools", "saito-workers", "kairos", "tasks-pwa", "tools/"], fill: "クラウド" },
-  // 3. それ以外は Cowork (実行環境は空のまま)
-  cowork: {},
+  version: 2,
+  // 1. Cowork の印: コードを書かない種類か、名前に Mac の状態・コネクタが本体の語 (Cowork から Mac・Gmail・freee などにつなぐ)。
+  //    語は名前だけで見る (説明・本文はコードの仕事でも「採点」「freee」が出てくるため)
+  cowork: { kinds: ["判断", "手続き", "購入", "連絡", "支払い"], words: [".env", "secret", "採点", "印刷", "スキャン", "box.com", "freee", "Gmail", "カレンダーに", "認証切れ"] },
+  // 2. コード (リポジトリの仕事): 実行環境にクラウドがあるか、名前・説明・本文にコードの語がある。英字の語は語の境目で当てる。
+  //    words はどこに出ても当てる。weak (Kairos・API など、仕組みの名前として普段の文にも出る語) はエリアが 自動化・システム か種類が 作業・調査 のときだけ。
+  //    実行環境のクラウドは、エリアが 自動化・システム・Inbox・空 のときだけ数える (生活系のタスクに AI がクラウドを付けていた)
+  cloud: { env: ["クラウド"], envAreas: ["自動化・システム", "Inbox", null], words: ["saito-tools", "saito-workers", "tasks-pwa", "tools/", "loopmania", "voice-input", "telegram-ask-claude", "PR", "GitHub", "push", "commit", "SKILL.md", ".py", ".js", ".sh", "スクリプト", "コード", "実装", "リポジトリ", "プルリク"], weak: ["kairos", "カイロス", "Worker", "PWA", "MCP", "API", "D1", "launchd", "headless", "ai-drive"], area: ["自動化・システム"], kinds: ["作業", "調査"], fill: "クラウド" },
   // 接続先 (app.html の cloudRepo と同じ。PR #33)
-  repos: [{ re: "kairos|tasks-pwa", repo: "masakiplus/kairos" }, { re: "saito-workers", repo: "masakiplus/saito-workers" }],
+  repos: [{ re: "kairos|カイロス|tasks-pwa", repo: "masakiplus/kairos" }, { re: "saito-workers", repo: "masakiplus/saito-workers" }],
   defaultRepo: "masakiplus/saito-tools",
 };
+
 // クラウドセッションのクレジットが切れる時刻。これより前に始まった週はクラウドの消費が週間枠に乗らないので、比較から外す印を付ける
 export const CREDIT_UNTIL = "2026-11-05T16:59:00+09:00";
 // 朝夕の使用率の定点記録を置いているタスク (表の「日時(JST)」「週間%」列を読む)。vars の USAGE_LOG_TASK_ID で差し替えられる
 export const USAGE_LOG_TASK_ID = "4ba0eb7a7b194be1b8565d9906cb894a";
 
-const hasWord = (text, words) => { const s = String(text || "").toLowerCase(); return words.find((w) => s.includes(w.toLowerCase())) || null; };
+// 英数字で始まり英数字で終わる語 (PR・API・D1・kairos) は前後が英数字でないときだけ当てる (PR が Prophet・price に当たらないように)
+const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const wordRe = (w) => new RegExp((/^[A-Za-z0-9]/.test(w) ? "(?<![A-Za-z0-9])" : "") + esc(w) + (/[A-Za-z0-9]$/.test(w) ? "(?![A-Za-z0-9])" : ""), "i");
+const hasWord = (text, words) => { const s = String(text || ""); return words.find((w) => wordRe(w).test(s)) || null; };
 export function cloudRepo(text) {
   for (const r of ENTRY_RULES.repos) if (new RegExp(r.re, "i").test(text || "")) return r.repo;
   return ENTRY_RULES.defaultRepo;
 }
-// t: {name, rawDesc, area, kind, env, project}。body は本文の素の文字列 (無ければ名前と説明だけで判定)
+// t: {name, rawDesc, area, kind, env, project}。body は本文の素の文字列 (無ければ名前と説明だけで判定)。entry は cloud か cowork
+// 説明の機械の行 (「完了 (2026-11-01, PWA): …」の括弧) と URL は判定に使わない (PWA の語や、Kairos のタスク URL の tasks-pwa で誤って当たる)
+const MACHINE = /\(\d{4}-\d{2}-\d{2}[^)]*\)|https?:\/\/\S+/g;
 export function classifyEntry(t, body = "") {
-  const env = t.env || [], text = [t.name, t.rawDesc, body].join("\n");
+  const env = t.env || [], text = [t.name, t.rawDesc, body].join("\n").replace(MACHINE, "");
   const R = ENTRY_RULES;
-  const macEnv = env.find((x) => R.mac.env.includes(x));
-  if (macEnv) return { entry: "mac", why: "実行環境: " + macEnv };
-  const macWord = hasWord(text, R.mac.words);
-  if (macWord) return { entry: "mac", why: "語: " + macWord };
-  if (env.includes("クラウド")) return { entry: "cloud", why: "実行環境: クラウド", repo: cloudRepo((t.name || "") + " " + (t.project || "")) };
-  if (R.cloud.area.includes(t.area) && R.cloud.kinds.includes(t.kind)) {
-    const w = hasWord(text, R.cloud.words);
-    if (w) return { entry: "cloud", why: "語: " + w, repo: cloudRepo((t.name || "") + " " + (t.project || "") + " " + w) };
-  }
+  if (R.cowork.kinds.includes(t.kind)) return { entry: "cowork", why: "種類: " + t.kind };
+  const cw = hasWord(t.name, R.cowork.words);
+  if (cw) return { entry: "cowork", why: "語: " + cw };
+  const repoText = (t.name || "") + " " + (t.project || "");
+  if (env.some((x) => R.cloud.env.includes(x)) && R.cloud.envAreas.includes(t.area ?? null)) return { entry: "cloud", why: "実行環境: クラウド", repo: cloudRepo(repoText) };
+  const w = hasWord(text, R.cloud.words) || ((R.cloud.area.includes(t.area) || R.cloud.kinds.includes(t.kind)) && hasWord(text, R.cloud.weak));
+  if (w) return { entry: "cloud", why: "語: " + w, repo: cloudRepo(repoText + " " + w) };
   return { entry: "cowork", why: "" };
 }
-// 🤖 を押したときに実際に飛んだ先。provider が claude 以外は provider 名、前回のセッションを開き直すときはその URL の種類
+// 🤖 を押したときに実際に飛んだ先。provider が claude 以外は provider 名、前回のセッションを開き直すときはその URL の種類。
+// それ以外は規則の判定どおり (app.html の isCloudTask は /api/tasks の entry を見る)
 export function launchEntry(t, provider, resumeUrl) {
   if (provider && provider !== "claude") return String(provider).replace(/[^\w-]/g, "").slice(0, 20) || "other";
-  if (resumeUrl) return /^https:\/\/claude\.ai\/code\//.test(resumeUrl) ? "cloud" : classifyEntry({ ...t, env: (t.env || []).filter((x) => x !== "クラウド") }).entry;
-  if ((t.env || []).includes("クラウド")) return "cloud"; // app.html の isCloudTask と同じ。実行環境にクラウドがあるときだけ claude.ai/code へ飛ぶ
-  return classifyEntry({ ...t, env: t.env || [] }).entry === "mac" ? "mac" : "cowork";
+  if (resumeUrl) return /^https:\/\/claude\.ai\/code\//.test(resumeUrl) ? "cloud" : "cowork";
+  return classifyEntry({ ...t, env: t.env || [] }).entry;
 }
-
 // ---- 打刻 (D1 の launch_log) ----
 const jstDay = (ms) => new Date(ms + 9 * 3600000).toISOString().slice(0, 10);
 let ready = null;

@@ -138,3 +138,12 @@ test('クラウド行きのリンクを押すと文面をクリップボード�
  for(const other of ['https://claude.ai/new?q=x','https://claude.ai/code/session_x','#ai-handoff=x','https://evil.test/claude.ai/code/new?q=x']){h.context.href=other;assert.equal(h.run('copyCloudLink(href)'),false,other);}
  assert.equal(h.copied.length,2);
 });
+test('2026-11-17: 飛び先は Worker の入口の判定 (entry) を優先し、無いときだけ実行環境で見る',()=>{
+ const h=harness();
+ h.context.task={...cloudTask,env:['Mac'],entry:'cloud',name:'Kairos の画面を直す'};
+ assert.ok(h.run('aiHref(task)').startsWith('https://claude.ai/code/new?q='),'Mac 付きでもコードの仕事は CC へ');
+ h.context.task={...cloudTask,env:['クラウド'],entry:'cowork'};
+ assert.ok(h.run('aiHref(task)').startsWith('https://claude.ai/new?q='),'クラウド付きでもコードでなければ Cowork へ');
+ h.context.task={...cloudTask,env:['クラウド']};
+ assert.ok(h.run('aiHref(task)').startsWith('https://claude.ai/code/new?q='),'entry の無い古い応答は実行環境で');
+});

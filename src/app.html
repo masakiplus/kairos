@@ -1072,11 +1072,12 @@
   let aiExtra = { id: null, text: "" };
   const extraOf = (t) => (t && aiExtra.id === t.id && !$("#sheetWrap").hidden ? aiExtra.text.trim().slice(0, AI_EXTRA_MAX) : "");
   const withExtra = (t, s) => { const x = extraOf(t); return x ? s + "\n【追加の指示】" + x : s; };
-  // ☁️ クラウド (2026-10-29): 実行環境に「クラウド」を含むタスクの 🤖 は Claude Code のクラウド側 (claude.ai/code) へ。
+  // ☁️ クラウド (2026-10-29、2026-11-17 に入口の判定へ): コードの仕事 (t.entry === "cloud") の 🤖 は Claude Code のクラウド側 (claude.ai/code) へ。
   // 飛び先は https://claude.ai/code/new?q=<文面>&repo=<owner/name> (Claude ヘルプ「Open the Claude mobile app with a link」に載っている形。q は入力欄に入るだけで送信はしない)。
   // 文面が入らなかったときのために押した瞬間にクリップボードにも入れる (copyCloudLink)。接続先は名前・PJ に Kairos／カイロス／tasks-pwa があれば masakiplus/kairos (2026-10-08 に移管)、saito-workers があれば masakiplus/saito-workers、それ以外は masakiplus/saito-tools
   const CLOUD_ENV = "クラウド";
-  const isCloudTask = (t) => !!t && Array.isArray(t.env) && t.env.includes(CLOUD_ENV);
+  // 2026-11-17: 飛び先は Worker の入口の判定 (t.entry: コードの仕事なら cloud、それ以外は cowork。launches.js) で決める。entry の無い古い応答だけ実行環境で見る
+  const isCloudTask = (t) => !!t && (t.entry ? t.entry === "cloud" : Array.isArray(t.env) && t.env.includes(CLOUD_ENV));
   function cloudRepo(t) {
     const s = (t.name || "") + " " + (t.project || "");
     return /kairos|カイロス|tasks-pwa/i.test(s) ? "masakiplus/kairos" : /saito-workers/i.test(s) ? "masakiplus/saito-workers" : "masakiplus/saito-tools";
