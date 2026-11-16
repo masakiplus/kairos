@@ -297,7 +297,7 @@ test('tools: 完了は done 経由、Roles/Projects は決まった列だけ、i
   const t = tokens.access_token;
   const done = await tool(send, t, 'kairos_task_action', { id: hex('1'), action: 'done', note: '退避先を削除した' });
   assert.equal(done.isError, false);
-  assert.deepEqual(fw.calls.at(-1), { method: 'POST', path: `/api/tasks/${hex('1')}/done?note=${encodeURIComponent('退避先を削除した')}`, body: {} });
+  assert.deepEqual(fw.calls.at(-1), { method: 'POST', path: `/api/tasks/${hex('1')}/done?note=${encodeURIComponent('退避先を削除した')}&related=1`, body: {} });
   await tool(send, t, 'kairos_task_action', { id: hex('1'), action: 'ai_clear' });
   assert.equal(fw.calls.at(-1).path, `/api/tasks/${hex('1')}/ai-clear`);
   assert.equal((await tool(send, t, 'kairos_task_action', { id: hex('1'), action: 'delete' })).isError, true);

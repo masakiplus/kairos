@@ -28,6 +28,7 @@
  *   POST /api/tasks/:id/dup      重複で完了 (2026-10-01)。done と同じ3点セット + 説明欄の先頭に「重複のため完了 (日付, PWA[, 相手: ?with])」
  *   GET  /api/tasks/:id/chain    未完了の先行タスクを順に (順送り実行用)。{chain:[…], cycle, truncated}
  *     done / skip の応答には pendingPreds (残っていた先行) と unblocked (着手可になった後続) が付く
+ *     ?related=1 で related (親・残った子・兄弟・同じ PJ の未完了) も付く (2026-11-17, rules.md §5-4。MCP の kairos_task_action が使う)
  *   POST /api/tasks/:id/defer?days=1|7   開始日を今日から N 日後へ (土日に落ちたら次の月曜)。期日は期限切れのときだけ揃える
  *   POST /api/tasks/:id/wait     ステータス=待ち
  *   POST /api/tasks/:id/human    ステータス=人対応 (Claude が止めて本人の手番, 2026-10-03)
@@ -285,6 +286,7 @@ function pageToTask(page) {
     predIds: (p["先行タスク"]?.relation ?? []).map((r) => r.id),
     succIds: (p["後続タスク"]?.relation ?? []).map((r) => r.id),
     parentIds: (p["親アイテム"]?.relation ?? []).map((r) => r.id), // 着手中で親子を 1 行にまとめる (2026-11-05)
+    childIds: (p["サブアイテム"]?.relation ?? []).map((r) => r.id), // 完了時の関連の見直し (relatedOnClose, 2026-11-17)
     blocked: (p["先行未完了数"]?.rollup?.number ?? 0) > 0,
     blockedCount: p["先行未完了数"]?.rollup?.number ?? 0,
     // Claude に渡した時刻 (2026-09-30)。2時間以内なら「🤖 処理中」。Claude 側が終了時に空にする規約 (操作規約 §11)。
@@ -306,6 +308,37 @@ function pageToTask(page) {
 
 async function getTask(env, id) {
   return pageToTask(await notion(env, `/pages/${id}`));
+}
+
+/**
+ * 完了・見送り・重複の直後に見直す関連タスク (2026-11-17, docs/rules.md §5-4)。自動では触らず、候補を返すだけ。
+ * parents: 未完了の親と、残る未完了の子の数 (allChildrenDone=true なら親も閉じられる)
+ * openChildren: 閉じたタスクに残っている未完了の子 / siblings: 同じ親の未完了の子 / sameProject: 同じ PJ の未完了 (上の 3 つと重ならないもの)
+ */
+const RELATED_MAX = 15;
+async function relatedOnClose(env, t, id) {
+  const k = (x) => String(x).replace(/-/g, "");
+  const self = k(id);
+  const brief = (x) => ({ id: x.id, name: x.name, status: x.status, start: x.start, due: x.due });
+  const read = (ids) => Promise.all(ids.slice(0, RELATED_MAX).map((x) => getTask(env, x).catch(() => null))).then((a) => a.filter(Boolean));
+  const [parents, children] = await Promise.all([read(t.parentIds), read(t.childIds ?? [])]);
+  const parentsOut = [], siblings = [];
+  for (const p of parents) {
+    if (p.done) continue;
+    const open = (await read(p.childIds ?? [])).filter((s) => k(s.id) !== self && !s.done);
+    parentsOut.push({ ...brief(p), openChildren: open.length, allChildrenDone: open.length === 0 });
+    siblings.push(...open.map(brief));
+  }
+  let sameProject = [];
+  if (t.projectIds.length) {
+    try {
+      const r = await notion(env, `/data_sources/${env.TASKS_DATA_SOURCE_ID}/query`, { method: "POST",
+        body: JSON.stringify({ filter: { property: "関連プロジェクト", relation: { contains: t.projectIds[0] } }, page_size: 100 }) });
+      const seen = new Set([self, ...t.parentIds.map(k), ...siblings.map((s) => k(s.id)), ...children.map((c) => k(c.id))]);
+      sameProject = (r.results ?? []).map(pageToTask).filter((x) => !x.done && !seen.has(k(x.id))).slice(0, RELATED_MAX).map(brief);
+    } catch (e) { /* PJ が読めなくても親子は返す */ }
+  }
+  return { parents: parentsOut, openChildren: children.filter((c) => !c.done).map(brief), siblings, sameProject };
 }
 
 /**
@@ -1790,7 +1823,11 @@ const kairosWorker = {
           const task = await patchTask(env, id, props);
           const succs = await Promise.all(before.succIds.map((sid) => getTask(env, sid)));
           const unblocked = succs.filter((s) => !s.done && !s.blocked);
-          return json({ task, pendingPreds, unblocked });
+          // 関連タスクの見直し (2026-11-17, docs/rules.md §5-4): ?related=1 のときだけ、閉じたことで動く未完了 (親・兄弟・残った子・同じ PJ) を返す。
+          // 画面の 1 タップは速さを優先して読まない (MCP の kairos_task_action が付ける)。読めなくても完了は返す
+          let related;
+          if (url.searchParams.get("related") === "1") { try { related = await relatedOnClose(env, before, id); } catch (e) { related = { error: String(e?.message ?? e).slice(0, 200) }; } }
+          return json({ task, pendingPreds, unblocked, ...(related ? { related } : {}) });
         }
         // 今夜に送る = 開始日を「今日 18:00 (JST)」の日時に。今日に戻す = 日付だけの今日に
         if (action === "evening") return json({ task: await patchTask(env, id, { "開始日": { date: { start: `${todayJst()}T18:00:00+09:00` } } }) });

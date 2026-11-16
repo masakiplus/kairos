@@ -41,7 +41,7 @@ Kairos を **リモート MCP サーバー**として公開する。claude.ai �
 | `kairos_create` | tasks / decisions / habitlog と、sessions（会話の足跡）などの追加 DB に 1 件作る |
 | `kairos_update` | 一部のプロパティを更新（`null` で空にする） |
 | `kairos_append_body` | 本文の末尾に追記（既存の本文は消さない） |
-| `kairos_task_action` | done / skip / reopen / human / ai_clear |
+| `kairos_task_action` | done / skip / dup（`with` に統合先の名前）/ reopen / human / ai_clear。done・skip・dup は `related`（未完了の親・残った子・兄弟・同じ PJ）と `next` を返す（`docs/rules.md` §5-4） |
 
 守っている規約（`/api/storage/agent` と同じ）:
 
