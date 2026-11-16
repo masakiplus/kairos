@@ -32,6 +32,7 @@
  *   POST /api/tasks/:id/defer?days=1|7   開始日を今日から N 日後へ (土日に落ちたら次の月曜)。期日は期限切れのときだけ揃える
  *   POST /api/tasks/:id/wait     ステータス=待ち
  *   POST /api/tasks/:id/human    ステータス=人対応 (Claude が止めて本人の手番, 2026-10-03)
+ *   POST /api/tasks/:id/mac      ステータス=Mac待ち (AI の手番のまま Mac・ブラウザのつながるセッションを待つ, 2026-11-17)。?note= で説明の先頭に「Mac待ち (日付): 理由」
  *   POST /api/tasks/:id/start?date=YYYY-MM-DD   開始日を指定日に (期日がそれより前なら期日も同じ日へ)
  *   POST /api/tasks/:id/evening  今夜に送る (開始日=今日 18:00 の日時。一覧の「今夜」節に移る)
  *   POST /api/tasks/:id/daytime  今夜を解除して今日に戻す (開始日=今日、日付のみ)
@@ -149,6 +150,10 @@ const NOT_DONE = { property: "完了", checkbox: { equals: false } };
 const PHONE_ENV_NAMES = ["スマホ", "iPhone"];
 // ☁️ クラウド (2026-10-29): Claude Code のクラウドセッション＋GitHub で進めるタスクの印。Mac が要らない作業。選択肢は D1 側で冪等に足す (d1.js ensureSchemaOptions)
 const CLOUD_ENV = "クラウド";
+// 🖥 Mac待ち (2026-11-17 利用者「人対応にはブラウザがつながったらできることが混じってないか。ステータスMacがあればいいのでは」):
+// AI の手番のまま、Mac・ブラウザのつながるセッション (デスクトップアプリにつながったチャット等) を待っている印。本人の手番 (人対応) ではない。
+// 今日系タブ・本人の手番・WIP には出さず、着手中の「🖥 Mac待ち」節と view=mac で拾う。選択肢は D1 側で冪等に足す (d1.js optionMigrations)
+const MAC_WAIT = "Mac待ち";
 const NOT_WAITING = { property: "ステータス", status: { does_not_equal: "待ち" } };
 const STARTABLE = { property: "着手可否", formula: { string: { equals: "着手可" } } };
 const VIEWS = {
@@ -170,8 +175,16 @@ const VIEWS = {
   },
   // 着手中 (2026-10-08 利用者の指示): 進行中・人対応 の未完了。WIP の中身を一覧で見る。委任中は除く (passesView)
   doing: {
-    filter: { and: [NOT_DONE, { or: [{ property: "ステータス", status: { equals: "進行中" } }, { property: "ステータス", status: { equals: "人対応" } }] }] },
+    filter: { and: [NOT_DONE, { or: [{ property: "ステータス", status: { equals: "進行中" } }, { property: "ステータス", status: { equals: "人対応" } }, { property: "ステータス", status: { equals: MAC_WAIT } }] }] },
     sorts: [{ property: "期日", direction: "ascending" }],
+  },
+  // 🖥 Mac待ち (2026-11-17): Mac・ブラウザのつながるセッションが拾う一覧。開始日が先のものは外す (passesView)
+  mac: {
+    filter: { and: [NOT_DONE, { property: "ステータス", status: { equals: MAC_WAIT } }] },
+    sorts: [
+      { property: "期日", direction: "ascending" },
+      { property: "優先度", direction: "ascending" },
+    ],
   },
   can: {
     filter: {
@@ -1090,7 +1103,10 @@ function passesView(t, view, today) {
   if (view === "project") return t.projectIds.length > 0; // 待機・待ちも含めて全部
   if (view === "nostart") return !t.start; // 開始日なし: 待ち・先行待ちも含めて全部 (埋める対象の一覧)
   // 着手中: 開始日が先 (待機) のものは外す (2026-10-08 利用者「開始日が先にあれば着手中から外す・数えない」)。先行待ちは出す
-  if (view === "doing") return (t.status === "進行中" || t.status === "人対応") && !(t.start && t.start > today);
+  if (view === "doing") return (t.status === "進行中" || t.status === "人対応" || t.status === "Mac待ち") && !(t.start && t.start > today);
+  if (view === "mac") return t.status === "Mac待ち" && !(t.start && t.start > today);
+  // 🖥 Mac待ち (MAC_WAIT。テストが passesView だけを切り出すので文字列で書く) は AI の手番なので今日系タブ (本人の一覧) には出さない (2026-11-17)。着手中の節と view=mac で見る
+  if (t.status === "Mac待ち") return false;
   // 開始日が先 (待機) は今日系タブに出さない。先行待ちの判定より先にかける (2026-10-24: 開始日が先でも期日が過ぎた先行待ちが 今日やる に出ていた)
   if (t.start && t.start > today) return false; // 着手可否=待機
   // 先行待ち: 今日系タブには原則出さない。期日が今日以前のものだけ「今日やる」に薄く出す (2026-09-29 決定)
@@ -1147,6 +1163,7 @@ async function listTasks(env, view) {
     for (const page of r.results ?? []) {
       const t = pageToTask(page);
       if (view === "nostart" && t.start) continue; // 開始日なし の一覧には開始日が空のものだけ
+      if (view === "mac" && t.status !== MAC_WAIT) continue; // Mac待ち の一覧には Mac待ち だけ (2026-11-17)
       if (view === "cloud" && (t.entry ?? (t.env.includes(CLOUD_ENV) ? "cloud" : "cowork")) !== "cloud") continue; // クラウドで の 🤖 処理中 節にはクラウドのものだけ (2026-10-29: 紙・早朝のタスクが混ざっていた)
       if (t.owner && view !== "delegated") continue; // 委任中は 🤖 処理中でも自分のタブに足さない (2026-11-05: 委任済みが今日やるに混ざっていた)。委任タブでは出す
       if (t.aiActive && !have.has(t.id)) { t.aiForeign = true; out.push(t); }
@@ -1777,7 +1794,7 @@ const kairosWorker = {
         if (!Object.keys(props).length) return json({ error: "nothing to restore" }, 400);
         return json({ task: await patchTask(env, mr[1], props) });
       }
-      const m = path.match(/^\/api\/tasks\/([0-9a-f-]{32,36})\/(done|reopen|defer|wait|human|start|skip|dup|evening|daytime|ai|ai-clear|delegate|mit|mit-clear|due|project|doing|todo|morning|morning-clear|env)$/);
+      const m = path.match(/^\/api\/tasks\/([0-9a-f-]{32,36})\/(done|reopen|defer|wait|human|mac|start|skip|dup|evening|daytime|ai|ai-clear|delegate|mit|mit-clear|due|project|doing|todo|morning|morning-clear|env)$/);
       if (m && req.method === "POST") {
         const [, id, action] = m;
         // 🤖 を押した印。Claude を起動する直前に立て、Claude が終了時に空にする (§11)。ai-clear は人が手で外す用
@@ -1790,7 +1807,7 @@ const kairosWorker = {
           const mode = mq === "update" ? "更新" : mq === "run" ? "実行" : (resume ? (cur.aiMode || "実行") : "実行");
           // AIセッション は前回の URL が残っていると新セッションと紛れるので空にしてから Claude に書かせる (resume のときは残す)
           const props = { "AI処理開始": { date: { start: new Date().toISOString() } }, "AI処理種別": { select: { name: mode } }, ...(resume ? {} : { "AIセッション": { url: null } }) };
-          if (cur.status === "人対応") props["ステータス"] = { status: { name: "進行中" } }; // 人対応 を Claude に渡し直したら手番は Claude へ
+          if (cur.status === "人対応" || cur.status === MAC_WAIT) props["ステータス"] = { status: { name: "進行中" } }; // 人対応・Mac待ち を Claude に渡し直したら進行中へ (Mac待ち は 2026-11-17)
           const task = await patchTask(env, id, props);
           // 入口の打刻 (2026-10-29): どの入口へ飛んだかを launch_log に 1 行。失敗しても 🤖 の印は返す
           try {
@@ -1878,6 +1895,18 @@ const kairosWorker = {
         }
         // 人対応 (2026-10-03, §11-6): Claude が「人の手が要る」で止めたときの印。手で付けるときは 🤖 の印も外す
         if (action === "human") return json({ task: await patchTask(env, id, { "ステータス": { status: { name: "人対応" } }, "AI処理開始": { date: null }, "AI処理種別": { select: null } }) });
+        // 🖥 Mac待ち (2026-11-17): Mac・ブラウザに届かなかっただけで止めるときの印。人対応 と同じく 🤖 の印を外す。
+        // note= があれば説明の先頭に「Mac待ち (日付): 理由」を 1 行 (待ち の行と同じ要領で、既にあれば置き換える)。人対応 などへ移すときは残っても害はないが、次に mac で止めると置き換わる
+        if (action === "mac") {
+          const props = { "ステータス": { status: { name: MAC_WAIT } }, "AI処理開始": { date: null }, "AI処理種別": { select: null } };
+          const why = (url.searchParams.get("note") ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+          if (why) {
+            const cur = await getTask(env, id);
+            const rest = (cur.rawDesc ?? "").replace(/^Mac待ち \([^)]*\): .*\n?/m, "");
+            props["説明"] = { rich_text: [{ text: { content: (`Mac待ち (${todayJst()}): ${why}` + (rest ? "\n" + rest : "")).slice(0, 1900) } }] };
+          }
+          return json({ task: await patchTask(env, id, props) });
+        }
         // 状態の切替 (2026-10-07, 利用者「人対応に変更するボタンがあってもいいかも」): シートの 🚦 状態 から 未着手／進行中 にも戻せる。進行中 は WIP に数える
         if (action === "doing") return json({ task: await patchTask(env, id, { "ステータス": { status: { name: "進行中" } } }) });
         // 🌅 早朝向き (2026-10-12 利用者と決定): 実行環境 に「早朝」を足す／外す。家にいて家族は起きていない・音は出せない・時間はかけられる、という条件のタスク

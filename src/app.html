@@ -79,6 +79,8 @@
   @keyframes aipulse{0%,100%{opacity:.25}50%{opacity:1}}
   .sec h2.aih{color:var(--acc)}
   .sec h2.huh{color:var(--today)}
+  .sec h2.mach{color:var(--acc);text-transform:none;letter-spacing:0} /* 🖥 Mac待ち (2026-11-17): AI の手番なので 🧔 とは色を分ける */
+  .meta .macc{color:var(--acc);font-weight:600}
   .sec h2.nost{color:var(--acc)}
   .meta .huc{color:var(--today);font-weight:600}
   .row.hu .card{box-shadow:inset 3px 0 0 var(--today)}
@@ -439,7 +441,7 @@
   .sheet .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .sheet .grid button.pri{background:var(--acc);color:#fff}
   .sheet .grid.dg{grid-template-columns:repeat(3,1fr)}
-  .sheet .grid.st4{grid-template-columns:repeat(4,1fr);gap:6px}
+  .sheet .grid.st4{grid-template-columns:repeat(5,1fr);gap:6px}
   .sheet .grid.st4 button{padding:10px 4px;font-size:13px;gap:4px}
   .sheet .grid.st4 button.pri:disabled{opacity:1} /* いまの状態は押せないが、選択中として見せる */
   .meta .own{color:var(--acc)}
@@ -1400,7 +1402,7 @@
         <button class="ring" aria-label="${t.done ? "完了済み" : t.blocked ? "先行タスクが未完了" : "完了にする"}" ${t.blocked || t.done ? "disabled" : "data-done"}>${t.done ? ICONS.check : ""}</button>
         <div class="body">
           <div class="name">${t.icon ? t.icon + " " : ""}${esc(t.name)}</div>
-          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${view === "can" && !t.start && !t.done && !t.blocked && !t.aiActive ? `<button type="button" class="stn" data-startnow aria-label="開始日を今日にする">▶ 今日から</button>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}${doingCtx ? doingChips(t) : ""}</div>${doingCtx && nextStep(t) ? `<div class="nx">→ ${esc(nextStep(t))}</div>` : ""}
+          <div class="meta">${dueHtml(t, today)}${t.priority ? `<span class="${t.priority}">${t.priority}</span>` : ""}${envChip(t)}${t.status === "進行中" ? "<span>進行中</span>" : ""}${t.status === "待ち" ? `<span>⏸ 待ち${t.waitFor ? `<span class="wfc">: ${esc(t.waitFor)}</span>` : ""}</span>` : ""}${t.carry >= 2 ? `<span class="cry${t.carry >= 3 ? " hot" : ""}">↻ 繰越${t.carry}回</span>` : ""}${t.status === "人対応" ? `<span class="huc">🧔 人対応</span>` : ""}${t.status === "Mac待ち" ? `<span class="macc">🖥 Mac待ち</span>` : ""}${t.owner && view !== "delegated" ? `<span class="own">👥 ${esc(t.owner)}</span>` : ""}${t.blocked ? `<span class="blkc">⏭ 先行 ${t.blockedCount} 件</span>` : ""}${t.aiActive ? `<span class="aic"><i></i>🤖 ${t.aiMode === "更新" ? "更新中" : "実行中"} ${fmtTime(t.aiSince)}〜</span>` : ""}${t.start && t.start > today ? `<span>開始 ${fmtDate(t.start)}</span>` : ""}${view === "can" && !t.start && !t.done && !t.blocked && !t.aiActive ? `<button type="button" class="stn" data-startnow aria-label="開始日を今日にする">▶ 今日から</button>` : ""}${t.project && view !== "project" ? `<span class="prj">${esc(t.project)}</span>` : ""}${doingCtx ? doingChips(t) : ""}</div>${doingCtx && nextStep(t) ? `<div class="nx">→ ${esc(nextStep(t))}</div>` : ""}
         </div>
         ${t.aiActive && sessionProvider(t.aiSession)
           ? `<a class="go sess" href="${sessionHref(t.aiSession)}" aria-label="AI のセッションを開く" data-sess>💬</a>`
@@ -1504,6 +1506,9 @@
     // 着手中では できる場所 ごとに小分けし、いまの 📍 でできる組を先に (2026-11-05)
     const huSecs = view === "doing" ? groupByPlace(hu, PHONE_ENV, unavailWhy).map((g) => [`🧔 本人の手番 · ${g.key}${g.now ? ` <small class="nowc">いまできる ${g.now}</small>` : ""}`, "huh", g.tasks]) : [["🧔 本人の手番（AI が止めた）", "huh", hu]];
     if (hu.length) { const i = ai.length ? 1 : 0; secs = [...secs.slice(0, i), ...huSecs, ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => t.status !== "人対応")])]; }
+    // 🖥 Mac待ち (2026-11-17): AI の手番のまま Mac・ブラウザのつながるセッションを待つもの。本人の手番の後ろに独立した節で (Worker は着手中にだけ返す)
+    const mw = pjWide ? [] : tasks.filter((t) => t.status === "Mac待ち" && !t.aiActive);
+    if (mw.length) { const i = (ai.length ? 1 : 0) + (hu.length ? huSecs.length : 0); secs = [...secs.slice(0, i), [`🖥 Mac待ち <small style="font-weight:400;color:var(--mute)">AI の手番・Mac のつながるチャットで進む</small>`, "mach", mw], ...secs.slice(i).map(([h, c, ts]) => [h, c, ts.filter((t) => !mw.includes(t))])]; }
     // ⭐ 今日の3つ (MIT, 2026-10-06) は一番上。4件以上なら見出しで注意 (検索タブでは節を作らない)
     const mit = view === "search" || pjWide ? [] : tasks.filter((t) => t.mit && !t.done);
     if (mit.length) secs = [[`⭐ 今日の3つ${mit.length > 3 ? ` <span style="color:var(--over)">（${mit.length} 件。3つに絞る）</span>` : ""}`, "mith", mit], ...secs.map(([h, c, ts]) => [h, c, ts.filter((t) => !t.mit)])];
@@ -1703,7 +1708,11 @@
     }
     if (v === "doing") {
       if (!ts.length) return "";
-      return metaBtn("doing", ai + " とまとめて片付ける", "終わっているものを閉じ、続ける・戻すだけ聞く",
+      // 🖥 Mac待ち (2026-11-17): Mac・ブラウザのつながるチャット (デスクトップアプリ) に渡すボタン。Mac待ち があるときだけ足す
+      const mw = ts.filter((t) => t.status === "Mac待ち");
+      const macBtn = mw.length ? metaBtn("mac", `Mac待ち ${mw.length} 件を Mac のつながる ${ai} で進める`, "デスクトップアプリから開く。届けば AI が完了まで",
+        `Kairos の「Mac待ち」（AI の手番のまま、Mac・ブラウザに届かず止まったタスク）を、Mac とブラウザにつながったこのチャットで進めてください。候補: ${taskLines(mw)}\n\n進め方\n${metaSteps([`最初に Mac とブラウザに届くか確かめる（届かなければ何もせず、届かない理由を 1 行で伝えて終わる）。${skill ? "一覧は kairos_list_tasks の view=mac。" : ""}`, ...META_EXEC(), "それでも Mac・ブラウザに届かなかったものは Mac待ち のまま、届かなかった先を note に 1 行残す。"])}`) : "";
+      return macBtn + metaBtn("doing", ai + " とまとめて片付ける", "終わっているものを閉じ、続ける・戻すだけ聞く",
         `Kairos「着手中」（進行中・人対応）をまとめて片付けたいです。同時に進めるのは 10 件までが目安です。\n\n${metaList("doing", ts)}\n\n進め方\n${metaSteps(["各件の本文と AIセッション の結末を読み、実は終わっているものは完了処理する。", "人対応 のものは、本人が次にやる 1 手を本文に 1 行で書く。", "「続ける／未着手に戻す／待ちにする（相手）／🤖 で進める」が割れるものだけ聞く。", ...META_TIDY()])}`);
     }
     if (v === "project") {
@@ -2653,7 +2662,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
     const base0 = action.split("?")[0];
     if (base0 !== "ai" && base0 !== "ai-clear" && base0 !== "reopen") pushUndo(t, `${label}: ${t.name}`); // reopen は 取り消し＝完了 なので対象外 (検索の完了済みから戻すとき, 2026-10-04)
     if (keep) { // 今夜⇄今日・⭐ の出し入れ は一覧に残したまま節を移す
-      const ST = { todo: "未着手", doing: "進行中", wait: "待ち", human: "人対応" };
+      const ST = { todo: "未着手", doing: "進行中", wait: "待ち", human: "人対応", mac: "Mac待ち" };
       if (base0 === "mit" || base0 === "mit-clear") t.mit = base0 === "mit";
       else if (base0 === "morning" || base0 === "morning-clear") t.env = [...t.env.filter((x) => x !== "早朝"), ...(base0 === "morning" ? ["早朝"] : [])];
       else if (ST[base0]) t.status = ST[base0]; else t.evening = action === "evening";
@@ -2708,7 +2717,7 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       ${t.blocked ? `<div class="sub" style="color:var(--mute)">先行タスクが終わるまで、このタスク自体の操作はできません（上のチェーンから順に完了するか、🤖 に任せる）</div>` : ""}
       ${t.done ? "" : `<div class="sect">🚦 状態${t.status ? `　<span style="color:var(--acc)">いま: ${esc(t.status)}</span>` : ""}</div>
       <div class="grid st4">
-        ${[["todo", "未着手", "○"], ["doing", "進行中", "▶"], ["wait", "待ち", "⏸"], ["human", "人対応", "🧔"]].map(([a, n, ic]) => `<button data-a="${a}" data-keep="1" data-st="${n}" class="${t.status === n ? "pri" : ""}" ${t.blocked || t.status === n ? "disabled" : ""}>${ic} ${n}</button>`).join("")}
+        ${[["todo", "未着手", "○"], ["doing", "進行中", "▶"], ["wait", "待ち", "⏸"], ["human", "人対応", "🧔"], ["mac", "Mac待ち", "🖥"]].map(([a, n, ic]) => `<button data-a="${a}" data-keep="1" data-st="${n}" class="${t.status === n ? "pri" : ""}" ${t.blocked || t.status === n ? "disabled" : ""}>${ic} ${n}</button>`).join("")}
       </div>`}
       ${t.done ? "" : `<details class="sitd"${sitOpen ? " open" : ""}><summary><span class="ic">📍</span>できる状況<span class="sv">${esc(t.env.join("・")) || "どこでも"}</span></summary>
       <div class="sub" style="margin:2px 2px 6px">タグが付いた軸だけ条件になる。空＝どこでも</div>

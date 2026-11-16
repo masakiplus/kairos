@@ -13,7 +13,7 @@ test('MCP 規約に「閉じたら関連タスクを見直す」と統合の基�
 
 test('kairos_task_action が dup と with を受け、閉じるときは related=1 を付けて next を返す', () => {
   const s = read('../src/mcp.js');
-  assert.match(s, /enum: \["done", "skip", "dup", "reopen", "human", "ai_clear"\]/);
+  assert.match(s, /enum: \["done", "skip", "dup", "reopen", "human", "mac", "ai_clear"\]/);
   assert.ok(s.includes('qs.set("related", "1")'));
   assert.ok(s.includes('const CLOSE_NEXT ='));
 });
