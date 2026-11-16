@@ -32,6 +32,8 @@ test('規則 v2 (2026-11-17): コードの仕事は cloud、それ以外は cowo
  assert.equal(classifyEntry({area:'家族・健康',kind:'確認',name:'Kairos の習慣を見直す'}).entry,'cowork');
  assert.equal(classifyEntry({...sys,name:'Prophet で着地予測を作る'}).entry,'cowork','PR は Prophet に当てない');
  assert.equal(classifyEntry({name:'学校に連絡'}).entry,'cowork');
+ assert.equal(classifyEntry({area:'車・テスラ',kind:'作業',env:['スマホ'],name:'ISSE Super66をらくらくメルカリ便で発送する',rawDesc:'梱包して QR コードで発送する'}).entry,'cowork','QR コードはコードの仕事ではない');
+ assert.equal(classifyEntry({area:'家事・DIY',kind:'作業',env:['自宅'],name:'地下の柱の設置場所を決める',rawDesc:'充電コードの取り回しを測る'}).entry,'cowork','充電コードも');
  assert.equal(cloudRepo('saito-workers 移行'),'masakiplus/saito-workers');
 });
 

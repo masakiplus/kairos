@@ -88,7 +88,7 @@ PR #6（e9af223）をローカルへ取得し、架空のタスクを返す読�
 1. 種類が 判断・手続き・購入・連絡・支払い → cowork
 2. **名前**に `.env`・secret・採点・印刷・スキャン・box.com・freee・Gmail・カレンダーに・認証切れ → cowork（説明・本文はコードの仕事でもこれらの語が出るので名前だけ見る）
 3. 実行環境にクラウドがあり、エリアが 自動化・システム・Inbox・空 → cloud（生活系のタスクに付いたクラウドは数えない）
-4. 名前・説明・本文にコードの語（saito-tools・saito-workers・tasks-pwa・tools/・PR・GitHub・push・commit・`.py`・`.js`・スクリプト・コード・実装・リポジトリ ほか）→ cloud。弱い語（Kairos・API・MCP・D1・Worker・PWA・launchd ほか）はエリアが 自動化・システム か種類が 作業・調査 のときだけ
+4. 名前・説明・本文にコードの語（saito-tools・saito-workers・tasks-pwa・tools/・PR・GitHub・push・commit・`.py`・`.js`・スクリプト・ソースコード・実装（「コード」単体は QR コード・充電コードに当たるので使わない）・リポジトリ ほか）→ cloud。弱い語（Kairos・API・MCP・D1・Worker・PWA・launchd ほか）はエリアが 自動化・システム か種類が 作業・調査 のときだけ
 5. それ以外 → cowork
 
 - 英字の語は前後が英数字でないときだけ当てる（PR が Prophet に当たらない）。説明の機械の行の括弧（「完了 (2026-11-01, PWA)」）と URL は判定から外す

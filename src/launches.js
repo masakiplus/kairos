@@ -11,8 +11,9 @@ export const ENTRY_RULES = {
   cowork: { kinds: ["判断", "手続き", "購入", "連絡", "支払い"], words: [".env", "secret", "採点", "印刷", "スキャン", "box.com", "freee", "Gmail", "カレンダーに", "認証切れ"] },
   // 2. コード (リポジトリの仕事): 実行環境にクラウドがあるか、名前・説明・本文にコードの語がある。英字の語は語の境目で当てる。
   //    words はどこに出ても当てる。weak (Kairos・API など、仕組みの名前として普段の文にも出る語) はエリアが 自動化・システム か種類が 作業・調査 のときだけ。
+  //    「コード」単体は QR コード・充電コードに当たるので使わない (2026-11-17 本番で発送・DIY のタスクが CC 行きになった)。
   //    実行環境のクラウドは、エリアが 自動化・システム・Inbox・空 のときだけ数える (生活系のタスクに AI がクラウドを付けていた)
-  cloud: { env: ["クラウド"], envAreas: ["自動化・システム", "Inbox", null], words: ["saito-tools", "saito-workers", "tasks-pwa", "tools/", "loopmania", "voice-input", "telegram-ask-claude", "PR", "GitHub", "push", "commit", "SKILL.md", ".py", ".js", ".sh", "スクリプト", "コード", "実装", "リポジトリ", "プルリク"], weak: ["kairos", "カイロス", "Worker", "PWA", "MCP", "API", "D1", "launchd", "headless", "ai-drive"], area: ["自動化・システム"], kinds: ["作業", "調査"], fill: "クラウド" },
+  cloud: { env: ["クラウド"], envAreas: ["自動化・システム", "Inbox", null], words: ["saito-tools", "saito-workers", "tasks-pwa", "tools/", "loopmania", "voice-input", "telegram-ask-claude", "PR", "GitHub", "push", "commit", "SKILL.md", ".py", ".js", ".sh", "スクリプト", "ソースコード", "実装", "リポジトリ", "プルリク"], weak: ["kairos", "カイロス", "Worker", "PWA", "MCP", "API", "D1", "launchd", "headless", "ai-drive"], area: ["自動化・システム"], kinds: ["作業", "調査"], fill: "クラウド" },
   // 接続先 (app.html の cloudRepo と同じ。PR #33)
   repos: [{ re: "kairos|カイロス|tasks-pwa", repo: "masakiplus/kairos" }, { re: "saito-workers", repo: "masakiplus/saito-workers" }],
   defaultRepo: "masakiplus/saito-tools",
