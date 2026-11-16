@@ -474,7 +474,7 @@ const RULES = [
   "Decisions に未決を書くときは、先に自分で調べる（タスク・本文・メール・カレンダー・会計など手元で見られるもの）。調べてわかる事実は 問い に書いて、本人に聞く問いにしない。本人にしか決められないものだけを残し、問い の末尾に選択肢を2〜4行「[案 着手|棚上げ|やめる] 案の短い名前 — 1行の理由」で書く（推奨1つは「[案 着手 推奨]」）。Kairos の決めるタブはこの行をそのまま選択肢にし、案の行が無い未決は「AIが先に調べる」に回して人には聞かない。名前は「〜するか」の問いの形にする。",
   "Decisions の答え合わせ（状態=決着・検証日≦今日・検証結果が空）は、AI が先に実績を調べる（関連タスクの完了と本文・家計や口座の数字・メール・カレンダー）。結果が実績から明らかなら 検証結果（当たり／部分的／外れ／検証不要）と 学び（根拠1行）を自分で書いて閉じる。判断が要るものだけ、問い の末尾に調べた実績を書き、「[案 当たり|部分的|外れ|検証不要] 短い名前 — 根拠1行」を2〜3行（推奨1つは「[案 当たり 推奨]」の形）で書いて本人に残す。",
   "会話の足跡は Kairos の sessions に kairos_create で書く（Notion の 📻 Sessions と「セッション足跡の規約」ページは退役。Claude メモリや依頼文が Notion を指していてもこちらを優先する。書き方の正本は docs/sessions.md）。実質的な作業か判断があった会話の終わりに1件: 名前（やったことを体言で）・日時（終わった JST の ISO 日時）・サーフェス（Cowork / claude.ai / Claude Code / 定期タスク）・要旨（結果から1〜2文）・決めたこと・残課題・うまくいかなかったこと・手戻り と 対象スキル（本人が直した点とそのスキル）・触った領域。決めたことのうち今後を縛るものは Decisions にも書いて 関連決定 で結ぶ。会社の業務・認証情報は書かない。",
-  "AIに渡されたタスクは、終わるとき AI処理開始 を空にする（done なら自動。止まるなら kairos_task_action の human か ai_clear）。人の手が要って止まるなら human（ステータス=人対応）。",
+  "AIに渡されたタスクは、終わるとき AI処理開始 を空にする（done なら自動。止まるなら kairos_task_action の human・mac・ai_clear）。人の手が要って止まるなら human（ステータス=人対応）。Mac・ブラウザ・Mac 上のリポジトリやファイルに届かなかっただけで、届けば AI が進められるなら human ではなく mac（ステータス=Mac待ち。note に何に届かなかったかを 1 行）。本人の手番と AI の手番が混ざるなら子に分け、AI 側の子だけ mac にする。Mac・ブラウザにつながったセッションでは、kairos_list_tasks の view=mac で Mac待ち を拾って進める。",
 ];
 
 const INSTRUCTIONS =
@@ -492,7 +492,7 @@ const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: fals
 const BEGIN_REL_MAX = 15;
 const BEGIN_REL_COLS = ["名前", "ステータス", "完了", "開始日", "期日", "実行環境", "担当"];
 const CLOSE_NEXT = "related を見て関連タスクを見直す（規約の「閉じたら関連タスクを見直す」）: 済んだ・不要になったものは done／skip、親の allChildrenDone が true なら親も done、状況が変わったものは本文と開始日・期日を直す、細かすぎるものは1件に寄せて残りを dup（with に残す側の名前）。何もしなくてよければそのまま終える。";
-const BEGIN_NEXT = "規約は接続時の説明のとおり（kairos_rules の読み直しは不要）。成果は本文へ kairos_append_body。終わるときは kairos_task_action の done、人の手が要るなら human、それ以外で止まるなら ai_clear。";
+const BEGIN_NEXT = "規約は接続時の説明のとおり（kairos_rules の読み直しは不要）。成果は本文へ kairos_append_body。終わるときは kairos_task_action の done、人の手が要るなら human、Mac・ブラウザに届かなかっただけなら mac、それ以外で止まるなら ai_clear。";
 
 const TOOLS = [
   {
@@ -506,8 +506,8 @@ const TOOLS = [
   {
     name: "kairos_list_tasks",
     title: "タスクの一覧（画面別）",
-    description: "Kairos の画面と同じ一覧を返す。view: today=今日やる, can=今日できる, phone=スマホで, cloud=クラウドで (実行環境にクラウドを含む着手可), doing=着手中, project=PJ別, delegated=委任, nostart=開始日なし (開始日が空の未完了を期日に関係なく。棚卸しで開始日を埋める対象)。",
-    inputSchema: { type: "object", properties: { view: { type: "string", enum: ["today", "can", "phone", "cloud", "doing", "project", "delegated", "nostart"], default: "today" } }, additionalProperties: false },
+    description: "Kairos の画面と同じ一覧を返す。view: today=今日やる, can=今日できる, phone=スマホで, cloud=クラウドで (実行環境にクラウドを含む着手可), doing=着手中, project=PJ別, delegated=委任, mac=Mac待ち (AI の手番で Mac・ブラウザのつながるセッションを待つもの), nostart=開始日なし (開始日が空の未完了を期日に関係なく。棚卸しで開始日を埋める対象)。",
+    inputSchema: { type: "object", properties: { view: { type: "string", enum: ["today", "can", "phone", "cloud", "mac", "doing", "project", "delegated", "nostart"], default: "today" } }, additionalProperties: false },
     annotations: READ,
     run: async (a, ctx) => api(ctx, "GET", `/api/tasks?view=${encodeURIComponent(a.view ?? "today")}`),
   },
@@ -652,21 +652,21 @@ const TOOLS = [
   {
     name: "kairos_task_action",
     title: "タスクの 1 タップ操作",
-    description: "done=完了, skip=見送り, dup=重複・統合で閉じる（with に残す側のタスク名）, reopen=未完了に戻す, human=人対応で止める（ステータス=人対応、AI処理開始を空に）, ai_clear=AI処理開始を空にする。note は理由 1 行（説明欄の先頭に残る）。done・skip・dup の結果の related（未完了の親・残った子・兄弟・同じ PJ）を見て、関連タスクの更新・クローズ・統合を続ける。",
+    description: "done=完了, skip=見送り, dup=重複・統合で閉じる（with に残す側のタスク名）, reopen=未完了に戻す, human=人対応で止める（ステータス=人対応、AI処理開始を空に）, mac=Mac待ちで止める（Mac・ブラウザに届かなかっただけのとき。ステータス=Mac待ち、AI処理開始を空に、note は説明の先頭に「Mac待ち (日付): …」）, ai_clear=AI処理開始を空にする。note は理由 1 行（説明欄の先頭に残る）。done・skip・dup の結果の related（未完了の親・残った子・兄弟・同じ PJ）を見て、関連タスクの更新・クローズ・統合を続ける。",
     inputSchema: {
       type: "object",
-      properties: { id: ID_PROP, action: { type: "string", enum: ["done", "skip", "dup", "reopen", "human", "ai_clear"] }, note: { type: "string", maxLength: 200 }, with: { type: "string", maxLength: 120, description: "dup のとき、統合先（残す側）のタスク名" } },
+      properties: { id: ID_PROP, action: { type: "string", enum: ["done", "skip", "dup", "reopen", "human", "mac", "ai_clear"] }, note: { type: "string", maxLength: 200 }, with: { type: "string", maxLength: 120, description: "dup のとき、統合先（残す側）のタスク名" } },
       required: ["id", "action"],
       additionalProperties: false,
     },
     annotations: { ...WRITE, idempotentHint: true },
     run: async (a, ctx) => {
       const id = reqId(a.id), action = a.action === "ai_clear" ? "ai-clear" : a.action;
-      if (!["done", "skip", "dup", "reopen", "human", "ai-clear"].includes(action)) throw new Error("action が不正です");
+      if (!["done", "skip", "dup", "reopen", "human", "mac", "ai-clear"].includes(action)) throw new Error("action が不正です");
       const note = String(a.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
       const closing = action === "done" || action === "skip" || action === "dup";
       const qs = new URLSearchParams();
-      if (note && closing) qs.set("note", note);
+      if (note && (closing || action === "mac")) qs.set("note", note); // mac の note は説明の先頭に「Mac待ち (日付): …」(2026-11-17)
       if (action === "dup") { const w = String(a.with ?? "").replace(/\s+/g, " ").trim().slice(0, 120); if (w) qs.set("with", w); }
       if (closing) qs.set("related", "1"); // 関連タスクの見直し (2026-11-17, rules.md §5-4)
       const q = qs.toString();

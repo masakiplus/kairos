@@ -54,10 +54,12 @@ export const optionMigrations = [
  {collection:'tasks',property:'実行環境',option:{id:'kairos-cloud',name:'クラウド',color:'blue',description:null}},
  // 🛒 買い物画面 (2026-11-02): 買ったつもりリストの印
  {collection:'tasks',property:'ラベル',option:{id:'kairos-katta',name:'買ったつもり',color:'pink',description:null}},
+ // 🖥 Mac待ち (2026-11-17): AI の手番のまま Mac・ブラウザのつながるセッションを待つステータス。人対応 とは別 (index.js MAC_WAIT)
+ {collection:'tasks',property:'ステータス',type:'status',option:{id:'kairos-macwait',name:'Mac待ち',color:'purple',description:null}},
 ];
 export async function ensureSchemaOptions(env) {
- const stmts=optionMigrations.map(({collection,property,option})=>{
-  const path='$.properties.'+JSON.stringify(property)+'.multi_select.options';
+ const stmts=optionMigrations.map(({collection,property,type='multi_select',option})=>{
+  const path='$.properties.'+JSON.stringify(property)+'.'+type+'.options';
   return env.DB.prepare(`UPDATE entity_schemas SET payload=json_insert(payload,?1,json(?2)) WHERE collection=?3 AND json_type(payload,?4)='array' AND NOT EXISTS (SELECT 1 FROM json_each(entity_schemas.payload,?4) WHERE json_extract(value,'$.name')=?5)`).bind(path+'[#]',JSON.stringify(option),collection,path,option.name);
  });
  if(stmts.length)await env.DB.batch(stmts);

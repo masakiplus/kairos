@@ -48,7 +48,7 @@
 | `GET /api/tasks/:id/(graph\|chain\|detail)` | 3 列グラフ・先行チェーン・詳細 |
 | `POST /api/tasks/:id/preds {ids}` | 先行タスクの置き換え（循環は 400） |
 | `POST /api/tasks/:id/restore {...}` | 取り消し（渡された列だけ戻す） |
-| `POST /api/tasks/:id/(done\|reopen\|defer\|wait\|human\|start\|skip\|dup\|evening\|daytime\|ai\|ai-clear\|delegate\|mit\|mit-clear\|due\|project\|doing\|todo)` | 1 タップ操作。`?note=` `?with=` `?date=` `?to=` `?mode=update&resume=1` |
+| `POST /api/tasks/:id/(done\|reopen\|defer\|wait\|human\|mac\|start\|skip\|dup\|evening\|daytime\|ai\|ai-clear\|delegate\|mit\|mit-clear\|due\|project\|doing\|todo)` | 1 タップ操作。`?note=` `?with=` `?date=` `?to=` `?mode=update&resume=1` |
 
 MCP コネクタ（`src/mcp.js`、`/mcp` `/authorize` `/oauth/*` `/.well-known/oauth-*`）は Cookie／APP_TOKEN の認証より前でルーティングし、自前の署名トークンで守る。tools は `/api/*` を内部で呼ぶだけで、削除の道具は足さない。仕様と取り消しは `docs/mcp.md`。
 
@@ -67,4 +67,5 @@ MCP コネクタ（`src/mcp.js`、`/mcp` `/authorize` `/oauth/*` `/.well-known/o
 - 今週の石 ＝ Roles の `今週の目標` で指名したタスク（役割ごとに 1 件）
 - ⭐ 今日の3つ ＝ MIT。夜間の棚卸しが置き、人が朝に出し入れする
 - 人対応 ＝ AI が人の手が要るで止めたタスク
+- Mac待ち ＝ AI の手番のまま、Mac・ブラウザのつながるセッションを待っているタスク（2026-11-17）
 - 🤖 処理中 ＝ `AI処理開始` が 2 時間以内
