@@ -42,8 +42,8 @@ test('今日やる＝実行するボタン。一覧は貼らずコネクタで�
 
 test('今日できる＝選んでから実行するボタン', () => {
   const b = harness().out('can');
-  assert.equal(b.label, 'Claude と選んで進める'); assert.equal(b.key, 'can');
-  assert.match(b.q, /今やるべきものを決めて、実際に進めてください/); assert.match(b.q, /開始日 を今日にする/);
+  assert.equal(b.label, 'Claude と全量から選んで進める'); assert.equal(b.key, 'can');
+  assert.match(b.q, /今やるべきものを決め、実際に進めてください/); assert.match(b.q, /view=today/); assert.match(b.q, /view=mac/); assert.doesNotMatch(b.q, /多くて 5 件/); assert.match(b.q, /開始日 を今日にする/);
 });
 
 test('着手中・委任＝まとめて片付ける (先に調べ、割れるものだけ聞く)', () => {
