@@ -149,7 +149,7 @@ test('本体API: 🤖 で打刻、クラウドで の処理中節はクラウド
   const wk=(await api('/api/entry/weekly?weeks=2')).data;
   assert.equal(wk.weeks.length,2);assert.equal(wk.weeks[1].launches.cloud,1);
   assert.equal(wk.weeks[1].lastUsagePct,12,'本文の表から週間% を拾う');assert.equal(wk.usageSamples,1);
-  assert.equal((await api('/api/entry/rules')).data.version,2);
+  assert.equal((await api('/api/entry/rules')).data.version,3);
   // 2026-11-14: AIセッション を書くと launch_log に開始の打刻が入る (kairos_begin・kairos_update・直接 PATCH が同じ道)
   const patch=await mf.dispatchFetch('https://kairos.test/api/data/pages/'+ids[0],{method:'PATCH',headers:{Authorization:'Bearer test-only-token','Content-Type':'application/json'},body:JSON.stringify({properties:{AIセッション:{url:'https://claude.ai/chat/abc'}}})});
   assert.equal(patch.status,200,await patch.clone().text());
