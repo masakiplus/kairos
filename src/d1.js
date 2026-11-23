@@ -56,6 +56,8 @@ export const optionMigrations = [
  {collection:'tasks',property:'ラベル',option:{id:'kairos-katta',name:'買ったつもり',color:'pink',description:null}},
  // 🖥 Mac待ち (2026-11-17): AI の手番のまま Mac・ブラウザのつながるセッションを待つステータス。人対応 とは別 (index.js MAC_WAIT)
  {collection:'tasks',property:'ステータス',type:'status',option:{id:'kairos-macwait',name:'Mac待ち',color:'purple',description:null}},
+ // コストコ多摩境倉庫店 (2026-11-23): 購入履歴の 店舗 は単一選択 (select)
+ {collection:'costco_history',property:'店舗',type:'select',option:{id:'kairos-costco-tamasakai',name:'多摩境倉庫店',color:'green',description:null}},
 ];
 export async function ensureSchemaOptions(env) {
  const stmts=optionMigrations.map(({collection,property,type='multi_select',option})=>{
