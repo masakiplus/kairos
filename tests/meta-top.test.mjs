@@ -31,25 +31,47 @@ function harness({ provider = 'claude', filtered = false, quiet = false, roles =
   return { out };
 }
 
+// 2026-11-25 まとめてボタンを 3 段の型にそろえた (全量把握 → AI だけで片付ける → 人対応を AI が代行)。手順の正本は kairos-matome スキル
+test('タスクのタブは kairos-matome スキルを呼び、タブの範囲だけ渡す (手順は書かない)', () => {
+  const h = harness();
+  for (const v of ['today', 'can', 'doing', 'delegated']) {
+    const b = h.out(v);
+    assert.match(b.q, /^kairos-matome スキルで、Kairos「/); assert.match(b.q, /全量把握 → AI だけで片付ける → 人対応を AI が代行/);
+    assert.match(b.q, /このタブの範囲: /); assert.doesNotMatch(b.q, /進め方\n/); assert.doesNotMatch(b.q, /第1段 全量把握/);
+  }
+});
+
 test('今日やる＝実行するボタン。一覧は貼らずコネクタで読ませ、順番は聞かせない', () => {
   const b = harness().out('today');
   assert.equal(b.label, 'Claude とまとめて進める'); assert.equal(b.key, 'today');
-  assert.match(b.q, /上から順に実際に進めてください/);
+  assert.match(b.q, /上から順に全部を実際に進める/); assert.match(b.q, /順番や明日へ回すかは聞かない/);
   assert.match(b.q, /kairos_list_tasks（view=today）/); assert.match(b.q, /いま 23 件/);
   assert.doesNotMatch(b.q, /タスク13/); assert.doesNotMatch(b.q, /…ほか/); // 12 件で切れる貼り付けをしない
-  assert.match(b.q, /人対応 にする/); assert.doesNotMatch(b.q, /判断は一問一答で 1 件ずつ聞いてください/);
+  assert.match(b.q, /いまの状況: 自宅・スマホ/);
 });
 
 test('今日できる＝選んでから実行するボタン', () => {
   const b = harness().out('can');
   assert.equal(b.label, 'Claude と全量から選んで進める'); assert.equal(b.key, 'can');
-  assert.match(b.q, /今やるべきものを決め、実際に進めてください/); assert.match(b.q, /view=today/); assert.match(b.q, /view=mac/); assert.doesNotMatch(b.q, /多くて 5 件/); assert.match(b.q, /開始日 を今日にする/);
+  assert.match(b.q, /今やるべきものを選んで実際に進める/); assert.match(b.q, /view=today/); assert.match(b.q, /view=mac/); assert.doesNotMatch(b.q, /多くて 5 件/); assert.match(b.q, /開始日 を今日に/); assert.match(b.q, /60 分/);
 });
 
-test('着手中・委任＝まとめて片付ける (先に調べ、割れるものだけ聞く)', () => {
+test('着手中・委任＝まとめて片付ける (終わったものを閉じ、割れるものだけ聞く)', () => {
   const h = harness();
-  for (const v of ['doing', 'delegated']) { const b = h.out(v); assert.equal(b.label, 'Claude とまとめて片付ける'); assert.equal(b.key, v); assert.match(b.q, /本人にしか決められないものだけ/); }
-  assert.match(h.out('doing').q, /実は終わっているものは完了処理する/);
+  for (const v of ['doing', 'delegated']) { const b = h.out(v); assert.equal(b.label, 'Claude とまとめて片付ける'); assert.equal(b.key, v); }
+  assert.match(h.out('doing').q, /実は終わっているものは第1段で片付けに分けて閉じる/);
+  assert.match(h.out('delegated').q, /送ってよいか聞いてから送る/);
+});
+
+test('スキルを持たない AI アプリには 3 段の手順そのものを渡す', () => {
+  const g = harness({ provider: 'chatgpt' });
+  for (const v of ['today', 'can', 'doing', 'delegated']) {
+    const q = g.out(v).q;
+    assert.doesNotMatch(q, /kairos-matome/); assert.match(q, /進め方\n1\. 第1段 全量把握/);
+    assert.match(q, /第2段 AI だけで片付ける/); assert.match(q, /第3段 人対応を AI が代行/);
+    assert.match(q, /サインインや認証コードの入力・支払い・送信や申込の確定・削除/); // 要所だけ止める
+    assert.match(q, /人対応 にし、AI処理開始 を空にする/);
+  }
 });
 
 test('スキルがあるタブは手順を書かずスキルを呼ぶ。スキルの無い AI アプリには手順を渡す', () => {
@@ -76,7 +98,7 @@ test('絞り込み中と Claude 以外には一覧を貼る。静かな時間の
   assert.match(harness({ filtered: true }).out('today').q, /対象 23 件: 1\. タスク1（/);
   assert.match(harness({ provider: 'chatgpt' }).out('doing').q, /対象 23 件: 1\. タスク1（/);
   const m = harness({ quiet: true }).out('today');
-  assert.equal(m.key, 'morning'); assert.equal(m.label, 'Claude と静かな時間にまとめて片付ける'); assert.match(m.q, /まとめて片付けてください/); assert.match(m.q, /多くて 8 件・60 分/); assert.match(m.q, /着手中（kairos_list_tasks view=doing）/); assert.doesNotMatch(m.q, /1 件に絞る/);
+  assert.equal(m.key, 'morning'); assert.equal(m.label, 'Claude と静かな時間にまとめて片付ける'); assert.match(m.q, /Kairos「静かな時間」をまとめて片付けてください/); assert.match(m.q, /多くて 8 件・60 分/); assert.match(m.q, /着手中（view=doing）/); assert.match(m.q, /電話・家族への相談・音の出る作業はしない/); assert.doesNotMatch(m.q, /1 件に絞る/);
 });
 
 test('タップ計測: まとめてボタンを meta:<タブ> で数える', () => {
