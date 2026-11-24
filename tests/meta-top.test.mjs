@@ -53,7 +53,7 @@ test('今日やる＝実行するボタン。一覧は貼らずコネクタで�
 test('今日できる＝選んでから実行するボタン', () => {
   const b = harness().out('can');
   assert.equal(b.label, 'Claude と全量から選んで進める'); assert.equal(b.key, 'can');
-  assert.match(b.q, /今やるべきものを選んで実際に進める/); assert.match(b.q, /view=today/); assert.match(b.q, /view=mac/); assert.doesNotMatch(b.q, /多くて 5 件/); assert.match(b.q, /開始日 を今日に/); assert.match(b.q, /60 分/);
+  assert.match(b.q, /今やるべきものを選んで実際に進める/); assert.match(b.q, /view=today/); assert.match(b.q, /view=mac/); assert.doesNotMatch(b.q, /多くて 5 件/); assert.match(b.q, /開始日 を今日に/); assert.doesNotMatch(b.q, /60 分/); assert.match(b.q, /時間・件数では区切らず/);
 });
 
 test('着手中・委任＝まとめて片付ける (終わったものを閉じ、割れるものだけ聞く)', () => {
@@ -98,7 +98,7 @@ test('絞り込み中と Claude 以外には一覧を貼る。静かな時間の
   assert.match(harness({ filtered: true }).out('today').q, /対象 23 件: 1\. タスク1（/);
   assert.match(harness({ provider: 'chatgpt' }).out('doing').q, /対象 23 件: 1\. タスク1（/);
   const m = harness({ quiet: true }).out('today');
-  assert.equal(m.key, 'morning'); assert.equal(m.label, 'Claude と静かな時間にまとめて片付ける'); assert.match(m.q, /Kairos「静かな時間」をまとめて片付けてください/); assert.match(m.q, /多くて 8 件・60 分/); assert.match(m.q, /着手中（view=doing）/); assert.match(m.q, /電話・家族への相談・音の出る作業はしない/); assert.doesNotMatch(m.q, /1 件に絞る/);
+  assert.equal(m.key, 'morning'); assert.equal(m.label, 'Claude と静かな時間にまとめて片付ける'); assert.match(m.q, /Kairos「静かな時間」をまとめて片付けてください/); assert.doesNotMatch(m.q, /多くて 8 件|60 分/); assert.match(m.q, /時間・件数では区切らず/); assert.match(m.q, /着手中（view=doing）/); assert.match(m.q, /電話・家族への相談・音の出る作業はしない/); assert.doesNotMatch(m.q, /1 件に絞る/);
 });
 
 test('タップ計測: まとめてボタンを meta:<タブ> で数える', () => {
