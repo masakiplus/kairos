@@ -1224,7 +1224,7 @@ async function shopping(env) {
 }
 
 // WIP (着手中) の件数 (Personal Kanban の WIP 制限, 2026-10-06): ステータスが 進行中 か 人対応 の未完了。上限を超えたら Kairos が警告する
-const WIP_LIMIT = 10; // 2026-10-06 夜: 5 → 10 (利用者「同時に実行できるタスクの数は10個ぐらい」)
+const WIP_LIMIT = null; // 2026-11-27: 上限を持たない（利用者「着手中の上限は持たないことにしよう」）。件数と名前だけ返し、画面は警告を出さない
 // 子が同じく着手中なら親は数えない (同じ仕事が 2 件に数えられていた, 2026-11-05)。画面の foldParents と同じ規則
 function wipRows(rows) {
   const kidOf = new Set(rows.flatMap((t) => t.parentIds || []));
