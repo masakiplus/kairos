@@ -44,7 +44,7 @@
  */
 import { labRoute } from "./lab.js"; // D1 移行の実験 (2026-10-17)。/api/lab/* だけ
 import { tapsAdd, tapsReport } from "./taps.js";
-import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, launchAdd, launchRows, launchStamp, parseUsageRows, weeklyReport, weekStart } from "./launches.js";
+import { ENTRY_RULES, USAGE_LOG_TASK_ID, classifyEntry, launchEntry, cloudRepo, launchAdd, launchRows, launchStamp, metaFps, parseUsageRows, weeklyReport, weekStart } from "./launches.js";
 import { d1Notion, d1Task, storageRoute, d1Environment, revDB, cachedJson } from "./d1.js";
 import { knowledgeRoute } from "./knowledge.js"; // 知識文書 (PRJ・archive・ref) のパス解決・早送りの門 (2026-10-29)
 import { isMcpPath, mcpRoute } from "./mcp.js";
@@ -1731,6 +1731,14 @@ const kairosWorker = {
       if (path === "/api/roles" && req.method === "GET") return json(await cachedJson(env, "roles", () => rolesInfo(env)));
       if (path === "/api/where" && req.method === "GET") return json(await whereNow(env));
       // 📊 ボタンのタップ回数 (2026-10-20): シートのボタン配置を使用頻度で決めるための計測。日 × ボタン名 の回数だけを D1 に持つ (誰が・どのタスクかは持たない)
+      // まとめてボタンの指紋 (2026-11-27, launches.js の metaFps): GET で key ごとの直近の指紋、POST {key, fp} で押した記録を 1 行
+      if (path === "/api/meta/fp" && req.method === "GET") return json({ keys: await metaFps(env) });
+      if (path === "/api/meta/fp" && req.method === "POST") {
+        const b = await req.json().catch(() => ({}));
+        const key = String(b.key || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 20), fp = String(b.fp || "").replace(/[^0-9a-f]/g, "").slice(0, 16);
+        if (!key || !fp) return json({ ok: false, error: "key と fp が要る" }, 400);
+        return json(await launchAdd(env, { taskId: "meta:" + key, entry: "meta", rule: "fp:" + fp }));
+      }
       if (path === "/api/reqlog" && req.method === "GET") return json(await reqLogReport(env, Number(url.searchParams.get("days")) || 1, Number(url.searchParams.get("limit")) || 200));
       if (path === "/api/taps" && req.method === "POST") return json(await tapsAdd(env, await req.json().catch(() => ({}))));
       if (path === "/api/taps" && req.method === "GET") return json(await tapsReport(env, Number(url.searchParams.get("days")) || 30));
