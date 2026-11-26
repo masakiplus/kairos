@@ -287,6 +287,14 @@ function requestState(env) {
  entry.promise.then(()=>{entry.pending=false;entry.at=Date.now();},()=>snapshots.delete(env.DB));return entry.promise;
 }
 function invalidate(env){env.__d1State=null;snapshots.delete(env.DB);}
+// 2026-11-27: 同時の要求で読取スナップショットを共有するが、作った要求が先に終わる（中断される）と共有の promise は二度と決着せず、
+// 以後の要求がすべて「This promise was created by a request that has since ended」で 502 になる（デプロイ直後のリロードで再現）。
+// その印を受けたら共有を捨て、この要求で読み直す
+const ORPHANED=/request that has since ended|can never settle/i;
+async function sharedState(env){
+ try{return await (env.__d1State ||= requestState(env));}
+ catch(e){if(!ORPHANED.test(String(e&&e.message||e)))throw e;invalidate(env);return await (env.__d1State=requestState(env));}
+}
 
 // 2026-10-21 タブ切り替えが遅い件の修正: 一覧系 GET の応答を D1 の storage_control に置き、isolate をまたいで使い回す。
 // キーは「全書き込みで進む rev カウンタ + JST の日付」(fingerprint と同じ)。書き込みがあれば自然に外れる。
@@ -465,7 +473,7 @@ async function createChildPage(env,args){
 export async function d1Notion(env,path,init={}) {
  const url=new URL('https://d1.local'+path),method=init.method || 'GET';
  const args=init.body?JSON.parse(init.body):Object.fromEntries(url.searchParams);
- let state=null; if(!/^\/(blocks\/|search$)/.test(url.pathname)){const xds=await extraTargetEarly(env,url.pathname,args,method);state=xds?await loadState(env,xds):await (env.__d1State ||= requestState(env));}
+ let state=null; if(!/^\/(blocks\/|search$)/.test(url.pathname)){const xds=await extraTargetEarly(env,url.pathname,args,method);state=xds?await loadState(env,xds):await sharedState(env);}
  if(state)state=await withRelationTargets(env,state,url.pathname,args,method);
  if(env.D1_READ_ONLY&&((method==='PATCH')||(method==='POST'&&url.pathname==='/pages')))throw new Error('D1 preview is read only');
  let m; if(method==='POST'&&url.pathname==='/search'){const q=String(args.query || '').toLowerCase(),dir=args.sort?.direction==='ascending'?'ASC':'DESC';const rows=await env.DB.prepare("SELECT payload FROM entities WHERE COALESCE(json_extract(payload,'$.archived'),0)=0 AND COALESCE(json_extract(payload,'$.in_trash'),0)=0 ORDER BY json_extract(payload,'$.last_edited_time') "+dir+" LIMIT "+(q?5000:1500)).all();const titleOf=p=>Object.values(p.properties || {}).find(v=>v.type==='title')?.title?.map(x=>x.plain_text ?? x.text?.content ?? '').join('') || '';return paged((rows.results || []).map(r=>JSON.parse(r.payload)).filter(p=>!q||titleOf(p).toLowerCase().includes(q)),args);} if((m=url.pathname.match(/^\/data_sources\/([^/]+)(\/query)?$/))) {
