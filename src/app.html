@@ -1363,7 +1363,7 @@
     return `${age ? `<span class="agec${age >= 14 ? " hot" : ""}">開始から ${age} 日</span>` : ""}${looksWaiting(t) ? `<span class="wtc" title="返事・到着を待つだけなら シートの 🚦 状態 で 待ち にすると着手中から外れる">⏸ 待ちにできそう</span>` : ""}${p ? `<span class="parc" title="${esc(p.name)}">親: ${esc(p.name.length > 18 ? p.name.slice(0, 17) + "…" : p.name)}</span>` : ""}${dup ? `<span class="dupc" title="${esc(dup.name)}">重複? ${esc(dup.name.length > 14 ? dup.name.slice(0, 13) + "…" : dup.name)}</span>` : ""}`;
   }
   // 上部の内訳メーター (2026-11-05)。上限を超えたら赤、待ちにできそうな件数も添える
-  let wipLimit = 10;
+  let wipLimit = 0; // 2026-11-27: 上限なし（Worker が limit: null を返す）。0 のときは件数だけ出す
   // 横長 (Fold 展開・PC) の判定 (2026-11-05)。CSS の @media (min-width:900px) と揃える。画面ごとの並びは body[data-view] で CSS が切り替える
   const WIDE = matchMedia("(min-width:900px)");
   let pjSel = null; // PJ別 (横長): 右に中身を出している PJ の見出し
@@ -1392,8 +1392,8 @@
     return `<div class="grid3">${head}${body}</div>${chip}`;
   }
   function wipMeterHtml(w) {
-    const pct = Math.min(100, Math.round(w.count / wipLimit * 100)), over = w.count > wipLimit;
-    return `<div class="wipm${over ? " over" : ""}"><div class="wipt"><b>${w.count} / ${wipLimit}</b> <span>🤖 ${w.ai} · 🧔 ${w.hu} · ▶ ${w.doing}${w.mit ? ` · ⭐ ${w.mit}` : ""}</span>${w.waitish ? `<small>⏸ 待ちにできそう ${w.waitish}</small>` : ""}</div><div class="wipb"><i style="width:${pct}%"></i></div></div>`;
+    const pct = wipLimit ? Math.min(100, Math.round(w.count / wipLimit * 100)) : 0, over = !!wipLimit && w.count > wipLimit;
+    return `<div class="wipm${over ? " over" : ""}"><div class="wipt"><b>${wipLimit ? `${w.count} / ${wipLimit}` : `${w.count} 件`}</b> <span>🤖 ${w.ai} · 🧔 ${w.hu} · ▶ ${w.doing}${w.mit ? ` · ⭐ ${w.mit}` : ""}</span>${w.waitish ? `<small>⏸ 待ちにできそう ${w.waitish}</small>` : ""}</div>${wipLimit ? `<div class="wipb"><i style="width:${pct}%"></i></div>` : ""}</div>`;
   }
   function rowHtml(t, today) {
     return `<div class="row${t.blocked ? " blocked" : ""}${t.done ? " dn" : ""}${t.mit && !t.done ? " mit" : ""}${t.aiActive ? (t.aiMode === "更新" ? " ai upd" : " ai run") : t.status === "人対応" ? " hu" : ""}" data-id="${t.id}">
@@ -1704,7 +1704,7 @@
       : `Kairos「${tab}」をまとめて片付けてください。\n\n${list}\nこのタブの範囲: ${scope}\n${sit}\n\n進め方\n${metaSteps(META_PHASES())}`;
     if (mr.length) {
       return metaBtn("morning", ai + " と静かな時間にまとめて片付ける", "AI で終わるものは完了まで、相談が要るものは準備まで",
-        ask("静かな時間", `候補（早朝向き）: ${taskLines(mr)}`, `静かな時間（深夜・早朝。家にいて家族は起きていない・音は出せない・時間はかけられる）。最初に着手中${skill ? "（view=doing）" : ""}を見て、実は終わっているもの・AI だけで閉じられるものを先に閉じ、10 件を超えていればここで減らしてから候補に移る。第2段は時間・件数では区切らず最後まで進める（大きいものはサブタスクに分け、AI だけで進む子は続けて進める。10 件ごとに 1 行で経過を出して続ける）。第3段では電話・家族への相談・音の出る作業はしない: 下調べと選択肢づくりまで進めて問いを本文に書き 人対応 にし、判断は最後にまとめて聞く。`));
+        ask("静かな時間", `候補（早朝向き）: ${taskLines(mr)}`, `静かな時間（深夜・早朝。家にいて家族は起きていない・音は出せない・時間はかけられる）。最初に着手中${skill ? "（view=doing）" : ""}を見て、実は終わっているもの・AI だけで閉じられるものを先に閉じてから候補に移る。第2段は時間・件数では区切らず最後まで進める（大きいものはサブタスクに分け、AI だけで進む子は続けて進める。10 件ごとに 1 行で経過を出して続ける）。第3段では電話・家族への相談・音の出る作業はしない: 下調べと選択肢づくりまで進めて問いを本文に書き 人対応 にし、判断は最後にまとめて聞く。`));
     }
     if (v === "today") {
       if (!ts.length) return "";
@@ -1728,7 +1728,7 @@
       const macBtn = mw.length ? metaBtn("mac", `Mac待ち ${mw.length} 件を Mac のつながる ${ai} で進める`, "デスクトップアプリから開く。届けば AI が完了まで",
         ask("Mac待ち", skill && !filterOn(filt) ? `対象: kairos_list_tasks の view=mac（いま ${mw.length} 件）。最初に自分で読んでください。` : `対象 ${mw.length} 件: ${taskLines(mw)}`, "AI の手番のまま、Mac・ブラウザに届かず止まったもの。最初に Mac とブラウザに届くか確かめ、届かなければ何もせず理由を 1 行で伝えて終える。それでも届かなかったものは Mac待ち のまま、届かなかった先を note に 1 行残す。")) : "";
       return macBtn + metaBtn("doing", ai + " とまとめて片付ける", "終わっているものを閉じ、残りは AI が代行して要所だけ聞く",
-        ask("着手中", metaList("doing", ts), "進行中・人対応。同時に進めるのは 10 件までが目安。各件の本文と AIセッション の結末を読み、実は終わっているものは第1段で片付けに分けて閉じる。「続ける／未着手に戻す／待ちにする（相手）」が割れるものだけ聞く。"));
+        ask("着手中", metaList("doing", ts), "進行中・人対応（件数の上限は持たない）。各件の本文と AIセッション の結末を読み、実は終わっているものは第1段で片付けに分けて閉じる。「続ける／未着手に戻す／待ちにする（相手）」が割れるものだけ聞く。"));
     }
     if (v === "project") {
       const ps = (projInfo || []).filter((p) => !p.closable);
@@ -2579,8 +2579,8 @@ ${numbered([...REVIEW_POLICY, goal])}`);
       const w = j.wip; const we = $("#wip");
       // WIP をいつも見せる (2026-11-05 ワイド対応のデザイン): 見出しの小さなゲージ。上限超えの1行警告は従来どおり
       const wc = $("#wipChip");
-      if (w && w.limit) { wc.hidden = false; $("#wipN").textContent = `${w.count}/${w.limit}`; $("#wipBar").style.width = Math.min(100, Math.round(w.count / w.limit * 100)) + "%"; wc.classList.toggle("over", w.count > w.limit); wc.onclick = () => load("doing"); }
-      if (w && w.count > w.limit && v !== "doing") { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
+      if (w) { wc.hidden = false; $("#wipN").textContent = w.limit ? `${w.count}/${w.limit}` : `${w.count}`; $("#wipBar").parentElement.style.display = w.limit ? "" : "none"; $("#wipBar").style.width = w.limit ? Math.min(100, Math.round(w.count / w.limit * 100)) + "%" : "0"; wc.classList.toggle("over", !!w.limit && w.count > w.limit); wc.onclick = () => load("doing"); }
+      if (w && w.limit && w.count > w.limit && v !== "doing") { we.hidden = false; we.textContent = `⚠ 着手中 ${w.count} 件（上限 ${w.limit}）— タップで一覧`; we.title = (w.names || []).join("\n"); we.onclick = () => load("doing"); }
       else we.hidden = true;
     } catch (e) {
       setBusy(false); $("#stale").hidden = false; $("#stale").textContent = "オフライン／取得失敗（表示は前回のもの）";
