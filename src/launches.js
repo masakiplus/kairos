@@ -152,6 +152,21 @@ export function weeklyReport(launches, usage, weeks, now = Date.now()) {
 export async function launchRows(env, sinceMs) {
   if (!env.DB) return [];
   await init(env);
-  const r = await env.DB.prepare("SELECT ts, day, task_id, entry, repo, mode, resume, device, rule, session_at FROM launch_log WHERE ts>=? ORDER BY ts").bind(new Date(sinceMs).toISOString()).all();
+  const r = await env.DB.prepare("SELECT ts, day, task_id, entry, repo, mode, resume, device, rule, session_at FROM launch_log WHERE ts>=? AND entry!='meta' ORDER BY ts").bind(new Date(sinceMs).toISOString()).all();
   return r.results || [];
+}
+
+// まとめてボタンの指紋 (2026-11-27): タブ先頭のまとめてボタンを押したとき、その一覧の指紋を launch_log に entry=meta で 1 行残す。
+// 画面は直近の指紋と今の一覧を比べ、同じなら「前回から変化なし」を出して押す前に確かめる（同じ候補で空振り・重ね開きしたセッションが週約11件あったため）。
+// 入口の集計 (launchRows・weeklyReport) には混ぜない
+export async function metaFps(env, now = Date.now()) {
+  if (!env.DB) return {};
+  await init(env);
+  const r = await env.DB.prepare("SELECT task_id, rule, ts FROM launch_log WHERE entry='meta' AND ts>=? ORDER BY ts DESC LIMIT 300").bind(new Date(now - 14 * 86400000).toISOString()).all();
+  const out = {};
+  for (const x of r.results || []) {
+    const k = String(x.task_id).replace(/^meta:/, "");
+    if (!out[k] && x.rule) out[k] = { fp: String(x.rule).replace(/^fp:/, ""), ts: x.ts };
+  }
+  return out;
 }

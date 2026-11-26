@@ -94,6 +94,7 @@
   .wipm .wipt{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:13px}
   .wipm .wipt span{color:var(--mute)}.wipm .wipt small{color:var(--wait);font-size:12px}
   .wipm .wipb{height:5px;margin-top:6px;border-radius:3px;background:var(--line);overflow:hidden}
+  .meta .mfsame{display:block;color:var(--wait);margin-top:2px}
   .wipm .wipb i{display:block;height:100%;background:var(--acc)}
   .wipm.over b{color:var(--over)}
   /* マス目 (2026-11-05 試作) */
@@ -1053,6 +1054,17 @@
   setInterval(tapFlush, 10000);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") tapFlush(); });
   const apiFetch = (path, opt = {}) => fetch(path, { ...opt, headers: { ...(opt.headers || {}), ...(window.KAIROS_PREVIEW ? { "X-Kairos-Preview": "d1" } : {}) } });
+  // まとめてボタンの指紋 (2026-11-27): 直近の指紋を読み込み時に 1 回取る。押したら記録し、変化が無ければ押す前に確かめる。失敗しても操作は止めない
+  let metaPrev = {};
+  apiFetch("/api/meta/fp").then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.keys) { metaPrev = j.keys; try { lastSig = ""; render(todayStr); } catch (err) {} } }).catch(() => {});
+  document.addEventListener("click", (e) => {
+    const a = e.target && e.target.closest ? e.target.closest("a[data-meta][data-fp]") : null;
+    if (!a) return;
+    if (a.dataset.same && !confirm("前回押したときから候補が変わっていません。それでも開きますか？")) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    const key = a.dataset.meta, fp = a.dataset.fp;
+    metaPrev[key] = { fp, ts: new Date().toISOString() };
+    try { apiFetch("/api/meta/fp", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, fp }) }).catch(() => {}); } catch (err) {}
+  }, true);
   const api = async (path, opt = {}) => {
     const r = await apiFetch(path, { ...opt, headers: { "Content-Type": "application/json", ...(opt.headers || {}) } });
     const backend = r.headers.get("X-Kairos-Storage");
@@ -1689,7 +1701,19 @@
     if (aiProvider === "claude" && !filterOn(filt)) return `対象: Kairos コネクタの kairos_list_tasks（view=${v}）で読める一覧（いま ${ts.length} 件）。ここには貼っていないので、最初に自分で読んでください。`;
     return `対象 ${ts.length} 件: ${taskLines(ts)}`;
   }
-  function metaBtn(key, label, sub, q) { return `<div class="meta top"><a href="${claudeLink(q)}" data-ext data-meta="${key}">${aiIcon()} ${label}</a><small>${sub}</small></div>`; }
+  // まとめてボタンの指紋 (2026-11-27): 一覧（未完了の id・ステータス・開始日・期日・AIセッション・子の数）の指紋。前回押したときと同じなら知らせて、押す前に確かめる
+  function metaFp() {
+    if (typeof tasks === "undefined" || !Array.isArray(tasks)) return "";
+    const src = tasks.filter((t) => !t.done).map((t) => [t.id, t.status || "", t.start || "", t.due || "", t.aiSession || "", (t.childIds || []).length].join("|")).sort().join("\n");
+    let h = 0x811c9dc5;
+    for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, "0");
+  }
+  function metaBtn(key, label, sub, q) {
+    const fp = metaFp(), prev = typeof metaPrev === "undefined" ? {} : metaPrev, p = fp && prev[key], same = !!(p && p.fp === fp); // テストは metaHtml だけを切り出して動かすので、無くても動くように
+    const at = same ? new Date(p.ts).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+    return `<div class="meta top"><a href="${claudeLink(q)}" data-ext data-fp="${fp}"${same ? ' data-same="1"' : ""} data-meta="${key}">${aiIcon()} ${label}</a><small>${sub}</small>${same ? `<small class="mfsame">前回（${at}）押したときから候補は変わっていません</small>` : ""}</div>`;
+  }
   function metaSteps(a) { return a.map((x, i) => `${i + 1}. ${x}`).join("\n"); } // numbered は後ろで定義される const なので、最初の描画から使えるよう関数宣言で持つ
   function metaHtml(v) {
     const ts = tasks.filter((t) => !t.done);
