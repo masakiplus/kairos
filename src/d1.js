@@ -119,6 +119,31 @@ export async function ensureShopping(env){
  if(stmts.length)await env.DB.batch(stmts);
  return stmts.length;
 }
+// 🖥 Mac ジョブ (2026-11-28): Duet などクラウドのセッションが Mac で登録済みスクリプトを動かしてもらう受け口。
+// 追加コレクション mac_jobs。行を書くのは MCP の kairos_create、拾って実行し結果を書き戻すのは Mac の saito-tools/mac_jobs/runner.py。
+// 何を動かせるかは Mac 側の登録表 (registry.json) だけが決める。ここは依頼と結果を置く表で、実行の可否は持たない。
+// sale_windows と同じく「無いときだけ」作る冪等な移行。ID は Kairos で作ったので固定値
+export const MAC_JOBS_CONST={DS:'3ac70b50000040b18000000000000001'}; // 文字列を直に export しない (上の SHOP_CONST と同じ理由)
+const MAC_JOBS_DS=MAC_JOBS_CONST.DS;
+const MAC_JOB_STATES=[['待ち','yellow'],['承認待ち','orange'],['実行中','blue'],['完了','green'],['失敗','red'],['拒否','gray'],['期限切れ','gray']];
+export const macJobsSchema = {object:'data_source',id:hy(MAC_JOBS_DS),title:[{type:'text',text:{content:'Mac ジョブ'},plain_text:'Mac ジョブ'}],properties:{
+ '名前':{id:'title',name:'名前',type:'title',title:{}},
+ '引数':{id:'args',name:'引数',type:'rich_text',rich_text:{}},
+ '状態':{id:'state',name:'状態',type:'select',select:{options:MAC_JOB_STATES.map(([n,c],i)=>({id:'mj-'+i,name:n,color:c,description:null}))}},
+ '依頼元':{id:'from',name:'依頼元',type:'rich_text',rich_text:{}},
+ '終了コード':{id:'rc',name:'終了コード',type:'number',number:{format:'number'}},
+ '開始':{id:'started',name:'開始',type:'date',date:{}},
+ '終了':{id:'ended',name:'終了',type:'date',date:{}},
+ '結果':{id:'result',name:'結果',type:'rich_text',rich_text:{}},
+ '成果物':{id:'out',name:'成果物',type:'url',url:{}},
+ '作成':{id:'created',name:'作成',type:'created_time',created_time:{}},
+}};
+export async function ensureMacJobs(env){
+ const r=await env.DB.prepare('SELECT 1 n FROM entity_schemas WHERE id=?').bind(MAC_JOBS_DS).first();
+ if(r)return 0;
+ await env.DB.prepare('INSERT OR IGNORE INTO entity_schemas VALUES(?,?,?)').bind(MAC_JOBS_DS,'mac_jobs',JSON.stringify(macJobsSchema)).run();
+ return 1;
+}
 const optionsDone=new WeakSet();
 // 切り替え後は /api/storage/init を呼べないので、無いときだけ作る (作る文は rev を進めるので、毎回は流さない)
 export async function ensureBodyEdits(env){
@@ -130,7 +155,7 @@ const sourceIds = new WeakMap();
 export async function d1Environment(env) {
  let cached=sourceIds.get(env.DB);
  if(!cached || Date.now()-cached.at>5000) {cached={at:Date.now(),promise:env.DB.batch([env.DB.prepare('SELECT id,collection FROM entity_schemas'),env.DB.prepare("SELECT value FROM storage_control WHERE key='presence_page_id'")])};sourceIds.set(env.DB,cached);}
- if(!env.D1_READ_ONLY&&!optionsDone.has(env.DB)){optionsDone.add(env.DB);try{await ensureSchemaOptions(env);await ensureBodyEdits(env);await ensureShopping(env);}catch(e){optionsDone.delete(env.DB);console.error('ensureSchemaOptions failed',String(e?.message ?? e));}}
+ if(!env.D1_READ_ONLY&&!optionsDone.has(env.DB)){optionsDone.add(env.DB);try{await ensureSchemaOptions(env);await ensureBodyEdits(env);await ensureShopping(env);await ensureMacJobs(env);}catch(e){optionsDone.delete(env.DB);console.error('ensureSchemaOptions failed',String(e?.message ?? e));}}
  const [sources,presence]=await cached.promise,copy={...env};
  for(const row of sources.results || [])if(collectionVars[row.collection])copy[collectionVars[row.collection]]=row.id;
  if(presence.results?.[0])copy.PRESENCE_PAGE_ID=presence.results[0].value;
